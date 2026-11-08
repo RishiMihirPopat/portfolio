@@ -191,7 +191,7 @@ export function AsciiBeachCanvas() {
     let panelRect = { left: -9999, top: -9999, right: -9999, bottom: -9999, valid: false };
     let headingRect = { left: -9999, top: -9999, right: -9999, bottom: -9999, valid: false };
     let headerRect = { left: -9999, top: -9999, right: -9999, bottom: -9999, valid: false };
-    let footerRect = { left: -9999, top: -9999, right: -9999, bottom: -9999, valid: false };
+    let footerRects: { left: number; top: number; right: number; bottom: number }[] = [];
 
     const measurePanel = () => {
       const el = document.querySelector('[data-ascii-panel="true"]');
@@ -227,16 +227,20 @@ export function AsciiBeachCanvas() {
         headerRect.valid = false;
       }
 
-      const ftr = document.querySelector('[data-ascii-footer="true"]');
-      if (ftr) {
+      const ftrs = document.querySelectorAll('[data-ascii-footer="true"]');
+      const nextFooters: { left: number; top: number; right: number; bottom: number }[] = [];
+      ftrs.forEach((ftr) => {
         const fr = ftr.getBoundingClientRect();
-        footerRect =
-          fr.width > 10 && fr.height > 5
-            ? { left: fr.left, top: fr.top, right: fr.right, bottom: fr.bottom, valid: true }
-            : { left: -9999, top: -9999, right: -9999, bottom: -9999, valid: false };
-      } else {
-        footerRect.valid = false;
-      }
+        if (fr.width > 5 && fr.height > 4) {
+          nextFooters.push({
+            left: fr.left,
+            top: fr.top,
+            right: fr.right,
+            bottom: fr.bottom,
+          });
+        }
+      });
+      footerRects = nextFooters;
     };
 
     const setupGrid = (force = false) => {
@@ -464,9 +468,9 @@ export function AsciiBeachCanvas() {
 
       ctx.font = resolvedFontStr;
 
-      const falloffRadius = isPhone ? 90 : 145;
-      const headerFalloff = 60;
-      const footerFalloff = 55;
+      const falloffRadius = isPhone ? 55 : 80;
+      const headerFalloff = 28;
+      const footerFalloff = 14;
       const tInt4 = Math.floor(t * 4);
       const tInt2 = Math.floor(t * 2);
 
@@ -488,17 +492,18 @@ export function AsciiBeachCanvas() {
           py >= headerRect.top - headerFalloff &&
           py <= headerRect.bottom + headerFalloff;
         const checkFooter =
-          footerRect.valid &&
-          py >= footerRect.top - footerFalloff &&
-          py <= footerRect.bottom + footerFalloff;
+          footerRects.length > 0 &&
+          footerRects.some(
+            (fr) => py >= fr.top - footerFalloff && py <= fr.bottom + footerFalloff
+          );
         const checkHeading =
           headingRect.valid &&
-          py >= headingRect.top - 36 &&
-          py <= headingRect.bottom + 36;
+          py >= headingRect.top - 28 &&
+          py <= headingRect.bottom + 28;
         const checkPanel =
           panelRect.valid &&
-          py >= panelRect.top - falloffRadius - 24 &&
-          py <= panelRect.bottom + falloffRadius + 24;
+          py >= panelRect.top - falloffRadius - 18 &&
+          py <= panelRect.bottom + falloffRadius + 18;
 
         for (let c = 0; c < cols; c++) {
           const px = (c + 0.5) * cellW;
@@ -508,16 +513,16 @@ export function AsciiBeachCanvas() {
           let wakeRipple = 0.0;
           let wakeFoam = 0.0;
 
-          // Header band: thin out and soften characters with a ~60px falloff
+          // Header band: thin out and soften characters with a tight falloff
           if (checkHeader) {
             const hd = sdRoundedBox(
               px,
               py,
-              headerRect.left - 8,
-              headerRect.top - 4,
-              headerRect.right + 8,
-              headerRect.bottom + 4,
-              8
+              headerRect.left - 4,
+              headerRect.top - 2,
+              headerRect.right + 4,
+              headerRect.bottom + 2,
+              6
             );
             if (hd < headerFalloff) {
               const hFactor = hd <= 0 ? 0.0 : smoothstep(0, headerFalloff, hd);
@@ -525,20 +530,23 @@ export function AsciiBeachCanvas() {
             }
           }
 
-          // Footer band: thin out and soften characters behind footer links
+          // Footer pills: tight minimal padding around email/github (and phone prev/next)
           if (checkFooter) {
-            const fd = sdRoundedBox(
-              px,
-              py,
-              footerRect.left - 8,
-              footerRect.top - 4,
-              footerRect.right + 8,
-              footerRect.bottom + 4,
-              8
-            );
-            if (fd < footerFalloff) {
-              const fFactor = fd <= 0 ? 0.0 : smoothstep(0, footerFalloff, fd);
-              panelAtten = Math.min(panelAtten, fFactor);
+            for (let fi = 0; fi < footerRects.length; fi++) {
+              const fr = footerRects[fi];
+              const fd = sdRoundedBox(
+                px,
+                py,
+                fr.left - 2,
+                fr.top - 1,
+                fr.right + 2,
+                fr.bottom + 1,
+                4
+              );
+              if (fd < footerFalloff) {
+                const fFactor = fd <= 0 ? 0.0 : smoothstep(0, footerFalloff, fd);
+                panelAtten = Math.min(panelAtten, fFactor);
+              }
             }
           }
 
@@ -880,8 +888,8 @@ export function AsciiBeachCanvas() {
       if (hdg) resizeObserver.observe(hdg);
       const hdr = document.querySelector('[data-ascii-header="true"]');
       if (hdr) resizeObserver.observe(hdr);
-      const ftr = document.querySelector('[data-ascii-footer="true"]');
-      if (ftr) resizeObserver.observe(ftr);
+      const ftrs = document.querySelectorAll('[data-ascii-footer="true"]');
+      ftrs.forEach((ftr) => resizeObserver.observe(ftr));
       measurePanel();
     };
     observeCurrentPanel();

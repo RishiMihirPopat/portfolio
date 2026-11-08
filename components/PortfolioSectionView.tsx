@@ -127,7 +127,7 @@ export function PortfolioSectionView({ section }: { section: BeachSectionId }) {
   }
 
   return (
-    <article className="w-full max-w-[560px]">
+    <article className="w-full min-[760px]:w-1/2 min-[760px]:max-w-[50%]">
       {/* On mobile (<760px): keep a ~22vh scene strip at the top with the heading overlaid */}
       <div className="max-[759px]:min-h-[17vh] max-[759px]:flex max-[759px]:flex-col max-[759px]:justify-end pb-3 sm:pb-4">
         <div data-ascii-heading="true" className="w-fit">
@@ -266,12 +266,12 @@ export function PortfolioSectionView({ section }: { section: BeachSectionId }) {
           </div>
         )}
 
-        {/* RESUME (Combined Work, Education, and Skills) */}
+        {/* RESUME (Combined Work, Education, and Skills — compact across 50% width) */}
         {resolvedSection === 'resume' && (
-          <div className="space-y-6 border-t border-line pt-3">
+          <div className="space-y-4 border-t border-line pt-3">
             {/* Top summary & PDF download */}
             <div className="flex flex-wrap items-baseline justify-between gap-4">
-              <p className="font-sans text-sm text-ink-muted">
+              <p className="font-sans text-xs sm:text-sm text-ink-muted">
                 Work, education, and methods.
               </p>
               <a
@@ -279,40 +279,36 @@ export function PortfolioSectionView({ section }: { section: BeachSectionId }) {
                 target="_blank"
                 rel="noopener noreferrer"
                 download
-                className="font-mono text-xs text-ink underline underline-offset-4 hover:opacity-80 min-h-[44px] inline-flex items-center shrink-0"
+                className="font-mono text-xs text-ink underline underline-offset-4 hover:opacity-80 max-[759px]:min-h-[44px] inline-flex items-center shrink-0"
               >
                 Download PDF ↓
               </a>
             </div>
 
             {/* WORK */}
-            <section aria-labelledby="resume-work-heading" className="space-y-2 border-t border-line pt-4">
+            <section
+              aria-labelledby="resume-work-heading"
+              className="space-y-1.5 border-t border-line pt-3"
+            >
               <h2 id="resume-work-heading" className="font-mono text-xs text-ink-muted">
                 Work
               </h2>
               <div className="divide-y divide-line">
                 {experiences.map((exp, i) => (
-                  <div key={i} className="py-3.5 first:pt-1.5 space-y-1.5">
+                  <div key={i} className="py-2.5 first:pt-1 space-y-1">
                     <div className="flex flex-col sm:flex-row sm:items-baseline justify-between gap-1">
-                      <h3 className="font-mono text-sm sm:text-base font-normal text-ink">
+                      <h3 className="font-mono text-xs sm:text-sm font-normal text-ink">
                         {exp.role} <span className="text-ink-muted">· {exp.company}</span>
                       </h3>
-                      <span className="font-mono text-xs text-ink-muted shrink-0">
+                      <span className="font-mono text-[11px] sm:text-xs text-ink-muted shrink-0">
                         {exp.duration}
                       </span>
                     </div>
-                    <p className="font-sans text-sm text-ink/90 leading-relaxed">
+                    <p className="font-sans text-xs sm:text-sm text-ink/90 leading-relaxed">
                       {exp.summary}
                     </p>
-                    <ul className="space-y-1 font-sans text-sm text-ink-muted list-disc pl-4">
-                      {exp.highlights.map((h, j) => (
-                        <li key={j} className="leading-relaxed">
-                          {h}
-                        </li>
-                      ))}
-                    </ul>
                     {exp.stack && exp.stack.length > 0 && (
-                      <p className="font-mono text-xs text-ink-muted leading-relaxed pt-0.5">
+                      <p className="font-mono text-[11px] text-ink-muted leading-relaxed">
                         {exp.stack.join(' · ')}
                       </p>
                     )}
@@ -321,56 +317,58 @@ export function PortfolioSectionView({ section }: { section: BeachSectionId }) {
               </div>
             </section>
 
-            {/* EDUCATION */}
-            <section aria-labelledby="resume-education-heading" className="space-y-2 border-t border-line pt-4">
-              <h2 id="resume-education-heading" className="font-mono text-xs text-ink-muted">
-                Education
-              </h2>
-              <div className="divide-y divide-line">
-                {education.map((edu, i) => (
-                  <div key={i} className="py-3.5 first:pt-1.5 space-y-1.5">
-                    <div className="flex flex-col sm:flex-row sm:items-baseline justify-between gap-1">
-                      <h3 className="font-mono text-sm sm:text-base font-normal text-ink">
-                        {edu.degree}
-                      </h3>
-                      <span className="font-mono text-xs text-ink-muted shrink-0">
-                        {edu.duration}
-                      </span>
+            {/* EDUCATION & SKILLS SIDE-BY-SIDE ON DESKTOP */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 border-t border-line pt-3">
+              {/* EDUCATION */}
+              <section aria-labelledby="resume-education-heading" className="space-y-1.5">
+                <h2
+                  id="resume-education-heading"
+                  className="font-mono text-xs text-ink-muted"
+                >
+                  Education
+                </h2>
+                <div className="divide-y divide-line">
+                  {education.map((edu, i) => (
+                    <div key={i} className="py-2.5 first:pt-1 space-y-1">
+                      <div className="flex flex-col sm:flex-row sm:items-baseline justify-between gap-1">
+                        <h3 className="font-mono text-xs sm:text-sm font-normal text-ink">
+                          {edu.degree}
+                        </h3>
+                        <span className="font-mono text-[11px] text-ink-muted shrink-0">
+                          {edu.duration}
+                        </span>
+                      </div>
+                      <p className="font-sans text-xs sm:text-sm text-ink/90">
+                        {edu.school}
+                      </p>
+                      <p className="font-mono text-[11px] text-ink-muted leading-relaxed">
+                        {edu.specialization}
+                      </p>
                     </div>
-                    <p className="font-sans text-sm text-ink/90">
-                      {edu.school}, {edu.location}
-                    </p>
-                    <p className="font-mono text-xs text-ink-muted leading-relaxed">
-                      {edu.specialization}
-                    </p>
-                    <ul className="space-y-1 font-sans text-sm text-ink-muted list-disc pl-4">
-                      {edu.highlights.map((h, j) => (
-                        <li key={j} className="leading-relaxed">
-                          {h}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                ))}
-              </div>
-            </section>
+                  ))}
+                </div>
+              </section>
 
-            {/* SKILLS */}
-            <section aria-labelledby="resume-skills-heading" className="space-y-2 border-t border-line pt-4">
-              <h2 id="resume-skills-heading" className="font-mono text-xs text-ink-muted">
-                Skills
-              </h2>
-              <div className="divide-y divide-line">
-                {groupedSkills.map(([category, items]) => (
-                  <div key={category} className="py-3 first:pt-1.5 space-y-1">
-                    <h3 className="font-mono text-xs text-ink-muted">{category}</h3>
-                    <p className="font-mono text-sm text-ink leading-relaxed">
-                      {items.join(' · ')}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            </section>
+              {/* SKILLS */}
+              <section
+                aria-labelledby="resume-skills-heading"
+                className="space-y-1.5 max-lg:border-t max-lg:border-line max-lg:pt-3"
+              >
+                <h2 id="resume-skills-heading" className="font-mono text-xs text-ink-muted">
+                  Skills
+                </h2>
+                <div className="divide-y divide-line">
+                  {groupedSkills.map(([category, items]) => (
+                    <div key={category} className="py-2 first:pt-1 space-y-0.5">
+                      <h3 className="font-mono text-[11px] text-ink-muted">{category}</h3>
+                      <p className="font-mono text-xs text-ink leading-relaxed">
+                        {items.join(' · ')}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            </div>
           </div>
         )}
       </div>

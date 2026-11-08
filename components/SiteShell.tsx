@@ -387,15 +387,15 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
         {children}
       </main>
 
-      {/* Quiet Footer: email & github left, previous & next page links right */}
-      <footer
-        data-ascii-footer="true"
-        className="flex flex-wrap items-center justify-between gap-x-6 gap-y-1 font-mono text-xs text-ink-nav w-full relative z-20"
-      >
-        <div className="flex items-center gap-5">
+      {/* Quiet Footer: email & github left; previous & next page links on phone only */}
+      <footer className="flex flex-wrap items-center justify-between gap-x-6 gap-y-1 font-mono text-xs text-ink-nav w-full relative z-20">
+        <div
+          data-ascii-footer="true"
+          className="flex items-center gap-5 w-fit py-0.5"
+        >
           <a
             href={`mailto:${profileData.email}`}
-            className="quiet-link min-h-[44px] inline-flex items-center"
+            className="quiet-link max-[759px]:min-h-[44px] inline-flex items-center"
           >
             email
           </a>
@@ -403,13 +403,19 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
             href={profileData.github}
             target="_blank"
             rel="noopener noreferrer"
-            className="quiet-link min-h-[44px] inline-flex items-center"
+            className="quiet-link max-[759px]:min-h-[44px] inline-flex items-center"
           >
             github
           </a>
         </div>
 
-        <nav aria-label="Page sequence" className="flex items-center gap-5 ml-auto">
+        <nav
+          data-ascii-footer="true"
+          aria-label="Page sequence"
+          className={`${
+            isCompactNav ? 'flex' : 'flex min-[760px]:hidden'
+          } items-center gap-5 ml-auto w-fit py-0.5`}
+        >
           <Link
             href={prevPage.href}
             aria-label={`Previous page: ${prevPage.label}`}
