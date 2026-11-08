@@ -1,9 +1,17 @@
+// ============================================================================
+// PORTFOLIO DATA & SEED CONTENT
+// Edit the blocks below to update your profile, projects, skills, and history.
+// ============================================================================
+
 export interface Repo {
   id: number;
   name: string;
+  title?: string;
   description: string;
+  details?: string;
   html_url: string;
   language: string;
+  tags?: string[];
   updated_at: string;
   stargazers_count?: number;
   forks_count?: number;
@@ -25,209 +33,272 @@ export interface Post {
   imageUrl?: string;
 }
 
-export const mockRepos: Repo[] = [
-  {
-    id: 1,
-    name: 'autonomous-drone-nav',
-    description: 'Deep learning based autonomous navigation system for quadcopters using PyTorch and ROS.',
-    html_url: 'https://github.com/Slayr/autonomous-drone-nav',
-    language: 'Python',
-    updated_at: new Date().toISOString(),
-    stargazers_count: 14,
-    forks_count: 3,
-  },
-  {
-    id: 2,
-    name: 'stratbeans-api',
-    description: 'Scalable enterprise backend services built with ExpressJS and PostgreSQL.',
-    html_url: 'https://github.com/Slayr/stratbeans-api',
-    language: 'TypeScript',
-    updated_at: new Date(Date.now() - 86400000 * 5).toISOString(),
-    stargazers_count: 5,
-    forks_count: 1,
-  },
-  {
-    id: 3,
-    name: 'bio-stat-predictor',
-    description: 'Machine learning models for predicting patient outcomes based on clinical data.',
-    html_url: 'https://github.com/Slayr/bio-stat-predictor',
-    language: 'Jupyter Notebook',
-    updated_at: new Date(Date.now() - 86400000 * 15).toISOString(),
-    stargazers_count: 8,
-    forks_count: 2,
-  }
-];
-
-export const mockPhotos: Photo[] = [
-  { id: '1', url: 'https://picsum.photos/seed/photo1/800/800', title: 'Urban Geometry', description: 'Concrete and glass reflections.', createdAt: new Date().toISOString() },
-  { id: '2', url: 'https://picsum.photos/seed/photo2/800/600', title: 'Neon Nights', description: 'Cyberpunk vibes in the city.', createdAt: new Date(Date.now() - 86400000).toISOString() },
-  { id: '3', url: 'https://picsum.photos/seed/photo3/600/800', title: 'Minimalist Workspace', description: 'Clean desk setup.', createdAt: new Date(Date.now() - 86400000 * 2).toISOString() },
-  { id: '4', url: 'https://picsum.photos/seed/photo4/1200/600', title: 'Abstract Architecture', description: 'Brutalist structures.', createdAt: new Date(Date.now() - 86400000 * 3).toISOString() },
-];
-
-export const mockPosts: Post[] = [
-  {
-    id: '1',
-    title: 'De-centralized Autonomous Systems in Drone Swarms',
-    content: 'Exploring the boundary between local edge computation and swarm consensus models. Using ROS2 and PyTorch for local obstacle avoidance and coordination dynamics. Solid concrete structures demand solid local computation systems.',
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: '2',
-    title: 'Industrial Web Synthesis & Brutalist Aesthetics',
-    content: 'Neo-Brutalism is not just a styling choice; it is a declaration of code transparency. Thick black borders, raw layout structures, and high contrast typography reflect system realism.',
-    createdAt: new Date(Date.now() - 86400000 * 3).toISOString(),
-  },
-  {
-    id: '3',
-    title: 'Machine Learning on Edge Architectures',
-    content: 'Running quantized tensor models on low power microcontrollers. Investigating latency variables under raw metal optimization.',
-    createdAt: new Date(Date.now() - 86400000 * 7).toISOString(),
-  }
-];
-
 export interface Skill {
   label: string;
   category: string;
 }
 
+// --- 1. PROFILE SUMMARY ---
+export const profileData = {
+  name: 'Rishi Mihir Popat',
+  shortName: 'Rishi',
+  role: 'MSc Data Science Student',
+  institution: 'Manipal Academy of Higher Education',
+  location: 'India',
+  email: 'rishipopat@outlook.com',
+  github: 'https://github.com/RishiMihirPopat',
+  resumeUrl: '/resume.pdf',
+  intro:
+    'Graduate student in Data Science at Manipal Academy of Higher Education. My work focuses on statistical modeling, Bayesian computation, experimental design, deep active learning, and text mining.',
+  secondaryNote:
+    'Interested in sample-efficient machine learning, biostatistics, and clean, reproducible tools that turn messy real-world records into structured data.',
+};
+
+// --- 2. SEEDED PROJECTS ---
+export const mockRepos: Repo[] = [
+  {
+    id: 1,
+    name: 'chest-xray-active-learning',
+    title: 'Deep Active Learning — Chest X-Ray Paper Reproduction',
+    description:
+      'Reproduction of deep active learning acquisition strategies for thoracic radiograph classification under limited annotation budgets.',
+    details:
+      'Implemented Monte Carlo Dropout, maximum entropy, and BALD acquisition functions over a DenseNet-121 backbone in PyTorch. Evaluated label efficiency curves against random sampling baselines on chest X-ray datasets, demonstrating substantial reductions in required radiologist annotations to reach target AUROC.',
+    html_url: 'https://github.com/RishiMihirPopat',
+    language: 'Python',
+    tags: ['PyTorch', 'Deep Learning', 'Active Learning', 'Bayesian Computation', 'Medical Imaging'],
+    updated_at: '2026-10-15T00:00:00.000Z',
+    stargazers_count: 12,
+    forks_count: 2,
+  },
+  {
+    id: 2,
+    name: 'expense-statement-parser',
+    title: 'Expense Tracker with Automated Bank Statement Parsing',
+    description:
+      'Personal finance ledger and ingestion pipeline that parses heterogeneous PDF and CSV bank statements into structured categories.',
+    details:
+      'Built deterministic and rule-assisted parsers for multi-bank PDF/CSV account statements, normalizing date formats, debit/credit columns, and UPI/merchant strings. Includes automated transaction deduplication, category classification, and monthly regression trend summaries.',
+    html_url: 'https://github.com/RishiMihirPopat',
+    language: 'Python',
+    tags: ['Python', 'Text Mining', 'Data Parsing', 'SQL', 'Regression'],
+    updated_at: '2026-09-28T00:00:00.000Z',
+    stargazers_count: 9,
+    forks_count: 1,
+  },
+  {
+    id: 3,
+    name: 'autonomous-drone-nav',
+    title: 'Autonomous Quadcopter Navigation & Tracking',
+    description:
+      'Deep learning and computer vision pipeline for autonomous quadcopter waypoint navigation and aerial object tracking.',
+    details:
+      'Combined YOLOv8 detection and ByteTrack multi-object tracking with ROS2 control nodes for real-time obstacle avoidance and target following at 30 FPS.',
+    html_url: 'https://github.com/RishiMihirPopat',
+    language: 'Python',
+    tags: ['PyTorch', 'ROS2', 'OpenCV', 'Computer Vision', 'C++'],
+    updated_at: '2026-06-12T00:00:00.000Z',
+    stargazers_count: 14,
+    forks_count: 3,
+  },
+  {
+    id: 4,
+    name: 'bio-stat-predictor',
+    title: 'Clinical Outcome & Survival Modeling',
+    description:
+      'Statistical and machine learning models for predicting patient outcomes from longitudinal clinical trial variables.',
+    details:
+      'Applied generalized linear models, survival analysis, and Bayesian hierarchical modeling in R and Python to quantify treatment effects and uncertainty intervals.',
+    html_url: 'https://github.com/RishiMihirPopat',
+    language: 'R',
+    tags: ['R', 'SAS', 'Bayesian Computation', 'Regression', 'Experimental Design'],
+    updated_at: '2026-05-20T00:00:00.000Z',
+    stargazers_count: 8,
+    forks_count: 2,
+  },
+];
+
+// --- 3. SEEDED SKILLS ---
 export const cvSkills: Skill[] = [
-  { label: 'Python', category: 'Languages' },
-  { label: 'R', category: 'Languages' },
-  { label: 'SQL', category: 'Languages' },
-  { label: 'C++', category: 'Languages' },
-  { label: 'Java', category: 'Languages' },
-  { label: 'Javascript', category: 'Languages' },
-  { label: 'TypeScript', category: 'Languages' },
-  { label: 'PHP', category: 'Languages' },
-  { label: 'Go', category: 'Languages' },
-  { label: 'Bash', category: 'Languages' },
-  { label: 'Laravel', category: 'Frameworks' },
-  { label: 'React', category: 'Frameworks' },
-  { label: 'Next.js', category: 'Frameworks' },
-  { label: 'Express', category: 'Frameworks' },
-  { label: 'Node.js', category: 'Frameworks' },
-  { label: 'FastAPI', category: 'Frameworks' },
-  { label: 'PostgreSQL', category: 'Frameworks' },
-  { label: 'MongoDB', category: 'Frameworks' },
-  { label: 'Redis', category: 'Frameworks' },
-  { label: 'Docker', category: 'Frameworks' },
-  { label: 'Apache', category: 'Frameworks' },
-  { label: 'NGINX', category: 'Frameworks' },
-  { label: 'Svelte', category: 'Frameworks' },
-  { label: 'Tailwind CSS', category: 'Frameworks' },
-  { label: 'PyTorch', category: 'AI & ML' },
-  { label: 'TensorFlow', category: 'AI & ML' },
-  { label: 'scikit-learn', category: 'AI & ML' },
-  { label: 'OpenCV', category: 'AI & ML' },
-  { label: 'HuggingFace', category: 'AI & ML' },
-  { label: 'CNNs', category: 'AI & ML' },
-  { label: 'NLP', category: 'AI & ML' },
-  { label: 'Deep Learning', category: 'AI & ML' },
-  { label: 'Computer Vision', category: 'AI & ML' },
-  { label: 'RL', category: 'AI & ML' },
-  { label: 'YOLOv8', category: 'AI & ML' },
-  { label: 'ROS2', category: 'AI & ML' },
-  { label: 'Transformers', category: 'AI & ML' },
-  { label: 'Git', category: 'Tools' },
-  { label: 'AWS', category: 'Tools' },
-  { label: 'GCP', category: 'Tools' },
-  { label: 'Power BI', category: 'Tools' },
-  { label: 'Tableau', category: 'Tools' },
-  { label: 'Linux', category: 'Tools' },
+  // Statistical & Core Languages
+  { label: 'SAS', category: 'Languages & Stats' },
+  { label: 'R', category: 'Languages & Stats' },
+  { label: 'Python', category: 'Languages & Stats' },
+  { label: 'SQL', category: 'Languages & Stats' },
+  { label: 'C++', category: 'Languages & Stats' },
+  { label: 'TypeScript', category: 'Languages & Stats' },
+  { label: 'Bash', category: 'Languages & Stats' },
+
+  // Statistical Methods & Machine Learning
+  { label: 'Regression', category: 'Methods & Modeling' },
+  { label: 'Experimental Design', category: 'Methods & Modeling' },
+  { label: 'Bayesian Computation', category: 'Methods & Modeling' },
+  { label: 'Deep Learning', category: 'Methods & Modeling' },
+  { label: 'Text Mining', category: 'Methods & Modeling' },
+  { label: 'Active Learning', category: 'Methods & Modeling' },
+  { label: 'Computer Vision', category: 'Methods & Modeling' },
+  { label: 'Time-Series Analysis', category: 'Methods & Modeling' },
+
+  // Libraries & Tools
+  { label: 'PyTorch', category: 'Libraries & Tools' },
+  { label: 'scikit-learn', category: 'Libraries & Tools' },
+  { label: 'OpenCV', category: 'Libraries & Tools' },
+  { label: 'HuggingFace', category: 'Libraries & Tools' },
+  { label: 'PostgreSQL', category: 'Libraries & Tools' },
+  { label: 'Git', category: 'Libraries & Tools' },
+  { label: 'Linux', category: 'Libraries & Tools' },
+  { label: 'Next.js', category: 'Libraries & Tools' },
+  { label: 'Docker', category: 'Libraries & Tools' },
 ];
 
-export const experiences = [
-  {
-    role: "SDE Intern",
-    company: "Stratbeans",
-    duration: "July 2024 — Dec 2024",
-    location: "Gurgaon, India",
-    summary: "Full-stack development on enterprise Learning Management System serving 10K+ users.",
-    highlights: [
-      "Built and shipped 12+ Laravel modules for course management, analytics dashboards, and user onboarding flows.",
-      "Prototyped responsive UI components using Tailwind CSS, reducing page load times by 35%.",
-      "Integrated RESTful APIs with PostgreSQL backend for real-time progress tracking.",
-    ],
-    stack: ['PHP', 'Laravel', 'PostgreSQL', 'Tailwind CSS', 'REST API'],
-    color: 'bg-neo-orange',
-  },
-  {
-    role: "Senior Intern",
-    company: "HopDrones",
-    duration: "July 2023 — Nov 2023",
-    location: "Remote",
-    summary: "Computer vision R&D for autonomous drone surveillance and object tracking systems.",
-    highlights: [
-      "Led a team of 4 interns on motion detection pipeline development using YOLOv8 and ByteTrack.",
-      "Achieved 94% mAP on custom aerial object detection dataset with real-time inference at 30 FPS.",
-      "Designed ROS2 integration for autonomous waypoint navigation on DJI Tello EDU drones.",
-    ],
-    stack: ['Python', 'PyTorch', 'YOLOv8', 'ROS2', 'OpenCV', 'C++'],
-    color: 'bg-neo-cyan',
-  },
-  {
-    role: "Campus Ambassador",
-    company: "Gemini Solutions",
-    duration: "2022 — May 2025",
-    location: "NorthCap University",
-    summary: "Corporate liaison and brand representative driving tech community engagement on campus.",
-    highlights: [
-      "Organized 5+ technical workshops and hackathon events reaching 200+ students.",
-      "Managed social media campaigns increasing event participation by 60%.",
-      "Coordinated with HR and engineering teams for campus recruitment drives.",
-    ],
-    stack: ['Community', 'Event Management', 'Outreach'],
-    color: 'bg-neo-green',
-  }
-];
-
+// --- 4. ACADEMIC HISTORY ---
 export const education = [
   {
-    degree: "B.Tech Computer Science & Engineering",
-    specialization: "Artificial Intelligence & Machine Learning",
-    school: "NorthCap University",
-    location: "Gurgaon, Haryana",
-    status: "Completed",
-    duration: "2021 — 2025",
+    degree: 'M.Sc. in Data Science',
+    specialization: 'Applied Statistics, Bayesian Modeling & Machine Learning',
+    school: 'Manipal Academy of Higher Education',
+    location: 'Manipal, India',
+    status: 'In Progress',
+    duration: '2025 — Present',
     highlights: [
-      "Specialized coursework in Deep Learning, NLP, Computer Vision, and Reinforcement Learning.",
-      "Capstone project: Autonomous drone navigation system using deep RL and ROS.",
-      "Published research on edge-optimized CNN architectures for embedded systems.",
+      'Core focus on statistical regression, experimental design, Bayesian computation, text mining, and deep learning.',
+      'Reproducing deep active learning methods for medical imaging under constrained annotation budgets.',
+      'Statistical programming and clinical/tabular data analysis in SAS, R, and Python.',
     ],
-    color: 'bg-neo-pink',
+    color: '',
   },
   {
-    degree: "M.Sc Data Science",
-    specialization: "Applied Statistics & Machine Learning",
-    school: "Manipal Academy of Higher Education (PSPH)",
-    location: "Online / Manipal",
-    status: "In Progress",
-    duration: "2025 — Present",
+    degree: 'B.Tech. in Computer Science & Engineering',
+    specialization: 'Artificial Intelligence & Machine Learning',
+    school: 'NorthCap University',
+    location: 'Gurgaon, Haryana',
+    status: 'Completed',
+    duration: '2021 — 2025',
     highlights: [
-      "Advanced coursework in Bayesian inference, time-series forecasting, and causal modeling.",
-      "Research focus: Large-scale biostatistical modeling for clinical trial outcomes.",
+      'Coursework in Deep Learning, Natural Language Processing, Computer Vision, and Reinforcement Learning.',
+      'Capstone project: Autonomous drone navigation and obstacle avoidance using deep reinforcement learning and ROS2.',
+      'Researched quantized convolutional neural network architectures for edge microcontrollers.',
     ],
-    color: 'bg-neo-purple',
-  }
+    color: '',
+  },
 ];
 
-export const JOURNAL_CARD_COLORS = [
-  'bg-neo-pink text-white',
-  'bg-neo-orange text-white',
-  'bg-neo-purple text-white',
+// --- 5. PROFESSIONAL HISTORY ---
+export const experiences = [
+  {
+    role: 'SDE Intern',
+    company: 'Stratbeans',
+    duration: 'Jul 2024 — Dec 2024',
+    location: 'Gurgaon, India',
+    summary: 'Full-stack engineering on an enterprise learning management platform serving 10,000+ active users.',
+    highlights: [
+      'Built and shipped 12+ backend and reporting modules for course analytics, progress tracking, and user onboarding.',
+      'Optimized database queries and frontend rendering paths, reducing average page load latency by 35%.',
+      'Designed RESTful endpoints backed by PostgreSQL for real-time learner telemetry.',
+    ],
+    stack: ['Python', 'PHP', 'Laravel', 'PostgreSQL', 'REST API'],
+    color: '',
+  },
+  {
+    role: 'Senior Intern — Computer Vision R&D',
+    company: 'HopDrones',
+    duration: 'Jul 2023 — Nov 2023',
+    location: 'Remote',
+    summary: 'Computer vision research and development for autonomous aerial surveillance and multi-object tracking.',
+    highlights: [
+      'Led a 4-person intern team building an aerial motion detection and tracking pipeline with YOLOv8 and ByteTrack.',
+      'Reached 94% mAP on a custom aerial dataset while sustaining 30 FPS real-time inference.',
+      'Integrated ROS2 navigation nodes for autonomous waypoint following on quadcopter hardware.',
+    ],
+    stack: ['Python', 'PyTorch', 'YOLOv8', 'ROS2', 'OpenCV'],
+    color: '',
+  },
+  {
+    role: 'Campus Ambassador',
+    company: 'Gemini Solutions',
+    duration: '2022 — May 2025',
+    location: 'NorthCap University',
+    summary: 'Technical community liaison coordinating workshops, hackathons, and engineering recruitment.',
+    highlights: [
+      'Organized 5+ technical workshops and coding sessions for 200+ undergraduate students.',
+      'Coordinated between university departments and engineering teams during campus hiring drives.',
+    ],
+    stack: ['Technical Workshops', 'Community', 'Outreach'],
+    color: '',
+  },
 ];
 
-export const PHOTO_STAMP_COLORS = [
-  'bg-neo-yellow text-black border-neo-yellow',
-  'bg-neo-cyan text-black border-neo-cyan',
-  'bg-neo-green text-black border-neo-green',
-  'bg-neo-pink text-white border-neo-pink',
+// --- 6. SEEDED BLOG POSTS ---
+export const mockPosts: Post[] = [
+  {
+    id: '1',
+    title: 'Notes on Reproducing Deep Active Learning for Chest X-Rays',
+    content: `Active learning asks a practical question: when labeling medical scans is expensive, which unlabeled examples should a model request next?
+
+While reproducing deep active learning experiments on thoracic radiographs, the biggest takeaways were not just about acquisition functions (entropy, BALD, or Monte Carlo Dropout variance), but about calibration and batch diversity.
+
+### Key Observations
+
+1. **Uncertainty vs. Redundancy**: Pure uncertainty sampling often selects near-duplicate borderline radiographs in a single batch. Adding feature-space diversity prevents wasted annotations.
+2. **MC Dropout Warmup**: Early-epoch epistemic uncertainty estimates are noisy; warm-starting on a small stratified seed set stabilizes acquisition curves significantly.
+3. **Evaluation Rigor**: Comparing active learning strategies requires fixed validation splits and multiple random seeds to separate genuine sample efficiency from luck in the initial pool.`,
+    createdAt: '2026-10-18T12:00:00.000Z',
+  },
+  {
+    id: '2',
+    title: 'Parsing Messy Bank Statements into Structured Data',
+    content: `Bank statements are ostensibly tabular, yet every institution formats dates, multi-line narration strings, and debit/credit columns differently.
+
+To build a reliable local expense tracker, I structured the ingestion pipeline around three stages:
+
+- **Layout Normalization**: Extracting raw rows from PDFs and CSVs into a canonical \`(timestamp, raw_narration, amount, direction, balance)\` tuple.
+- **Token & Regex Cleaning**: Stripping transaction reference numbers and UPI routing prefixes to isolate the merchant token.
+- **Statistical Summaries**: Running rolling monthly regressions and category breakdowns to spot recurring charges and anomalies without sending financial data to third-party servers.`,
+    createdAt: '2026-09-22T12:00:00.000Z',
+  },
+  {
+    id: '3',
+    title: 'Why Bayesian Computation Matters in Small-Sample Experiments',
+    content: `In many experimental design and biostatistical settings, sample sizes are constrained by physical or clinical limits. Point estimates alone rarely tell the full story.
+
+Bayesian hierarchical models allow us to share statistical strength across subgroups while keeping full posterior distributions over parameters—making uncertainty explicit rather than an afterthought.`,
+    createdAt: '2026-08-10T12:00:00.000Z',
+  },
 ];
 
-export const PHOTO_CARD_COLORS = [
-  'bg-neo-yellow text-black border-black',
-  'bg-neo-cyan text-black border-black',
-  'bg-neo-green text-black border-black',
-  'bg-neo-pink text-white border-black',
+// --- 7. SEEDED PHOTOGRAPHY (Minimal Placeholders) ---
+export const mockPhotos: Photo[] = [
+  {
+    id: '1',
+    url: 'https://picsum.photos/seed/coast-dusk/900/600?grayscale',
+    title: 'Low Tide, Late Afternoon',
+    description: 'Flat water and wet sand reflection after the swell.',
+    createdAt: '2026-09-14T12:00:00.000Z',
+  },
+  {
+    id: '2',
+    url: 'https://picsum.photos/seed/monsoon-sky/900/600?grayscale',
+    title: 'Overcast Horizon',
+    description: 'Monsoon cloud deck over the coast.',
+    createdAt: '2026-08-29T12:00:00.000Z',
+  },
+  {
+    id: '3',
+    url: 'https://picsum.photos/seed/concrete-rain/600/800?grayscale',
+    title: 'Campus Walkway in Rain',
+    description: 'Quiet geometry and wet stone.',
+    createdAt: '2026-07-19T12:00:00.000Z',
+  },
+  {
+    id: '4',
+    url: 'https://picsum.photos/seed/night-lamp/900/600?grayscale',
+    title: 'Sodium Vapor Study',
+    description: 'Late evening stillness.',
+    createdAt: '2026-06-04T12:00:00.000Z',
+  },
 ];
+
+// Compatibility exports for admin/legacy views
+export const JOURNAL_CARD_COLORS = ['', '', ''];
+export const PHOTO_STAMP_COLORS = ['', '', '', ''];
+export const PHOTO_CARD_COLORS = ['', '', '', ''];

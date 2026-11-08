@@ -1,56 +1,36 @@
 'use client';
 
 import * as React from 'react';
-import { Moon, Sun, Sparkles } from 'lucide-react';
+import { Moon, Sun } from 'lucide-react';
 import { useTheme } from 'next-themes';
 
 export function ThemeToggle() {
-  const { theme, setTheme } = useTheme();
+  const { resolvedTheme, setTheme } = useTheme();
   const [mounted, setMounted] = React.useState(false);
 
   React.useEffect(() => {
-    Promise.resolve().then(() => {
-      setMounted(true);
-    });
+    setMounted(true);
   }, []);
 
   if (!mounted) {
-    return <div className="w-9 h-9" />;
+    return <div className="w-16 h-7" />;
   }
 
-  const cycleTheme = () => {
-    if (theme === 'light') {
-      setTheme('dark');
-    } else if (theme === 'dark') {
-      setTheme('colorful');
-    } else {
-      setTheme('light');
-    }
-  };
+  const isLight = resolvedTheme === 'light';
 
-  const getButtonClass = () => {
-    if (theme === 'light') {
-      return 'bg-neo-yellow text-black';
-    }
-    if (theme === 'dark') {
-      return 'bg-neo-purple text-white';
-    }
-    return 'bg-neo-pink text-white';
+  const toggleTheme = () => {
+    setTheme(isLight ? 'dark' : 'light');
   };
 
   return (
     <button
-      onClick={cycleTheme}
-      className={`p-2 border-2 border-line rounded-md shadow-[2px_2px_0px_0px_var(--line)] hover:-translate-x-0.5 hover:-translate-y-0.5 hover:shadow-[3px_3px_0px_0px_var(--line)] active:translate-x-0 active:translate-y-0 active:shadow-none transition-all duration-100 cursor-pointer ${getButtonClass()}`}
-      aria-label="Toggle theme"
+      onClick={toggleTheme}
+      className="quiet-btn py-1 px-2.5 text-[11px] text-ink-muted hover:text-ink"
+      aria-label="Toggle color theme"
+      title={isLight ? 'Switch to dark mode' : 'Switch to light mode'}
     >
-      {theme === 'light' ? (
-        <Sun size={18} className="text-black" />
-      ) : theme === 'dark' ? (
-        <Moon size={18} className="text-white" />
-      ) : (
-        <Sparkles size={18} className="text-white animate-pulse" />
-      )}
+      {isLight ? <Moon size={13} /> : <Sun size={13} />}
+      <span>{isLight ? 'dark' : 'light'}</span>
     </button>
   );
 }

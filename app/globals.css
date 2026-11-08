@@ -4,83 +4,51 @@
 
 @theme {
   --color-bg: var(--bg);
+  --color-surface: var(--surface);
   --color-ink: var(--ink);
+  --color-ink-muted: var(--ink-muted);
   --color-line: var(--line);
-  --color-accent-orange: var(--accent);
-  --color-glass: var(--glass);
-  
-  --color-neo-yellow: var(--neo-yellow);
-  --color-neo-orange: var(--neo-orange);
-  --color-neo-green: var(--neo-green);
-  --color-neo-cyan: var(--neo-cyan);
-  --color-neo-pink: var(--neo-pink);
-  --color-neo-purple: var(--neo-purple);
+  --color-glass: var(--surface);
 
-  --font-sans: var(--font-sans);
-  --font-mono: var(--font-mono);
+  --color-neo-yellow: var(--surface);
+  --color-neo-orange: var(--ink);
+  --color-neo-green: var(--ink);
+  --color-neo-cyan: var(--ink);
+  --color-neo-pink: var(--ink-muted);
+  --color-neo-purple: var(--ink-muted);
+
+  --font-sans: var(--font-sans), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono: var(--font-mono), "JetBrains Mono", "SFMono-Regular", Menlo, Monaco, Consolas, monospace;
 }
 
 @layer base {
   :root {
     --font-sans: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    --font-mono: "JetBrains Mono", "SFMono-Regular", Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-    --bg: #f8fafc; /* Classic Light Bg */
-    --ink: #0f172a; /* Slate 900 */
-    --line: #cbd5e1; /* Slate 300 */
-    --accent: #3b82f6; /* Blue 500 */
-    --glass: #ffffff;
-    
-    --neo-yellow: #fef08a; /* Muted yellow */
-    --neo-orange: #f97316; /* Muted orange */
-    --neo-green: #10b981; /* Muted green */
-    --neo-cyan: #0ea5e9; /* Muted cyan */
-    --neo-pink: #ec4899; /* Muted pink */
-    --neo-purple: #8b5cf6; /* Muted purple */
-  }
+    --font-mono: "JetBrains Mono", "SFMono-Regular", Menlo, Monaco, Consolas, "Courier New", monospace;
 
-  .light {
-    --bg: #f8fafc;
-    --ink: #0f172a;
-    --line: #cbd5e1;
-    --accent: #3b82f6;
-    --glass: #ffffff;
-    
-    --neo-yellow: #fef08a;
-    --neo-orange: #f97316;
-    --neo-green: #10b981;
-    --neo-cyan: #0ea5e9;
-    --neo-pink: #ec4899;
-    --neo-purple: #8b5cf6;
+    /* Quiet Liminal Dark (Default) */
+    --bg: #0c0e12;
+    --surface: rgba(12, 14, 18, 0.72);
+    --ink: #e2e6ec;
+    --ink-muted: #8a94a2;
+    --line: rgba(162, 174, 190, 0.18);
   }
 
   .dark {
-    --bg: #0b1220; /* Muted midnight */
-    --ink: #e2e8f0; /* Soft slate text */
-    --line: #334155; /* Subtle borders */
-    --accent: #7aa2c8; /* Desaturated blue accent */
-    --glass: #111b2d; /* Clean panel surface */
-    
-    --neo-yellow: #bfa46a; /* Muted sand */
-    --neo-orange: #b67c5a; /* Muted clay */
-    --neo-green: #5f8f82; /* Muted sage */
-    --neo-cyan: #5d8799; /* Muted steel cyan */
-    --neo-pink: #9a6f84; /* Muted mauve */
-    --neo-purple: #7d729f; /* Muted violet */
+    --bg: #0c0e12;
+    --surface: rgba(12, 14, 18, 0.72);
+    --ink: #e2e6ec;
+    --ink-muted: #8a94a2;
+    --line: rgba(162, 174, 190, 0.18);
   }
 
-  .colorful {
-    --bg: #262626; /* Dark Concrete Bg */
-    --ink: #ffffff;
-    --line: #ffffff;
-    --accent: #ff5500;
-    --glass: #1c1c1c; /* Charcoal Concrete */
-    
-    --neo-yellow: #ffcc00; /* Bright Hazard Yellow */
-    --neo-orange: #ff6a00;
-    --neo-green: #39ff14; /* Neon Green */
-    --neo-cyan: #00f0ff; /* Neon Cyan */
-    --neo-pink: #ff2a75; /* Neon Pink */
-    --neo-purple: #a04ef6;
+  .light {
+    /* Quiet Warm Paper Light Mode */
+    --bg: #f4f1ea;
+    --surface: rgba(244, 241, 234, 0.76);
+    --ink: #1a1e24;
+    --ink-muted: #5c6470;
+    --line: rgba(26, 30, 36, 0.15);
   }
 
   body {
@@ -89,20 +57,7 @@
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-    transition: background-color 0.2s ease, color 0.2s ease;
-  }
-
-  .colorful body {
-    /* Concrete slabs texture */
-    background-image: 
-      /* Concrete panel lines */
-      linear-gradient(rgba(255,255,255,0.08) 2px, transparent 2px),
-      linear-gradient(90deg, rgba(255,255,255,0.08) 2px, transparent 2px),
-      /* Concrete pores and speckles */
-      radial-gradient(rgba(0,0,0,0.4) 1.5px, transparent 0),
-      radial-gradient(rgba(255,255,255,0.05) 1.5px, transparent 0);
-    background-size: 120px 120px, 120px 120px, 16px 16px, 24px 24px;
-    background-position: 0 0, 0 0, 0 0, 8px 8px;
+    transition: background-color 0.4s ease, color 0.4s ease;
   }
 
   html {
@@ -110,178 +65,121 @@
   }
 
   ::selection {
-    background-color: var(--neo-yellow);
-    color: #000;
+    background-color: var(--ink);
+    color: var(--bg);
   }
 
   :focus-visible {
-    outline: 5px solid var(--neo-orange);
-    outline-offset: 2px;
+    outline: 1px solid var(--ink-muted);
+    outline-offset: 3px;
   }
 
   ::-webkit-scrollbar {
-    width: 16px;
-    height: 16px;
+    width: 6px;
+    height: 6px;
   }
 
   ::-webkit-scrollbar-track {
-    background: var(--bg);
-    border-left: 4px solid var(--line);
-    /* Gritty track pattern */
-    background-image: repeating-linear-gradient(45deg, rgba(0,0,0,0.05) 0px, rgba(0,0,0,0.05) 2px, transparent 2px, transparent 4px);
+    background: transparent;
   }
 
   ::-webkit-scrollbar-thumb {
-    background: var(--neo-yellow);
-    border: 4px solid var(--line);
-    box-shadow: inset -2px -2px 0px 0px rgba(0,0,0,0.5);
+    background: var(--line);
+    border-radius: 3px;
   }
 
   ::-webkit-scrollbar-thumb:hover {
-    background: var(--neo-orange);
+    background: var(--ink-muted);
   }
+}
 
-  /* Neo-Brutalist Concrete utility classes */
-  .te-button {
-    border: 4px solid var(--line);
-    border-radius: 4px; /* Harder corners */
-    padding: 12px 24px;
-    font-family: var(--font-mono);
-    font-size: 13px;
-    font-weight: 950;
-    text-transform: uppercase;
-    transition: all 0.1s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-    background: var(--glass);
-    color: var(--ink);
-    cursor: pointer;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    box-shadow: 6px 6px 0px 0px var(--line);
-  }
+/* Quiet Minimal Panel & Controls */
+.quiet-panel {
+  background-color: var(--surface);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  transition: border-color 0.25s ease, background-color 0.25s ease;
+}
 
-  .te-button:hover {
-    transform: translate(-3px, -3px);
-    box-shadow: 9px 9px 0px 0px var(--line);
-  }
+.quiet-link {
+  color: var(--ink-muted);
+  transition: color 0.2s ease;
+}
 
-  .te-button:active {
-    transform: translate(3px, 3px);
-    box-shadow: 3px 3px 0px 0px var(--line);
-  }
+.quiet-link:hover,
+.quiet-link[data-active="true"] {
+  color: var(--ink);
+}
 
-  .te-button-accent {
-    background: var(--neo-yellow);
-    color: #000000;
-  }
+.quiet-btn {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 8px 14px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--ink);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  transition: border-color 0.2s ease, background-color 0.2s ease, color 0.2s ease;
+}
 
-  .te-button-accent:hover {
-    background: var(--neo-orange);
-    color: #ffffff;
-  }
+.quiet-btn:hover {
+  border-color: var(--ink-muted);
+  background: rgba(128, 128, 128, 0.08);
+}
 
-  .te-pill {
-    border: 3px solid var(--line);
-    border-radius: 4px; /* Harder corners */
-    padding: 6px 14px;
-    font-family: var(--font-mono);
-    font-size: 11px;
-    font-weight: 900;
-    text-transform: uppercase;
-    background: var(--glass);
-    color: var(--ink);
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    transition: all 0.1s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-    box-shadow: 3px 3px 0px 0px var(--line);
-  }
+.quiet-tag {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--line);
+  color: var(--ink-muted);
+  display: inline-flex;
+  align-items: center;
+}
 
-  .te-pill:hover {
-    transform: translate(-2px, -2px);
-    box-shadow: 5px 5px 0px 0px var(--line);
-  }
+/* Compatibility classes for /admin */
+.te-card {
+  background-color: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
 
-  .te-card {
-    border: 4px solid var(--line);
-    background: var(--glass);
-    border-radius: 6px; /* Blocky grit */
-    box-shadow: 8px 8px 0px 0px var(--line);
-    transition: all 0.15s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-    overflow: hidden;
-  }
+.te-button {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 8px 16px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background-color: var(--surface);
+  color: var(--ink);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: border-color 0.2s ease;
+}
 
-  .te-card:hover {
-    transform: translate(-5px, -5px);
-    box-shadow: 13px 13px 0px 0px var(--line);
-  }
+.te-button:hover {
+  border-color: var(--ink);
+}
 
-  .te-border {
-    border: 4px solid var(--line);
-  }
-  
-  .te-border-b {
-    border-bottom: 4px solid var(--line);
-  }
+.te-pill {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 3px 10px;
+  border-radius: 4px;
+  border: 1px solid var(--line);
+  color: var(--ink-muted);
+}
 
-  .te-border-r {
-    border-right: 4px solid var(--line);
-  }
-  
-  .te-border-t {
-    border-top: 4px solid var(--line);
-  }
-
-  .te-heading {
-    font-family: var(--font-sans);
-    font-weight: 1000;
-    letter-spacing: -0.06em;
-    text-transform: uppercase;
-  }
-
-  .te-label {
-    font-family: var(--font-mono);
-    font-size: 11px;
-    font-weight: 900;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-  }
-
-  /* Industrial Hazard Stripes Utility */
-  .hazard-stripes {
-    background: repeating-linear-gradient(
-      -45deg,
-      #000000,
-      #000000 12px,
-      var(--neo-yellow) 12px,
-      var(--neo-yellow) 24px
-    );
-    border-bottom: 4px solid var(--line);
-  }
-
-  .dark .hazard-stripes {
-    background: repeating-linear-gradient(
-      -45deg,
-      #000000,
-      #000000 12px,
-      var(--neo-yellow) 12px,
-      var(--neo-yellow) 24px
-    );
-  }
-
-  /* Concrete stamp badge */
-  .industrial-stamp {
-    font-family: var(--font-mono);
-    font-weight: 950;
-    text-transform: uppercase;
-    border: 3px dashed var(--neo-pink);
-    color: var(--neo-pink);
-    padding: 2px 8px;
-    font-size: 10px;
-    letter-spacing: 0.1em;
-    transform: rotate(-4deg);
-    display: inline-block;
-    background: transparent;
-  }
+.te-border-t {
+  border-top: 1px solid var(--line);
 }

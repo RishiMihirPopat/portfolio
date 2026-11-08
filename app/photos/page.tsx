@@ -2,99 +2,91 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { Camera, ArrowLeft } from 'lucide-react';
-import { Photo, PHOTO_STAMP_COLORS, PHOTO_CARD_COLORS } from '@/lib/data';
+import { ArrowLeft } from 'lucide-react';
+import { Photo } from '@/lib/data';
 import { fetchAllPhotos } from '@/lib/storage';
 import { PhotoLightbox } from '@/components/PhotoLightbox';
+import { ScrambleHeading } from '@/components/ScrambleHeading';
+import { ThemeToggle } from '@/components/ThemeToggle';
 
 export default function PhotosPage() {
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [selectedPhoto, setSelectedPhoto] = useState<Photo | null>(null);
 
   useEffect(() => {
-    Promise.resolve().then(async () => {
-      const photosData = await fetchAllPhotos();
-      setPhotos(photosData);
-    });
+    window.dispatchEvent(new CustomEvent('ascii-section-change', { detail: 'photography' }));
+    fetchAllPhotos().then(setPhotos);
   }, []);
 
   return (
-    <div className="space-y-10 min-h-screen pb-12">
-      {/* Header Panel */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-4 border-line p-6 bg-glass shadow-[8px_8px_0px_0px_var(--line)] rounded-xl">
-        <div className="flex items-center gap-3">
-          <Camera size={32} className="text-neo-pink animate-pulse" />
-          <div>
-            <h1 className="text-2xl md:text-3xl font-black uppercase tracking-tight font-sans text-ink">
-              OPTICAL ARCHIVES
-            </h1>
-            <p className="font-mono text-xs opacity-75 uppercase tracking-wide">
-              IMAGE_STREAM_INTEGRITY // STATIC CAPTURES
-            </p>
-          </div>
-        </div>
-        <Link 
-          href="/" 
-          className="self-start sm:self-auto font-mono text-xs font-black uppercase bg-neo-yellow text-black hover:bg-black hover:text-neo-yellow px-4 py-2.5 border-3 border-line rounded shadow-[4px_4px_0px_0px_var(--line)] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none transition-all cursor-pointer flex items-center gap-2"
+    <div className="min-h-screen flex flex-col justify-between px-4 sm:px-8 md:px-12 py-6 sm:py-10 max-w-4xl mx-auto w-full">
+      <header className="flex items-center justify-between gap-4 pb-6 border-b border-line">
+        <Link
+          href="/#photography"
+          className="font-mono text-xs text-ink-muted hover:text-ink flex items-center gap-2 transition-colors"
         >
-          <ArrowLeft size={14} /> BACK_TO_DASHBOARD
+          <ArrowLeft size={13} />
+          <span>Back to Portfolio</span>
         </Link>
-      </div>
+        <ThemeToggle />
+      </header>
 
-      {/* Masonry Bento Grid conforming to aspect ratio */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6 items-start">
-        {photos.map((photo, idx) => {
-          const stampColor = PHOTO_STAMP_COLORS[idx % PHOTO_STAMP_COLORS.length];
-          const cardColor = PHOTO_CARD_COLORS[idx % PHOTO_CARD_COLORS.length];
-          const rotation = idx % 2 === 0 ? 'rotate-[1deg] hover:rotate-[-1deg]' : 'rotate-[-1.5deg] hover:rotate-[1deg]';
-          return (
-            <div
-              key={`photo-${photo.id}`}
-              onClick={() => setSelectedPhoto(photo)}
-              className={`w-full p-3 border-3 border-line shadow-[4px_4px_0px_0px_var(--line)] hover:-translate-y-1 hover:shadow-[6px_6px_0px_0px_var(--line)] transition-all cursor-pointer rounded-sm ${cardColor} ${rotation}`}
-            >
-              <div className="relative w-full overflow-hidden border-2 border-line bg-neutral-900">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img 
-                  src={photo.url} 
-                  alt={photo.title} 
-                  className="w-full h-auto object-cover animate-fade-in block" 
-                />
-              </div>
-              <div className="pt-3 flex flex-col justify-between items-start space-y-1 select-none">
-                <div className="flex justify-between items-center w-full">
-                  <h4 className="font-sans font-black text-sm uppercase truncate max-w-[70%]">{photo.title}</h4>
-                  <span className={`font-mono text-[8px] font-black border-2 px-1.5 py-0.5 rounded ${stampColor} shadow-[1px_1px_0px_0px_var(--line)]`}>
-                    EXP_0{idx + 1}
+      <main className="my-auto py-10 sm:py-14">
+        <article data-ascii-panel="true" className="quiet-panel p-6 sm:p-10 space-y-8">
+          <div className="space-y-1.5 border-b border-line pb-5">
+            <div className="font-mono text-[11px] uppercase tracking-widest text-ink-muted flex justify-between">
+              <span>Photography</span>
+              <span>{photos.length} frames</span>
+            </div>
+            <ScrambleHeading
+              text="Photography"
+              className="text-2xl sm:text-3xl font-medium tracking-tight text-ink font-mono"
+            />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+            {photos.map((photo) => (
+              <div
+                key={photo.id}
+                onClick={() => setSelectedPhoto(photo)}
+                className="group cursor-pointer space-y-2"
+              >
+                <div className="overflow-hidden rounded border border-line bg-black/20 aspect-[3/2]">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={photo.url}
+                    alt={photo.title}
+                    loading="lazy"
+                    className="w-full h-full object-cover opacity-90 group-hover:opacity-100 group-hover:scale-[1.02] transition-all duration-300"
+                  />
+                </div>
+                <div className="flex items-baseline justify-between gap-2 font-mono text-xs">
+                  <span className="text-ink font-sans font-medium truncate">
+                    {photo.title}
+                  </span>
+                  <span className="text-ink-muted text-[11px] shrink-0">
+                    {photo.createdAt
+                      ? new Date(photo.createdAt).toLocaleDateString('en-US', {
+                          year: 'numeric',
+                          month: 'short',
+                        })
+                      : ''}
                   </span>
                 </div>
-                <span className="font-mono text-[8px] font-bold opacity-85">DATE: {new Date(photo.createdAt).toLocaleDateString()}</span>
                 {photo.description && (
-                  <p className="font-sans text-[10px] opacity-75 mt-1 border-t border-line/20 pt-1 w-full italic truncate">
-                    {photo.description}
-                  </p>
+                  <p className="text-xs text-ink-muted line-clamp-1">{photo.description}</p>
                 )}
               </div>
-            </div>
-          );
-        })}
-      </div>
+            ))}
+          </div>
+        </article>
+      </main>
 
-      {/* Empty State */}
-      {photos.length === 0 && (
-        <div className="border-4 border-dashed border-neutral-400 p-12 text-center rounded-xl bg-glass">
-          <p className="font-mono text-sm text-neutral-500 uppercase tracking-widest">
-            ERROR: NO OPTICAL CAPTURES DEPLOYED IN ARCHIVES.
-          </p>
-        </div>
-      )}
-
-      {/* Fullscreen Lightbox Display */}
-      <PhotoLightbox 
-        photo={selectedPhoto} 
-        photos={photos} 
-        onClose={() => setSelectedPhoto(null)} 
-        onNavigate={setSelectedPhoto} 
+      <PhotoLightbox
+        photo={selectedPhoto}
+        photos={photos}
+        onClose={() => setSelectedPhoto(null)}
+        onNavigate={setSelectedPhoto}
       />
     </div>
   );

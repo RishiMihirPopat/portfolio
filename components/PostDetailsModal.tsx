@@ -1,6 +1,5 @@
 'use client';
 
-import { format } from 'date-fns';
 import ReactMarkdown from 'react-markdown';
 import { Post } from '@/lib/data';
 import { Modal } from '@/components/ui/Modal';
@@ -16,18 +15,30 @@ export function PostDetailsModal({ post, onClose }: PostDetailsModalProps) {
     <Modal
       isOpen={!!post}
       onClose={onClose}
-      title={post?.title || 'Blog Post'}
+      title={post ? post.title : 'Note'}
     >
       {post && (
-        <div className="space-y-6 text-black dark:text-white">
-          <div className="te-label pb-4 border-b-2 border-dashed border-black/20 dark:border-white/20">
-            Published: {post.createdAt ? format(new Date(post.createdAt), 'MMM dd, yyyy') : 'Unknown'}
+        <div className="space-y-5 text-ink">
+          <div className="space-y-1 pb-4 border-b border-line">
+            <h2 className="text-lg font-medium text-ink">{post.title}</h2>
+            {post.createdAt && (
+              <div className="font-mono text-xs text-ink-muted">
+                {new Date(post.createdAt).toLocaleDateString('en-US', {
+                  year: 'numeric',
+                  month: 'long',
+                  day: 'numeric',
+                })}
+              </div>
+            )}
           </div>
+
           {(() => {
             const { processed, images } = extractDataImages(post.content);
             return (
-              <div className="prose prose-neutral max-w-none font-sans prose-img:rounded-xl prose-img:w-full prose-headings:font-black prose-headings:uppercase prose-a:text-neo-pink dark:prose-invert">
-                <ReactMarkdown components={{ img: createImgRenderer(images) }}>{processed}</ReactMarkdown>
+              <div className="prose prose-sm prose-neutral max-w-none font-sans prose-headings:font-medium prose-headings:text-ink prose-p:text-ink/90 prose-p:leading-relaxed prose-li:text-ink/90 prose-code:font-mono prose-code:text-xs dark:prose-invert">
+                <ReactMarkdown components={{ img: createImgRenderer(images) }}>
+                  {processed}
+                </ReactMarkdown>
               </div>
             );
           })()}

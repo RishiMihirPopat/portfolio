@@ -2,93 +2,78 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { BookOpen, ArrowLeft } from 'lucide-react';
-import { format } from 'date-fns';
-import { Post, JOURNAL_CARD_COLORS } from '@/lib/data';
+import { ArrowLeft } from 'lucide-react';
+import { Post } from '@/lib/data';
 import { fetchAllPosts } from '@/lib/storage';
 import { PostDetailsModal } from '@/components/PostDetailsModal';
+import { ScrambleHeading } from '@/components/ScrambleHeading';
+import { ThemeToggle } from '@/components/ThemeToggle';
 
 export default function JournalPage() {
   const [posts, setPosts] = useState<Post[]>([]);
   const [selectedPost, setSelectedPost] = useState<Post | null>(null);
 
   useEffect(() => {
-    Promise.resolve().then(async () => {
-      const postsData = await fetchAllPosts();
-      setPosts(postsData);
-    });
+    window.dispatchEvent(new CustomEvent('ascii-section-change', { detail: 'blog' }));
+    fetchAllPosts().then(setPosts);
   }, []);
 
   return (
-    <div className="space-y-10 min-h-screen pb-12">
-      {/* Header Panel */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-4 border-line p-6 bg-glass shadow-[8px_8px_0px_0px_var(--line)] rounded-xl">
-        <div className="flex items-center gap-3">
-          <BookOpen size={32} className="text-neo-pink animate-pulse" />
-          <div>
-            <h1 className="text-2xl md:text-3xl font-black uppercase tracking-tight font-sans text-ink">
-              JOURNAL DISPATCHES
-            </h1>
-            <p className="font-mono text-xs opacity-75 uppercase tracking-wide">
-              SYSTEM_LOG_TRANSMISSIONS // ALL RECORDS
-            </p>
-          </div>
-        </div>
-        <Link 
-          href="/" 
-          className="self-start sm:self-auto font-mono text-xs font-black uppercase bg-neo-yellow text-black hover:bg-black hover:text-neo-yellow px-4 py-2.5 border-3 border-line rounded shadow-[4px_4px_0px_0px_var(--line)] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none transition-all cursor-pointer flex items-center gap-2"
+    <div className="min-h-screen flex flex-col justify-between px-4 sm:px-8 md:px-12 py-6 sm:py-10 max-w-4xl mx-auto w-full">
+      <header className="flex items-center justify-between gap-4 pb-6 border-b border-line">
+        <Link
+          href="/#blog"
+          className="font-mono text-xs text-ink-muted hover:text-ink flex items-center gap-2 transition-colors"
         >
-          <ArrowLeft size={14} /> BACK_TO_DASHBOARD
+          <ArrowLeft size={13} />
+          <span>Back to Portfolio</span>
         </Link>
-      </div>
+        <ThemeToggle />
+      </header>
 
-      {/* Grid of Journal Entries */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-        {posts.map((post, idx) => {
-          const colorClass = JOURNAL_CARD_COLORS[idx % JOURNAL_CARD_COLORS.length];
-          const rotation = idx % 2 === 0 ? 'rotate-[-1deg] hover:rotate-[1deg]' : 'rotate-[1.5deg] hover:rotate-[-1deg]';
-          return (
-            <div
-              key={`post-${post.id}`}
-              onClick={() => setSelectedPost(post)}
-              className={`te-card p-6 border-3 border-line shadow-[6px_6px_0px_0px_var(--line)] hover:-translate-y-1.5 hover:shadow-[8px_8px_0px_0px_var(--line)] transition-all cursor-pointer rounded-xl flex flex-col justify-between min-h-[250px] ${colorClass} ${rotation}`}
-            >
-              <div>
-                <div className="flex justify-between items-center pb-2 border-b border-white/20">
-                  <span className="font-mono text-[10px] font-black bg-black text-white px-2.5 py-0.5 rounded border border-line shadow-[1.5px_1.5px_0px_0px_#fff]">
-                    LOG_0{idx + 1}
-                  </span>
-                  <span className="font-mono text-[9px] font-bold opacity-80">
-                    {post.createdAt ? format(new Date(post.createdAt), 'yyyy-MM-dd') : 'UNKNOWN'}
-                  </span>
+      <main className="my-auto py-10 sm:py-14">
+        <article data-ascii-panel="true" className="quiet-panel p-6 sm:p-10 space-y-8">
+          <div className="space-y-1.5 border-b border-line pb-5">
+            <div className="font-mono text-[11px] uppercase tracking-widest text-ink-muted flex justify-between">
+              <span>Blog</span>
+              <span>{posts.length} notes</span>
+            </div>
+            <ScrambleHeading
+              text="Blog & Notes"
+              className="text-2xl sm:text-3xl font-medium tracking-tight text-ink font-mono"
+            />
+          </div>
+
+          <div className="divide-y divide-line">
+            {posts.map((post) => (
+              <div
+                key={post.id}
+                onClick={() => setSelectedPost(post)}
+                className="py-5 first:pt-0 last:pb-0 group cursor-pointer space-y-2"
+              >
+                <div className="flex flex-col sm:flex-row sm:items-baseline justify-between gap-1">
+                  <h2 className="text-base font-medium text-ink group-hover:underline underline-offset-4">
+                    {post.title}
+                  </h2>
+                  {post.createdAt && (
+                    <span className="font-mono text-xs text-ink-muted shrink-0">
+                      {new Date(post.createdAt).toLocaleDateString('en-US', {
+                        year: 'numeric',
+                        month: 'short',
+                        day: '2-digit',
+                      })}
+                    </span>
+                  )}
                 </div>
-                <h3 className="font-sans font-black text-lg leading-snug uppercase mt-4 line-clamp-2">
-                  {post.title}
-                </h3>
-                <p className="font-sans text-xs opacity-90 line-clamp-4 mt-3 leading-relaxed">
-                  {post.content}
+                <p className="text-sm text-ink-muted line-clamp-3 leading-relaxed">
+                  {post.content.replace(/[#*`]/g, '')}
                 </p>
               </div>
-              <div className="mt-6 pt-3 border-t border-white/20 flex justify-between items-center">
-                <span className="font-mono text-[10px] font-black tracking-widest uppercase">
-                  DECRYPT & READ LOG →
-                </span>
-              </div>
-            </div>
-          );
-        })}
-      </div>
+            ))}
+          </div>
+        </article>
+      </main>
 
-      {/* Empty State */}
-      {posts.length === 0 && (
-        <div className="border-4 border-dashed border-neutral-400 p-12 text-center rounded-xl bg-glass">
-          <p className="font-mono text-sm text-neutral-500 uppercase tracking-widest">
-            ERROR: NO LOGS DETECTED ON STATION CHANNELS.
-          </p>
-        </div>
-      )}
-
-      {/* Modal Detailed Reading View */}
       <PostDetailsModal post={selectedPost} onClose={() => setSelectedPost(null)} />
     </div>
   );
