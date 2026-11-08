@@ -5,9 +5,9 @@ export interface NavPageItem {
   label: string;
   heading: string;
   href: string;
-  /** Group index in the desktop header (1: core work/study, 2: media/writing, 3: CTA) */
+  /** Group index in the desktop header */
   group?: 1 | 2 | 3;
-  /** Optional 1–6 keyboard shortcut */
+  /** Optional keyboard shortcut */
   shortcut?: string;
   /** Whether to style as the primary call-to-action link (Resume ↓) */
   isCta?: boolean;
@@ -33,39 +33,12 @@ export const ALL_PAGES: NavPageItem[] = [
     showInHeader: true,
   },
   {
-    id: 'experience',
-    label: 'Work',
-    heading: 'Work',
-    href: '/work',
-    group: 1,
-    shortcut: '2',
-    showInHeader: true,
-  },
-  {
-    id: 'academics',
-    label: 'Education',
-    heading: 'Education',
-    href: '/education',
-    group: 1,
-    shortcut: '3',
-    showInHeader: true,
-  },
-  {
-    id: 'skills',
-    label: 'Skills',
-    heading: 'Skills',
-    href: '/skills',
-    group: 1,
-    shortcut: '4',
-    showInHeader: true,
-  },
-  {
     id: 'photography',
     label: 'Photography',
     heading: 'Photography',
     href: '/photography',
     group: 2,
-    shortcut: '5',
+    shortcut: '2',
     showInHeader: true,
   },
   {
@@ -74,7 +47,7 @@ export const ALL_PAGES: NavPageItem[] = [
     heading: 'Blog',
     href: '/blog',
     group: 2,
-    shortcut: '6',
+    shortcut: '3',
     showInHeader: true,
   },
   {
@@ -83,6 +56,7 @@ export const ALL_PAGES: NavPageItem[] = [
     heading: 'Resume',
     href: '/resume',
     group: 3,
+    shortcut: '4',
     isCta: true,
     showInHeader: true,
   },
@@ -102,6 +76,7 @@ export function normalizePathname(pathname: string | null): string {
   }
   if (clean === '/photos') return '/photography';
   if (clean === '/journal') return '/blog';
+  if (clean === '/work' || clean === '/education' || clean === '/skills') return '/resume';
   return clean || '/';
 }
 

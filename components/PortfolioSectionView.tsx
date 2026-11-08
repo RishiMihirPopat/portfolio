@@ -38,18 +38,23 @@ export function PortfolioSectionView({ section }: { section: BeachSectionId }) {
 
   const { repos: liveRepos } = useGithubRepos();
 
+  const resolvedSection: BeachSectionId =
+    section === 'experience' || section === 'academics' || section === 'skills'
+      ? 'resume'
+      : section;
+
   // Support legacy hash URLs (/#projects, /#work, etc.) by redirecting to real routes
   useEffect(() => {
-    if (typeof window === 'undefined' || section !== 'home') return;
+    if (typeof window === 'undefined' || resolvedSection !== 'home') return;
     const hash = window.location.hash.replace(/^#/, '').toLowerCase();
     if (!hash) return;
     const hashMap: Record<string, string> = {
       projects: '/projects',
-      work: '/work',
-      experience: '/work',
-      education: '/education',
-      academics: '/education',
-      skills: '/skills',
+      work: '/resume',
+      experience: '/resume',
+      education: '/resume',
+      academics: '/resume',
+      skills: '/resume',
       photography: '/photography',
       photos: '/photography',
       blog: '/blog',
@@ -59,7 +64,7 @@ export function PortfolioSectionView({ section }: { section: BeachSectionId }) {
     if (hashMap[hash]) {
       router.replace(hashMap[hash]);
     }
-  }, [section, router]);
+  }, [resolvedSection, router]);
 
   const allProjects = useMemo(() => {
     const seededNames = new Set(mockRepos.map((r) => r.name.toLowerCase()));
@@ -92,7 +97,7 @@ export function PortfolioSectionView({ section }: { section: BeachSectionId }) {
     };
   }, []);
 
-  const currentNav = ALL_PAGES.find((i) => i.id === section) || ALL_PAGES[0];
+  const currentNav = ALL_PAGES.find((i) => i.id === resolvedSection) || ALL_PAGES[0];
 
   const groupedSkills = useMemo(() => {
     const groups = new Map<string, string[]>();
@@ -104,7 +109,7 @@ export function PortfolioSectionView({ section }: { section: BeachSectionId }) {
     return Array.from(groups.entries());
   }, [skills]);
 
-  if (section === 'home') {
+  if (resolvedSection === 'home') {
     return (
       <div
         data-ascii-panel="true"
@@ -136,7 +141,7 @@ export function PortfolioSectionView({ section }: { section: BeachSectionId }) {
       {/* Scrolling content column over thinned scene */}
       <div data-ascii-panel="true" className="w-full space-y-4 sm:space-y-5">
         {/* PROJECTS */}
-        {section === 'projects' && (
+        {resolvedSection === 'projects' && (
           <div className="divide-y divide-line border-t border-line">
             {allProjects.map((repo: Repo) => {
               const isExternal = Boolean(
@@ -184,86 +189,8 @@ export function PortfolioSectionView({ section }: { section: BeachSectionId }) {
           </div>
         )}
 
-        {/* WORK (Professional history) */}
-        {section === 'experience' && (
-          <div className="divide-y divide-line border-t border-line">
-            {experiences.map((exp, i) => (
-              <div key={i} className="py-4 space-y-1.5">
-                <div className="flex flex-col sm:flex-row sm:items-baseline justify-between gap-1">
-                  <h2 className="font-mono text-sm sm:text-base font-normal text-ink">
-                    {exp.role} <span className="text-ink-muted">· {exp.company}</span>
-                  </h2>
-                  <span className="font-mono text-xs text-ink-muted shrink-0">
-                    {exp.duration}
-                  </span>
-                </div>
-                <p className="font-sans text-sm text-ink/90 leading-relaxed">
-                  {exp.summary}
-                </p>
-                <ul className="space-y-1 font-sans text-sm text-ink-muted list-disc pl-4">
-                  {exp.highlights.map((h, j) => (
-                    <li key={j} className="leading-relaxed">
-                      {h}
-                    </li>
-                  ))}
-                </ul>
-                {exp.stack && exp.stack.length > 0 && (
-                  <p className="font-mono text-xs text-ink-muted leading-relaxed pt-0.5">
-                    {exp.stack.join(' · ')}
-                  </p>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* EDUCATION (Academic history) */}
-        {section === 'academics' && (
-          <div className="divide-y divide-line border-t border-line">
-            {education.map((edu, i) => (
-              <div key={i} className="py-4 space-y-1.5">
-                <div className="flex flex-col sm:flex-row sm:items-baseline justify-between gap-1">
-                  <h2 className="font-mono text-sm sm:text-base font-normal text-ink">
-                    {edu.degree}
-                  </h2>
-                  <span className="font-mono text-xs text-ink-muted shrink-0">
-                    {edu.duration}
-                  </span>
-                </div>
-                <p className="font-sans text-sm text-ink/90">
-                  {edu.school}, {edu.location}
-                </p>
-                <p className="font-mono text-xs text-ink-muted leading-relaxed">
-                  {edu.specialization}
-                </p>
-                <ul className="space-y-1 font-sans text-sm text-ink-muted list-disc pl-4">
-                  {edu.highlights.map((h, j) => (
-                    <li key={j} className="leading-relaxed">
-                      {h}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* SKILLS */}
-        {section === 'skills' && (
-          <div className="divide-y divide-line border-t border-line">
-            {groupedSkills.map(([category, items]) => (
-              <div key={category} className="py-3.5 space-y-1">
-                <h2 className="font-mono text-xs text-ink-muted">{category}</h2>
-                <p className="font-mono text-sm text-ink leading-relaxed">
-                  {items.join(' · ')}
-                </p>
-              </div>
-            ))}
-          </div>
-        )}
-
         {/* PHOTOGRAPHY */}
-        {section === 'photography' && (
+        {resolvedSection === 'photography' && (
           <div className="divide-y divide-line border-t border-line">
             {photos.length === 0 ? (
               <p className="font-sans text-sm text-ink-muted py-6">
@@ -302,7 +229,7 @@ export function PortfolioSectionView({ section }: { section: BeachSectionId }) {
         )}
 
         {/* BLOG */}
-        {section === 'blog' && (
+        {resolvedSection === 'blog' && (
           <div className="divide-y divide-line border-t border-line">
             {posts.length === 0 ? (
               <p className="font-sans text-sm text-ink-muted py-6">
@@ -339,12 +266,13 @@ export function PortfolioSectionView({ section }: { section: BeachSectionId }) {
           </div>
         )}
 
-        {/* RESUME */}
-        {section === 'resume' && (
-          <div className="space-y-5 border-t border-line pt-4">
+        {/* RESUME (Combined Work, Education, and Skills) */}
+        {resolvedSection === 'resume' && (
+          <div className="space-y-6 border-t border-line pt-3">
+            {/* Top summary & PDF download */}
             <div className="flex flex-wrap items-baseline justify-between gap-4">
               <p className="font-sans text-sm text-ink-muted">
-                Curriculum vitae — academic record, research, and work history.
+                Work, education, and methods.
               </p>
               <a
                 href={`${process.env.NEXT_PUBLIC_BASE_PATH || ''}/resume.pdf`}
@@ -357,50 +285,92 @@ export function PortfolioSectionView({ section }: { section: BeachSectionId }) {
               </a>
             </div>
 
-            <div className="divide-y divide-line border-t border-line text-sm">
-              <div className="py-3.5 space-y-2">
-                <h2 className="font-mono text-xs text-ink-muted">Education</h2>
-                {education.map((edu, i) => (
-                  <div
-                    key={i}
-                    className="flex flex-col sm:flex-row sm:justify-between gap-0.5"
-                  >
-                    <div className="font-sans">
-                      <span className="text-ink font-medium">{edu.degree}</span>
-                      <span className="text-ink-muted"> · {edu.school}</span>
-                    </div>
-                    <span className="font-mono text-xs text-ink-muted shrink-0">
-                      {edu.duration}
-                    </span>
-                  </div>
-                ))}
-              </div>
-
-              <div className="py-3.5 space-y-2">
-                <h2 className="font-mono text-xs text-ink-muted">Work</h2>
+            {/* WORK */}
+            <section aria-labelledby="resume-work-heading" className="space-y-2 border-t border-line pt-4">
+              <h2 id="resume-work-heading" className="font-mono text-xs text-ink-muted">
+                Work
+              </h2>
+              <div className="divide-y divide-line">
                 {experiences.map((exp, i) => (
-                  <div
-                    key={i}
-                    className="flex flex-col sm:flex-row sm:justify-between gap-0.5"
-                  >
-                    <div className="font-sans">
-                      <span className="text-ink font-medium">{exp.role}</span>
-                      <span className="text-ink-muted"> · {exp.company}</span>
+                  <div key={i} className="py-3.5 first:pt-1.5 space-y-1.5">
+                    <div className="flex flex-col sm:flex-row sm:items-baseline justify-between gap-1">
+                      <h3 className="font-mono text-sm sm:text-base font-normal text-ink">
+                        {exp.role} <span className="text-ink-muted">· {exp.company}</span>
+                      </h3>
+                      <span className="font-mono text-xs text-ink-muted shrink-0">
+                        {exp.duration}
+                      </span>
                     </div>
-                    <span className="font-mono text-xs text-ink-muted shrink-0">
-                      {exp.duration}
-                    </span>
+                    <p className="font-sans text-sm text-ink/90 leading-relaxed">
+                      {exp.summary}
+                    </p>
+                    <ul className="space-y-1 font-sans text-sm text-ink-muted list-disc pl-4">
+                      {exp.highlights.map((h, j) => (
+                        <li key={j} className="leading-relaxed">
+                          {h}
+                        </li>
+                      ))}
+                    </ul>
+                    {exp.stack && exp.stack.length > 0 && (
+                      <p className="font-mono text-xs text-ink-muted leading-relaxed pt-0.5">
+                        {exp.stack.join(' · ')}
+                      </p>
+                    )}
                   </div>
                 ))}
               </div>
+            </section>
 
-              <div className="py-3.5 space-y-1.5">
-                <h2 className="font-mono text-xs text-ink-muted">Methods & tools</h2>
-                <p className="font-mono text-xs text-ink/90 leading-relaxed">
-                  SAS · R · Python · SQL · Regression · Experimental Design · Bayesian Computation · Deep Learning · Text Mining
-                </p>
+            {/* EDUCATION */}
+            <section aria-labelledby="resume-education-heading" className="space-y-2 border-t border-line pt-4">
+              <h2 id="resume-education-heading" className="font-mono text-xs text-ink-muted">
+                Education
+              </h2>
+              <div className="divide-y divide-line">
+                {education.map((edu, i) => (
+                  <div key={i} className="py-3.5 first:pt-1.5 space-y-1.5">
+                    <div className="flex flex-col sm:flex-row sm:items-baseline justify-between gap-1">
+                      <h3 className="font-mono text-sm sm:text-base font-normal text-ink">
+                        {edu.degree}
+                      </h3>
+                      <span className="font-mono text-xs text-ink-muted shrink-0">
+                        {edu.duration}
+                      </span>
+                    </div>
+                    <p className="font-sans text-sm text-ink/90">
+                      {edu.school}, {edu.location}
+                    </p>
+                    <p className="font-mono text-xs text-ink-muted leading-relaxed">
+                      {edu.specialization}
+                    </p>
+                    <ul className="space-y-1 font-sans text-sm text-ink-muted list-disc pl-4">
+                      {edu.highlights.map((h, j) => (
+                        <li key={j} className="leading-relaxed">
+                          {h}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ))}
               </div>
-            </div>
+            </section>
+
+            {/* SKILLS */}
+            <section aria-labelledby="resume-skills-heading" className="space-y-2 border-t border-line pt-4">
+              <h2 id="resume-skills-heading" className="font-mono text-xs text-ink-muted">
+                Skills
+              </h2>
+              <div className="divide-y divide-line">
+                {groupedSkills.map(([category, items]) => (
+                  <div key={category} className="py-3 first:pt-1.5 space-y-1">
+                    <h3 className="font-mono text-xs text-ink-muted">{category}</h3>
+                    <p className="font-mono text-sm text-ink leading-relaxed">
+                      {items.join(' · ')}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </section>
           </div>
         )}
       </div>
