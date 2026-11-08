@@ -37,7 +37,7 @@ const CONSTANT_SCENE: SceneParams = {
   shallowsSpread: 0.42,
 };
 
-export const WASH_DURATION_MS = 750;
+export const WASH_DURATION_MS = 800;
 
 // 12-step brightness ramp driven by per-cell luminance
 const RAMP = ' .,:;-=+*#%@';
@@ -379,7 +379,8 @@ export function AsciiBeachCanvas() {
         const elapsed = now - washStartRef.current;
         if (elapsed >= 0 && elapsed <= WASH_DURATION_MS) {
           washActive = true;
-          washProgress = easeInOutCubic(elapsed / WASH_DURATION_MS);
+          // Steady progression across the screen so the wave sweeps down at constant physical swell speed
+          washProgress = Math.min(1.0, elapsed / WASH_DURATION_MS);
         } else if (elapsed > WASH_DURATION_MS) {
           washActive = false;
           washStartRef.current = -1;
@@ -434,12 +435,9 @@ export function AsciiBeachCanvas() {
               Math.cos(uCol * Math.PI * 6.0 - t * 1.8) * 1.2) *
             rowScale;
 
-          const startR = Math.max(2, panelTopRow - 6) + cuspOffset;
-          const endR =
-            Math.max(
-              Math.floor(rows * 0.88),
-              Math.min(rows + 4, panelBottomRow + 8)
-            ) + cuspOffset;
+          // Viewport-anchored wave travel from right below the header down through the content into the sand
+          const startR = 2 * rowScale + cuspOffset;
+          const endR = (rows + 6 * rowScale) + cuspOffset;
 
           washCrestCol[c] = startR + (endR - startR) * washProgress;
         }
@@ -636,7 +634,7 @@ export function AsciiBeachCanvas() {
                   panelAtten = Math.min(panelAtten, smoothstep(0, homeHalo, d));
                 }
               } else {
-                const innerFloor = isPhone ? 0.11 : 0.0;
+                const innerFloor = isPhone ? 0.11 : 0.04;
                 if (d <= 0) {
                   panelAtten = Math.min(panelAtten, innerFloor);
                 } else if (d < falloffRadius) {
@@ -751,13 +749,16 @@ export function AsciiBeachCanvas() {
             const s2 = 0.38 * Math.sin(wavePhase * 2.0 - 0.85);
             const waveHeightNorm = (s1 + s2) / 1.38;
 
-            const crestEnvelope =
+            const baseCrestEnvelope =
               0.48 +
               0.52 *
                 valueNoise2D(
                   cNorm * 0.038 + uWater * 2.4 + t * 0.12,
                   uWater * 4.2 - t * 0.18
                 );
+            // Suppress ambient breaking swells while the big transition wave washes over,
+            // guaranteeing exactly ONE wave on screen during page transitions.
+            const crestEnvelope = washActive ? baseCrestEnvelope * 0.22 : baseCrestEnvelope;
 
             const wrapped =
               (((wavePhase - Math.PI * 0.42) % (Math.PI * 2)) + Math.PI * 3) %
@@ -903,14 +904,16 @@ export function AsciiBeachCanvas() {
           }
 
           // Blend in the Big Wave Wash crest & foam blanket when active
-          if (washOverlayTier >= 0 && washOverlayLuma > luma * 0.80) {
+          const isTransitionWave = washOverlayTier >= 0 && washOverlayLuma > 0.05;
+          if (isTransitionWave && washOverlayLuma > luma * 0.75) {
             luma = Math.max(luma, washOverlayLuma);
             tierIdx = washOverlayTier;
           }
 
           const dither =
             luma > 0.02 && luma < 0.78 ? (fastHash(c, r) - 0.5) * 0.075 : 0.0;
-          const finalLuma = Math.max(0, Math.min(0.999, (luma + dither) * panelAtten));
+          const atten = isTransitionWave ? 1.0 : panelAtten;
+          const finalLuma = Math.max(0, Math.min(0.999, (luma + dither) * atten));
           let charIdx = Math.floor(finalLuma * (RAMP_MAX + 1));
 
           if (!washActive && panelAtten > 0 && panelAtten < 0.35 && charIdx > 0) {

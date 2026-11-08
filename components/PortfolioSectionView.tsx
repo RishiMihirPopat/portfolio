@@ -8,6 +8,9 @@ import {
   Post,
   Skill,
   mockRepos,
+  mockPosts,
+  mockPhotos,
+  cvSkills,
   experiences,
   education,
 } from '@/lib/data';
@@ -29,9 +32,9 @@ function summarizePostContent(raw: string): string {
 
 export function PortfolioSectionView({ section }: { section: BeachSectionId }) {
   const router = useRouter();
-  const [posts, setPosts] = useState<Post[]>([]);
-  const [photos, setPhotos] = useState<Photo[]>([]);
-  const [skills, setSkills] = useState<Skill[]>([]);
+  const [posts, setPosts] = useState<Post[]>(() => mockPosts);
+  const [photos, setPhotos] = useState<Photo[]>(() => mockPhotos);
+  const [skills, setSkills] = useState<Skill[]>(() => cvSkills);
 
   const [selectedPost, setSelectedPost] = useState<Post | null>(null);
   const [selectedPhoto, setSelectedPhoto] = useState<Photo | null>(null);
@@ -69,7 +72,7 @@ export function PortfolioSectionView({ section }: { section: BeachSectionId }) {
   const allProjects = useMemo(() => {
     const seededNames = new Set(mockRepos.map((r) => r.name.toLowerCase()));
     const extras = liveRepos.filter(
-      (r) => !seededNames.has(r.name.toLowerCase()) && r.featured
+      (r) => !seededNames.has(r.name.toLowerCase())
     );
     return [...mockRepos, ...extras];
   }, [liveRepos]);

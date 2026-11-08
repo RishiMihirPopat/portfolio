@@ -19,14 +19,17 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
   const normalizedPath = normalizePathname(pathname);
   const isAdminRoute = normalizedPath.startsWith('/admin');
 
-  const [pendingPath, setPendingPath] = useState<string | null>(null);
-  const [transitionPhase, setTransitionPhase] = useState<'idle' | 'washing-away' | 'fading-in'>('idle');
+  const [transitionPhase, setTransitionPhase] = useState<
+    'idle' | 'washing-away' | 'swapping' | 'fading-in'
+  >('idle');
+  const targetPathRef = useRef<string | null>(null);
+  const isTransitioningRef = useRef(false);
+  const lastPathRef = useRef<string>(normalizedPath);
   const washTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fadeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const effectivePath = pendingPath || normalizedPath;
-  const currentPage = getPageByPathname(effectivePath);
-  const { prev: prevPage, next: nextPage } = getAdjacentPages(effectivePath);
+  const currentPage = getPageByPathname(normalizedPath);
+  const { prev: prevPage, next: nextPage } = getAdjacentPages(normalizedPath);
 
   const [isCompactNav, setIsCompactNav] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -49,7 +52,7 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
     ready: false,
   });
 
-  // Orchestrate wave wash-away and calm fade-in page transition
+  // Orchestrate single wave wash-away and calm fade-in page transition
   const navigateWithWave = useCallback(
     (targetHref: string, e?: React.MouseEvent) => {
       if (e) {
@@ -62,7 +65,7 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
       const normTarget = normalizePathname(targetHref);
       setMenuOpen(false);
 
-      if (normTarget === normalizedPath && !pendingPath) {
+      if (normTarget === normalizedPath) {
         return;
       }
 
@@ -75,10 +78,16 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
         return;
       }
 
+      // If already transitioning to this target, don't restart
+      if (isTransitioningRef.current && targetPathRef.current === normTarget) {
+        return;
+      }
+
       if (washTimerRef.current) clearTimeout(washTimerRef.current);
       if (fadeTimerRef.current) clearTimeout(fadeTimerRef.current);
 
-      setPendingPath(normTarget);
+      isTransitioningRef.current = true;
+      targetPathRef.current = normTarget;
       setTransitionPhase('washing-away');
 
       // Trigger the single ASCII beach wave to wash over the old content
@@ -86,21 +95,14 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
         window.dispatchEvent(new CustomEvent('ascii-wave-wash'));
       }
 
-      // After 360ms: wave crest has washed away the old content. Swap route and fade new content in calmly.
+      // After 520ms: wave crest has washed away the old content. Swap route.
+      // (The new page will fade in araam se as soon as Next.js finishes mounting it!)
       washTimerRef.current = setTimeout(() => {
+        setTransitionPhase('swapping');
         router.push(targetHref);
-        if (typeof window !== 'undefined') {
-          window.scrollTo({ top: 0, behavior: 'auto' });
-        }
-        setTransitionPhase('fading-in');
-
-        fadeTimerRef.current = setTimeout(() => {
-          setTransitionPhase('idle');
-          setPendingPath(null);
-        }, 460);
-      }, 360);
+      }, 520);
     },
-    [normalizedPath, pendingPath, router]
+    [normalizedPath, router]
   );
 
   // Prefetch primary routes so wave transitions swap {children} immediately
@@ -183,21 +185,30 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
     };
   }, [evaluateNavFit, updateUnderline, isCompactNav]);
 
-  // Clear pending path & update indicator when pathname settles; fade in on browser back/forward
+  // When route finishes mounting: reset scroll, fade in araam se, and clear transition states
   useEffect(() => {
-    if (pendingPath === normalizedPath) {
-      setPendingPath(null);
-    } else if (!pendingPath && transitionPhase === 'idle') {
-      setTransitionPhase('fading-in');
+    if (lastPathRef.current !== normalizedPath) {
+      lastPathRef.current = normalizedPath;
+
       if (fadeTimerRef.current) clearTimeout(fadeTimerRef.current);
+
+      if (typeof window !== 'undefined') {
+        window.scrollTo({ top: 0, behavior: 'auto' });
+      }
+
+      targetPathRef.current = null;
+      isTransitioningRef.current = false;
+      setTransitionPhase('fading-in');
+
       fadeTimerRef.current = setTimeout(() => {
         setTransitionPhase('idle');
-      }, 440);
+      }, 520);
     }
+
     setMenuOpen(false);
     const id = requestAnimationFrame(() => updateUnderline());
     return () => cancelAnimationFrame(id);
-  }, [normalizedPath, pendingPath, transitionPhase, updateUnderline]);
+  }, [normalizedPath, updateUnderline]);
 
   // Keyboard shortcuts 1–4 to navigate to the header pages with wave wash
   useEffect(() => {
@@ -217,7 +228,7 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
 
       if (e.key >= '1' && e.key <= '6') {
         const match = HEADER_NAV_ITEMS.find((item) => item.shortcut === e.key);
-        if (match && match.href !== effectivePath) {
+        if (match && match.href !== normalizedPath) {
           e.preventDefault();
           navigateWithWave(match.href);
         }
@@ -225,7 +236,7 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [isAdminRoute, effectivePath, navigateWithWave]);
+  }, [isAdminRoute, normalizedPath, navigateWithWave]);
 
   // Mobile menu Escape handling, body scroll lock, and Focus Trap
   useEffect(() => {
@@ -377,6 +388,7 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
             aria-expanded={menuOpen}
             aria-controls="mobile-primary-menu"
             aria-haspopup="true"
+            aria-label={menuOpen ? 'Close navigation menu' : 'Open navigation menu'}
             className="min-h-[44px] min-w-[44px] px-2.5 font-mono text-xs font-normal text-ink hover:opacity-85 transition-opacity cursor-pointer inline-flex items-center justify-center"
           >
             {menuOpen ? 'close' : 'menu'}
@@ -469,9 +481,11 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
       <main
         id="main-content"
         tabIndex={-1}
-        className={`flex-1 flex flex-col justify-start pt-4 sm:pt-12 pb-10 w-full focus:outline-none ${
+        className={`flex-1 flex flex-col justify-start pt-4 sm:pt-12 pb-10 w-full min-h-[calc(100lvh-140px)] focus:outline-none ${
           transitionPhase === 'washing-away'
             ? 'wave-wash-away'
+            : transitionPhase === 'swapping'
+            ? 'page-swapping'
             : transitionPhase === 'fading-in'
             ? 'calm-fade-in'
             : ''
