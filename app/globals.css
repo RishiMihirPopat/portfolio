@@ -170,44 +170,52 @@
   transition: transform 200ms ease-out, width 200ms ease-out, opacity 150ms ease-out;
 }
 
-/* Synchronized single-wave page-content transition */
-@keyframes single-wave-wipe {
+/* Wave wash away & calm fade in page transitions */
+@keyframes wave-wash-away {
   0% {
     clip-path: inset(0% 0% 0% 0%);
+    opacity: 1;
+  }
+  85% {
+    opacity: 0.92;
   }
   100% {
     clip-path: inset(100% 0% 0% 0%);
+    opacity: 0;
   }
 }
 
-@keyframes single-wave-reveal {
+@keyframes calm-fade-in {
   0% {
-    clip-path: inset(0% 0% 100% 0%);
+    opacity: 0;
+    transform: translateY(4px);
   }
   100% {
-    clip-path: inset(0% 0% 0% 0%);
+    opacity: 1;
+    transform: translateY(0);
   }
 }
 
-.single-wave-wipe {
-  animation: single-wave-wipe 750ms cubic-bezier(0.65, 0, 0.35, 1) forwards;
-  will-change: clip-path;
+.wave-wash-away {
+  animation: wave-wash-away 360ms cubic-bezier(0.35, 0, 0.25, 1) forwards;
+  pointer-events: none;
+  will-change: clip-path, opacity;
 }
 
-.single-wave-reveal {
-  animation: single-wave-reveal 750ms cubic-bezier(0.65, 0, 0.35, 1) forwards;
-  will-change: clip-path;
+.calm-fade-in {
+  animation: calm-fade-in 440ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  will-change: opacity, transform;
 }
 
 @media (prefers-reduced-motion: reduce) {
   .nav-underline-indicator,
-  .single-wave-wipe,
-  .single-wave-reveal {
+  .wave-wash-away,
+  .calm-fade-in {
     transition: none !important;
     animation: none !important;
     clip-path: none !important;
     transform: none !important;
-    filter: none !important;
+    opacity: 1 !important;
   }
 }
 

@@ -20,11 +20,9 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
   const isAdminRoute = normalizedPath.startsWith('/admin');
 
   const [pendingPath, setPendingPath] = useState<string | null>(null);
-  const [isWashing, setIsWashing] = useState(false);
-  const [outgoingChildren, setOutgoingChildren] = useState<React.ReactNode | null>(null);
-  const [outgoingHeight, setOutgoingHeight] = useState<number | null>(null);
-  const mainRef = useRef<HTMLElement>(null);
+  const [transitionPhase, setTransitionPhase] = useState<'idle' | 'washing-away' | 'fading-in'>('idle');
   const washTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const fadeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const effectivePath = pendingPath || normalizedPath;
   const currentPage = getPageByPathname(effectivePath);
@@ -51,7 +49,7 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
     ready: false,
   });
 
-  // Orchestrate the Single Big Wave Wash page transition
+  // Orchestrate wave wash-away and calm fade-in page transition
   const navigateWithWave = useCallback(
     (targetHref: string, e?: React.MouseEvent) => {
       if (e) {
@@ -78,30 +76,31 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
       }
 
       if (washTimerRef.current) clearTimeout(washTimerRef.current);
+      if (fadeTimerRef.current) clearTimeout(fadeTimerRef.current);
 
-      // Snapshot current height and content so layout remains smooth
-      if (mainRef.current) {
-        setOutgoingHeight(mainRef.current.offsetHeight);
-      }
-      setOutgoingChildren(children);
       setPendingPath(normTarget);
-      setIsWashing(true);
+      setTransitionPhase('washing-away');
 
+      // Trigger the single ASCII beach wave to wash over the old content
       if (typeof window !== 'undefined') {
-        window.scrollTo({ top: 0, behavior: 'auto' });
         window.dispatchEvent(new CustomEvent('ascii-wave-wash'));
       }
 
-      router.push(targetHref);
-
+      // After 360ms: wave crest has washed away the old content. Swap route and fade new content in calmly.
       washTimerRef.current = setTimeout(() => {
-        setIsWashing(false);
-        setOutgoingChildren(null);
-        setOutgoingHeight(null);
-        setPendingPath(null);
-      }, WASH_DURATION_MS);
+        router.push(targetHref);
+        if (typeof window !== 'undefined') {
+          window.scrollTo({ top: 0, behavior: 'auto' });
+        }
+        setTransitionPhase('fading-in');
+
+        fadeTimerRef.current = setTimeout(() => {
+          setTransitionPhase('idle');
+          setPendingPath(null);
+        }, 460);
+      }, 360);
     },
-    [children, normalizedPath, pendingPath, router]
+    [normalizedPath, pendingPath, router]
   );
 
   // Prefetch primary routes so wave transitions swap {children} immediately
@@ -115,6 +114,7 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     return () => {
       if (washTimerRef.current) clearTimeout(washTimerRef.current);
+      if (fadeTimerRef.current) clearTimeout(fadeTimerRef.current);
     };
   }, []);
 
@@ -183,15 +183,21 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
     };
   }, [evaluateNavFit, updateUnderline, isCompactNav]);
 
-  // Clear pending path & update indicator when pathname settles
+  // Clear pending path & update indicator when pathname settles; fade in on browser back/forward
   useEffect(() => {
     if (pendingPath === normalizedPath) {
       setPendingPath(null);
+    } else if (!pendingPath && transitionPhase === 'idle') {
+      setTransitionPhase('fading-in');
+      if (fadeTimerRef.current) clearTimeout(fadeTimerRef.current);
+      fadeTimerRef.current = setTimeout(() => {
+        setTransitionPhase('idle');
+      }, 440);
     }
     setMenuOpen(false);
     const id = requestAnimationFrame(() => updateUnderline());
     return () => cancelAnimationFrame(id);
-  }, [normalizedPath, pendingPath, updateUnderline]);
+  }, [normalizedPath, pendingPath, transitionPhase, updateUnderline]);
 
   // Keyboard shortcuts 1–4 to navigate to the header pages with wave wash
   useEffect(() => {
@@ -459,29 +465,19 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
         </div>
       )}
 
-      {/* Main Content Landmark — single wave washes over old content to reveal new content */}
+      {/* Main Content Landmark — wave washes away old content, then new content fades in araam se */}
       <main
-        ref={mainRef}
         id="main-content"
         tabIndex={-1}
-        className="flex-1 flex flex-col justify-start pt-4 sm:pt-12 pb-10 w-full focus:outline-none"
+        className={`flex-1 flex flex-col justify-start pt-4 sm:pt-12 pb-10 w-full focus:outline-none ${
+          transitionPhase === 'washing-away'
+            ? 'wave-wash-away'
+            : transitionPhase === 'fading-in'
+            ? 'calm-fade-in'
+            : ''
+        }`}
       >
-        <div className="relative w-full min-h-[calc(100lvh-140px)]">
-          {/* Incoming Page: Revealed from top to bottom by the single wave */}
-          <div className={isWashing ? 'w-full single-wave-reveal' : 'w-full'}>
-            {children}
-          </div>
-
-          {/* Outgoing Page: Washed away from top to bottom by the single wave */}
-          {isWashing && outgoingChildren && (
-            <div
-              aria-hidden="true"
-              className="absolute top-0 left-0 w-full pointer-events-none single-wave-wipe"
-            >
-              {outgoingChildren}
-            </div>
-          )}
-        </div>
+        {children}
       </main>
 
       {/* Quiet Footer: email & github left; previous & next page links on phone only */}
