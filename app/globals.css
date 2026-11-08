@@ -125,6 +125,24 @@
   border-radius: 0;
 }
 
+.scene-text-veil {
+  background: linear-gradient(
+    90deg,
+    rgba(11, 14, 18, 0.74) 0%,
+    rgba(11, 14, 18, 0.58) 72%,
+    rgba(11, 14, 18, 0) 100%
+  );
+}
+
+.light .scene-text-veil {
+  background: linear-gradient(
+    90deg,
+    rgba(236, 240, 237, 0.78) 0%,
+    rgba(236, 240, 237, 0.62) 72%,
+    rgba(236, 240, 237, 0) 100%
+  );
+}
+
 .quiet-link {
   color: var(--ink-nav);
   font-weight: 400;

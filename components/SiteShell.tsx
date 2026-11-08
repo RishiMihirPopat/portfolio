@@ -4,14 +4,12 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import {
-  ALL_PAGES,
   HEADER_NAV_ITEMS,
   getAdjacentPages,
   getPageByPathname,
   normalizePathname,
 } from '@/lib/navigation';
 import { profileData } from '@/lib/data';
-import { BeachSectionId } from '@/components/AsciiBeachCanvas';
 import { ThemeToggle } from '@/components/ThemeToggle';
 
 export function SiteShell({ children }: { children: React.ReactNode }) {
@@ -44,14 +42,6 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
     ready: false,
   });
 
-  const dispatchPreview = useCallback((section: BeachSectionId | null) => {
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(
-        new CustomEvent('ascii-section-preview', { detail: { section } })
-      );
-    }
-  }, []);
-
   // Recompute desktop sliding underline position and width
   const updateUnderline = useCallback(() => {
     const navEl = desktopNavRef.current;
@@ -75,20 +65,13 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
       left,
       width,
       visible: true,
-      ready: prev.visible, // animate only when moving from one visible link to another
+      ready: prev.visible,
     }));
   }, [currentPage.id, currentPage.showInHeader]);
 
-  // Measure whether desktop nav links fit without clipping, or switch below 760px
   const evaluateNavFit = useCallback(() => {
     if (typeof window === 'undefined') return;
-    const vw = window.innerWidth;
-    if (vw < 760) {
-      setIsCompactNav(true);
-      return;
-    }
-    // At >= 760px, verify the header has comfortable room for brand + nav + theme toggle
-    setIsCompactNav(false);
+    setIsCompactNav(window.innerWidth < 760);
   }, []);
 
   useEffect(() => {
@@ -127,12 +110,11 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
   // Close mobile menu and update indicator on route change
   useEffect(() => {
     setMenuOpen(false);
-    dispatchPreview(null);
     const id = requestAnimationFrame(() => updateUnderline());
     return () => cancelAnimationFrame(id);
-  }, [normalizedPath, updateUnderline, dispatchPreview]);
+  }, [normalizedPath, updateUnderline]);
 
-  // Keyboard shortcuts 1–6 to navigate to the first six pages (ignored when typing in an input)
+  // Keyboard shortcuts 1–4 to navigate to the header pages (ignored when typing in an input)
   useEffect(() => {
     if (isAdminRoute) return;
     const onKeyDown = (e: KeyboardEvent) => {
@@ -167,7 +149,6 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
 
-    // Focus the first link inside the mobile menu on open
     const focusTimer = requestAnimationFrame(() => {
       const container = mobileOverlayRef.current;
       if (!container) return;
@@ -232,16 +213,11 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
       {/* Header on one row: Name left, nav links right at desktop, menu button below 760px */}
       <header
         ref={headerRef}
-        data-ascii-header="true"
         className="flex items-center justify-between gap-4 w-full whitespace-nowrap relative z-30"
       >
         <Link
           href="/"
           aria-current={currentPage.id === 'home' ? 'page' : undefined}
-          onMouseEnter={() => dispatchPreview('home')}
-          onMouseLeave={() => dispatchPreview(null)}
-          onFocus={() => dispatchPreview('home')}
-          onBlur={() => dispatchPreview(null)}
           className="font-mono text-xs font-normal text-ink hover:opacity-85 transition-opacity min-h-[44px] inline-flex items-center shrink-0"
         >
           Rishi Popat
@@ -271,10 +247,6 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
                   }}
                   href={item.href}
                   aria-current={isActive ? 'page' : undefined}
-                  onMouseEnter={() => dispatchPreview(item.id)}
-                  onMouseLeave={() => dispatchPreview(null)}
-                  onFocus={() => dispatchPreview(item.id)}
-                  onBlur={() => dispatchPreview(null)}
                   className={`min-h-[44px] inline-flex items-center font-normal shrink-0 ${
                     idx === 0 ? '' : isNewGroup ? 'ml-6 lg:ml-8' : 'ml-3.5 lg:ml-4'
                   } ${item.isCta ? 'nav-cta-link' : 'quiet-link'}`}
@@ -378,8 +350,6 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
                   href={item.href}
                   aria-current={isActive ? 'page' : undefined}
                   onClick={() => setMenuOpen(false)}
-                  onFocus={() => dispatchPreview(item.id)}
-                  onBlur={() => dispatchPreview(null)}
                   className={`min-h-[48px] w-full flex items-center justify-between py-2.5 font-normal ${
                     item.isCta ? 'text-ink' : isActive ? 'text-ink' : 'text-ink-nav'
                   }`}
@@ -416,11 +386,8 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
         {children}
       </main>
 
-      {/* Quiet Footer: email & github left, previous & next page links right, no visible admin link */}
-      <footer
-        data-ascii-footer="true"
-        className="flex flex-wrap items-center justify-between gap-x-6 gap-y-1 font-mono text-xs text-ink-nav w-full relative z-20"
-      >
+      {/* Quiet Footer: email & github left, previous & next page links right */}
+      <footer className="flex flex-wrap items-center justify-between gap-x-6 gap-y-1 font-mono text-xs text-ink-nav w-full relative z-20">
         <div className="flex items-center gap-5">
           <a
             href={`mailto:${profileData.email}`}
@@ -438,16 +405,9 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
           </a>
         </div>
 
-        <nav
-          aria-label="Page sequence"
-          className="flex items-center gap-5 ml-auto"
-        >
+        <nav aria-label="Page sequence" className="flex items-center gap-5 ml-auto">
           <Link
             href={prevPage.href}
-            onMouseEnter={() => dispatchPreview(prevPage.id)}
-            onMouseLeave={() => dispatchPreview(null)}
-            onFocus={() => dispatchPreview(prevPage.id)}
-            onBlur={() => dispatchPreview(null)}
             aria-label={`Previous page: ${prevPage.label}`}
             className="quiet-link min-h-[44px] inline-flex items-center gap-1.5"
           >
@@ -456,10 +416,6 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
           </Link>
           <Link
             href={nextPage.href}
-            onMouseEnter={() => dispatchPreview(nextPage.id)}
-            onMouseLeave={() => dispatchPreview(null)}
-            onFocus={() => dispatchPreview(nextPage.id)}
-            onBlur={() => dispatchPreview(null)}
             aria-label={`Next page: ${nextPage.label}`}
             className="quiet-link min-h-[44px] inline-flex items-center gap-1.5"
           >

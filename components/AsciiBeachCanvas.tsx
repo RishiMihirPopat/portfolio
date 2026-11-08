@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-import { usePathname } from 'next/navigation';
 import { useTheme } from 'next-themes';
 
 export type BeachSectionId =
@@ -15,8 +14,8 @@ export type BeachSectionId =
   | 'skills';
 
 export interface SceneParams {
-  shoreAngle: number; // Gentle diagonal/bay tilt of the coastline in top-down view
-  tidePosition: number; // Mean shoreline position (~0.62–0.68 from top)
+  shoreAngle: number;
+  tidePosition: number;
   swellSpeed: number;
   foamDensity: number;
   waveHeight: number;
@@ -25,122 +24,17 @@ export interface SceneParams {
   shallowsSpread: number;
 }
 
-export const SECTION_PRESETS: Record<BeachSectionId, SceneParams> = {
-  home: {
-    shoreAngle: 0.06,
-    tidePosition: 0.64,
-    swellSpeed: 0.90,
-    foamDensity: 1.0,
-    waveHeight: 1.08,
-    waveFreq: 1.0,
-    brightness: 1.0,
-    shallowsSpread: 0.42,
-  },
-  projects: {
-    shoreAngle: -0.05,
-    tidePosition: 0.60,
-    swellSpeed: 1.22,
-    foamDensity: 1.18,
-    waveHeight: 1.32,
-    waveFreq: 1.24,
-    brightness: 1.04,
-    shallowsSpread: 0.46,
-  },
-  photography: {
-    shoreAngle: 0.08,
-    tidePosition: 0.65,
-    swellSpeed: 0.72,
-    foamDensity: 0.94,
-    waveHeight: 0.94,
-    waveFreq: 0.82,
-    brightness: 1.15,
-    shallowsSpread: 0.50,
-  },
-  blog: {
-    shoreAngle: 0.03,
-    tidePosition: 0.63,
-    swellSpeed: 0.78,
-    foamDensity: 1.10,
-    waveHeight: 0.86,
-    waveFreq: 0.90,
-    brightness: 0.92,
-    shallowsSpread: 0.38,
-  },
-  resume: {
-    shoreAngle: 0.04,
-    tidePosition: 0.68,
-    swellSpeed: 0.52,
-    foamDensity: 0.78,
-    waveHeight: 0.56,
-    waveFreq: 0.72,
-    brightness: 0.96,
-    shallowsSpread: 0.36,
-  },
-  experience: {
-    shoreAngle: -0.03,
-    tidePosition: 0.67,
-    swellSpeed: 0.55,
-    foamDensity: 0.82,
-    waveHeight: 0.60,
-    waveFreq: 0.75,
-    brightness: 0.96,
-    shallowsSpread: 0.38,
-  },
-  academics: {
-    shoreAngle: 0.05,
-    tidePosition: 0.68,
-    swellSpeed: 0.48,
-    foamDensity: 0.75,
-    waveHeight: 0.52,
-    waveFreq: 0.68,
-    brightness: 0.94,
-    shallowsSpread: 0.36,
-  },
-  skills: {
-    shoreAngle: -0.04,
-    tidePosition: 0.65,
-    swellSpeed: 0.64,
-    foamDensity: 0.88,
-    waveHeight: 0.68,
-    waveFreq: 0.80,
-    brightness: 0.98,
-    shallowsSpread: 0.40,
-  },
+// Constant scene parameters — unaffected by page changes or scrolling
+const CONSTANT_SCENE: SceneParams = {
+  shoreAngle: 0.05,
+  tidePosition: 0.64,
+  swellSpeed: 0.88,
+  foamDensity: 1.0,
+  waveHeight: 1.05,
+  waveFreq: 1.0,
+  brightness: 1.0,
+  shallowsSpread: 0.42,
 };
-
-function pathnameToSection(pathname: string | null): BeachSectionId {
-  if (!pathname) return 'home';
-  const basePath = process.env.NEXT_PUBLIC_BASE_PATH || '';
-  let clean = pathname;
-  if (basePath && clean.startsWith(basePath)) {
-    clean = clean.slice(basePath.length) || '/';
-  }
-  if (clean.length > 1 && clean.endsWith('/')) {
-    clean = clean.slice(0, -1);
-  }
-  switch (clean) {
-    case '/projects':
-      return 'projects';
-    case '/work':
-    case '/experience':
-      return 'experience';
-    case '/education':
-    case '/academics':
-      return 'academics';
-    case '/skills':
-      return 'skills';
-    case '/photography':
-    case '/photos':
-      return 'photography';
-    case '/blog':
-    case '/journal':
-      return 'blog';
-    case '/resume':
-      return 'resume';
-    default:
-      return 'home';
-  }
-}
 
 // 12-step brightness ramp driven by per-cell luminance
 const RAMP = ' .,:;-=+*#%@';
@@ -216,147 +110,17 @@ function fastHash(c: number, r: number): number {
   return ((n ^ (n >>> 16)) >>> 0) / 4294967295;
 }
 
-function easeInOutCubic(t: number): number {
-  return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
-}
-
 function smoothstep(edge0: number, edge1: number, x: number): number {
   const t = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0)));
   return t * t * (3 - 2 * t);
 }
 
-function lerpParamsLinear(a: SceneParams, b: SceneParams, t: number): SceneParams {
-  const cl = Math.max(0, Math.min(1, t));
-  return {
-    shoreAngle: a.shoreAngle + (b.shoreAngle - a.shoreAngle) * cl,
-    tidePosition: a.tidePosition + (b.tidePosition - a.tidePosition) * cl,
-    swellSpeed: a.swellSpeed + (b.swellSpeed - a.swellSpeed) * cl,
-    foamDensity: a.foamDensity + (b.foamDensity - a.foamDensity) * cl,
-    waveHeight: a.waveHeight + (b.waveHeight - a.waveHeight) * cl,
-    waveFreq: a.waveFreq + (b.waveFreq - a.waveFreq) * cl,
-    brightness: a.brightness + (b.brightness - a.brightness) * cl,
-    shallowsSpread: a.shallowsSpread + (b.shallowsSpread - a.shallowsSpread) * cl,
-  };
-}
-
-function lerpParams(a: SceneParams, b: SceneParams, t: number): SceneParams {
-  return lerpParamsLinear(a, b, easeInOutCubic(Math.max(0, Math.min(1, t))));
-}
-
-function sdRoundedBox(
-  px: number,
-  py: number,
-  left: number,
-  top: number,
-  right: number,
-  bottom: number,
-  radius: number
-): number {
-  const cx = (left + right) * 0.5;
-  const cy = (top + bottom) * 0.5;
-  const hx = Math.max(0, (right - left) * 0.5 - radius);
-  const hy = Math.max(0, (bottom - top) * 0.5 - radius);
-  const dx = Math.abs(px - cx) - hx;
-  const dy = Math.abs(py - cy) - hy;
-  const outDist = Math.hypot(Math.max(dx, 0), Math.max(dy, 0));
-  const inDist = Math.min(Math.max(dx, dy), 0);
-  return outDist + inDist - radius;
-}
-
 const NUM_TIERS = 8;
 
-interface AsciiBeachCanvasProps {
-  activeSection?: BeachSectionId;
-}
-
-export function AsciiBeachCanvas({ activeSection }: AsciiBeachCanvasProps) {
+export function AsciiBeachCanvas() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const pathname = usePathname();
   const { resolvedTheme } = useTheme();
-  const routeSection = activeSection || pathnameToSection(pathname);
-  const activeSecRef = useRef<BeachSectionId>(routeSection);
   const reducedMotionRef = useRef<boolean>(false);
-  const requestStaticDrawRef = useRef<(() => void) | null>(null);
-
-  const transitionRef = useRef<{
-    from: SceneParams;
-    to: SceneParams;
-    current: SceneParams;
-    startTime: number;
-    duration: number;
-  }>({
-    from: SECTION_PRESETS[routeSection] || SECTION_PRESETS.home,
-    to: SECTION_PRESETS[routeSection] || SECTION_PRESETS.home,
-    current: { ...(SECTION_PRESETS[routeSection] || SECTION_PRESETS.home) },
-    startTime: 0,
-    duration: 1200,
-  });
-
-  // Trigger 1.2s scene morph when the route changes
-  useEffect(() => {
-    const nextSec = activeSection || pathnameToSection(pathname);
-    activeSecRef.current = nextSec;
-    const target = SECTION_PRESETS[nextSec] || SECTION_PRESETS.home;
-    const dur = reducedMotionRef.current ? 0 : 1200;
-    transitionRef.current = {
-      from: { ...transitionRef.current.current },
-      to: target,
-      current: dur === 0 ? { ...target } : { ...transitionRef.current.current },
-      startTime: performance.now(),
-      duration: dur,
-    };
-    if (requestStaticDrawRef.current) {
-      requestStaticDrawRef.current();
-    }
-  }, [pathname, activeSection]);
-
-  // Support custom events: full section change + 30% hover/focus preview
-  useEffect(() => {
-    const handleSectionEvent = (ev: Event) => {
-      const customEv = ev as CustomEvent<BeachSectionId>;
-      const sec = customEv.detail;
-      if (sec && SECTION_PRESETS[sec]) {
-        activeSecRef.current = sec;
-        const dur = reducedMotionRef.current ? 0 : 1200;
-        transitionRef.current = {
-          from: { ...transitionRef.current.current },
-          to: SECTION_PRESETS[sec],
-          current: dur === 0 ? { ...SECTION_PRESETS[sec] } : { ...transitionRef.current.current },
-          startTime: performance.now(),
-          duration: dur,
-        };
-        if (requestStaticDrawRef.current) requestStaticDrawRef.current();
-      }
-    };
-
-    const handlePreviewEvent = (ev: Event) => {
-      const customEv = ev as CustomEvent<{ section: BeachSectionId | null }>;
-      const previewSec = customEv.detail?.section ?? null;
-      const basePreset = SECTION_PRESETS[activeSecRef.current] || SECTION_PRESETS.home;
-
-      const targetPreset =
-        previewSec && SECTION_PRESETS[previewSec] && previewSec !== activeSecRef.current
-          ? lerpParamsLinear(basePreset, SECTION_PRESETS[previewSec], 0.3)
-          : basePreset;
-
-      const dur = reducedMotionRef.current ? 0 : 320;
-      transitionRef.current = {
-        from: { ...transitionRef.current.current },
-        to: targetPreset,
-        current: dur === 0 ? { ...targetPreset } : { ...transitionRef.current.current },
-        startTime: performance.now(),
-        duration: dur,
-      };
-      if (requestStaticDrawRef.current) requestStaticDrawRef.current();
-    };
-
-    window.addEventListener('ascii-section-change', handleSectionEvent);
-    window.addEventListener('ascii-section-preview', handlePreviewEvent);
-    return () => {
-      window.removeEventListener('ascii-section-change', handleSectionEvent);
-      window.removeEventListener('ascii-section-preview', handlePreviewEvent);
-    };
-  }, []);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -370,7 +134,6 @@ export function AsciiBeachCanvas({ activeSection }: AsciiBeachCanvasProps) {
     let rafId = 0;
     let isTabHidden = document.hidden;
     let lastFrameTime = 0;
-    let fastScrollPauseUntil = 0;
 
     let fpsFrameCount = 0;
     let fpsWindowStart = performance.now();
@@ -397,64 +160,6 @@ export function AsciiBeachCanvas({ activeSection }: AsciiBeachCanvasProps) {
     let rowCharIdx = new Uint8Array(cols);
     let rowTierIdx = new Uint8Array(cols);
 
-    let mouseNormX = 0;
-    let mouseNormY = 0;
-    let targetMouseX = 0;
-    let targetMouseY = 0;
-    let scrollY = window.scrollY || 0;
-    let smoothScrollY = scrollY;
-
-    let panelRect = { left: -9999, top: -9999, right: -9999, bottom: -9999, valid: false };
-    let headingRect = { left: -9999, top: -9999, right: -9999, bottom: -9999, valid: false };
-    let headerRect = { left: -9999, top: -9999, right: -9999, bottom: -9999, valid: false };
-    let footerRect = { left: -9999, top: -9999, right: -9999, bottom: -9999, valid: false };
-
-    const measurePanel = () => {
-      const el = document.querySelector('[data-ascii-panel="true"]');
-      if (el) {
-        const r = el.getBoundingClientRect();
-        panelRect =
-          r.width > 10 && r.height > 10
-            ? { left: r.left, top: r.top, right: r.right, bottom: r.bottom, valid: true }
-            : { left: -9999, top: -9999, right: -9999, bottom: -9999, valid: false };
-      } else {
-        panelRect.valid = false;
-      }
-
-      const hdg = document.querySelector('[data-ascii-heading="true"]');
-      if (hdg) {
-        const hr = hdg.getBoundingClientRect();
-        headingRect =
-          hr.width > 10 && hr.height > 8
-            ? { left: hr.left, top: hr.top, right: hr.right, bottom: hr.bottom, valid: true }
-            : { left: -9999, top: -9999, right: -9999, bottom: -9999, valid: false };
-      } else {
-        headingRect.valid = false;
-      }
-
-      const hdr = document.querySelector('[data-ascii-header="true"]');
-      if (hdr) {
-        const hr = hdr.getBoundingClientRect();
-        headerRect =
-          hr.width > 10 && hr.height > 10
-            ? { left: hr.left, top: hr.top, right: hr.right, bottom: hr.bottom, valid: true }
-            : { left: -9999, top: -9999, right: -9999, bottom: -9999, valid: false };
-      } else {
-        headerRect.valid = false;
-      }
-
-      const ftr = document.querySelector('[data-ascii-footer="true"]');
-      if (ftr) {
-        const fr = ftr.getBoundingClientRect();
-        footerRect =
-          fr.width > 10 && fr.height > 5
-            ? { left: fr.left, top: fr.top, right: fr.right, bottom: fr.bottom, valid: true }
-            : { left: -9999, top: -9999, right: -9999, bottom: -9999, valid: false };
-      } else {
-        footerRect.valid = false;
-      }
-    };
-
     const setupGrid = (force = false) => {
       const nextW = window.innerWidth;
       const nextH = Math.max(window.innerHeight, document.documentElement.clientHeight || 0);
@@ -466,7 +171,6 @@ export function AsciiBeachCanvas({ activeSection }: AsciiBeachCanvasProps) {
         Math.abs(nextW - lastSetupWidth) < 2 &&
         Math.abs(nextH - lastSetupHeight) < 125
       ) {
-        measurePanel();
         return;
       }
 
@@ -477,7 +181,6 @@ export function AsciiBeachCanvas({ activeSection }: AsciiBeachCanvasProps) {
 
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
 
-      // On phones (< 760px), reduce cell count for smooth 24fps battery-friendly rendering
       const isPhone = width < 760;
       fontSize = isPhone ? 9 : 8;
       cellH = isPhone ? 9.5 : 8.5;
@@ -536,15 +239,13 @@ export function AsciiBeachCanvas({ activeSection }: AsciiBeachCanvasProps) {
         bayArchTable[c] = arch;
 
         const baseTide = isPhone ? 0.56 : 0.64;
-        const initShore = Math.floor(rows * (baseTide + arch + (uCol - 0.5) * 0.06));
+        const initShore = Math.floor(rows * (baseTide + arch + (uCol - 0.5) * 0.05));
         const maxReach = Math.floor(initShore + initSwash);
         for (let r = initShore; r <= Math.min(rows - 1, maxReach); r++) {
           const frac = 1.0 - (r - initShore) / Math.max(1, maxReach - initShore);
           wetSandBuffer[r * cols + c] = 0.20 + 0.65 * frac;
         }
       }
-
-      measurePanel();
     };
 
     const firstCol = new Int32Array(NUM_TIERS);
@@ -552,20 +253,10 @@ export function AsciiBeachCanvas({ activeSection }: AsciiBeachCanvasProps) {
 
     const drawScene = (now: number) => {
       const t = reducedMotionRef.current ? 12.5 : now * 0.001;
-
-      mouseNormX += (targetMouseX - mouseNormX) * 0.05;
-      mouseNormY += (targetMouseY - mouseNormY) * 0.05;
-      smoothScrollY += (scrollY - smoothScrollY) * 0.12;
-
-      const tr = transitionRef.current;
-      const elapsed = now - tr.startTime;
-      const progress = tr.duration > 0 ? Math.min(1, elapsed / tr.duration) : 1;
-      tr.current = lerpParams(tr.from, tr.to, progress);
-      const P = tr.current;
+      const P = CONSTANT_SCENE;
 
       const isLight =
         document.documentElement.classList.contains('light') || resolvedTheme === 'light';
-      const isHome = activeSecRef.current === 'home';
       const isPhone = width < 760;
 
       ctx.clearRect(0, 0, width, height);
@@ -573,13 +264,10 @@ export function AsciiBeachCanvas({ activeSection }: AsciiBeachCanvasProps) {
       const rowScale = rows / 64;
       const invRowScale = 1 / rowScale;
       const invColScale = 180 / cols;
-      const scrollRowShift = (smoothScrollY / cellH) * 0.22;
 
       const swashZoneRows = Math.max(8, Math.floor(rows * 0.125));
       const swashScale = swashZoneRows * Math.min(1.35, P.waveHeight);
-
-      // Raise shoreline on mobile so there is no dead gap between the hero/header and the active waves
-      const effectiveTide = isPhone ? P.tidePosition * 0.80 : P.tidePosition;
+      const effectiveTide = isPhone ? P.tidePosition * 0.84 : P.tidePosition;
 
       // Compute top-down shoreline contour & scalloped swash tongues across columns
       for (let c = 0; c < cols; c++) {
@@ -587,19 +275,15 @@ export function AsciiBeachCanvas({ activeSection }: AsciiBeachCanvasProps) {
         const shoreRatio =
           effectiveTide +
           bayArchTable[c] +
-          (uCol - 0.5) * (P.shoreAngle + mouseNormX * 0.03) +
+          (uCol - 0.5) * P.shoreAngle +
           (valueNoise2D(uCol * 5.0 + t * 0.04, t * 0.08) - 0.5) * 0.025;
 
         const bRow = Math.max(
           Math.floor(rows * 0.26),
-          Math.min(
-            rows - Math.floor(13 * rowScale),
-            rows * shoreRatio + mouseNormY * 1.2 * rowScale - scrollRowShift * 0.30
-          )
+          Math.min(rows - Math.floor(13 * rowScale), rows * shoreRatio)
         );
         baseShoreCol[c] = bRow;
 
-        // Overlapping scalloped swash tongues (beach cusps) surging up the shore
         const tongue1 = 0.5 + 0.5 * Math.sin(t * (1.15 * P.waveFreq) - uCol * Math.PI * 2.6);
         const tongue2 =
           0.5 + 0.5 * Math.sin(t * (0.85 * P.waveFreq) + uCol * Math.PI * 3.8 + 1.4);
@@ -643,35 +327,6 @@ export function AsciiBeachCanvas({ activeSection }: AsciiBeachCanvasProps) {
       ctx.fillStyle = bgGrad;
       ctx.fillRect(0, 0, width, height);
 
-      // In Light Mode, add a soft feathered readability veil behind the active text column, header & footer
-      if (isLight) {
-        if (headerRect.valid) {
-          const hGrad = ctx.createLinearGradient(0, 0, 0, headerRect.bottom + 55);
-          hGrad.addColorStop(0, 'hsla(195, 25%, 94%, 0.52)');
-          hGrad.addColorStop(1, 'hsla(195, 25%, 94%, 0.0)');
-          ctx.fillStyle = hGrad;
-          ctx.fillRect(0, 0, width, headerRect.bottom + 55);
-        }
-        if (panelRect.valid) {
-          const cx = (panelRect.left + panelRect.right) * 0.5;
-          const cy = (panelRect.top + panelRect.bottom) * 0.5;
-          const rx = Math.max(260, (panelRect.right - panelRect.left) * 0.85 + 140);
-          const ry = Math.max(180, (panelRect.bottom - panelRect.top) * 0.75 + 120);
-          ctx.save();
-          ctx.translate(cx, cy);
-          ctx.scale(1, ry / rx);
-          const veil = ctx.createRadialGradient(0, 0, rx * 0.15, 0, 0, rx);
-          veil.addColorStop(0, 'hsla(42, 30%, 96%, 0.64)');
-          veil.addColorStop(0.65, 'hsla(42, 28%, 95%, 0.36)');
-          veil.addColorStop(1, 'hsla(42, 28%, 95%, 0.0)');
-          ctx.fillStyle = veil;
-          ctx.beginPath();
-          ctx.arc(0, 0, rx, 0, Math.PI * 2);
-          ctx.fill();
-          ctx.restore();
-        }
-      }
-
       // 8 Top-Down Coastal Color Tiers
       const tiers = isLight
         ? [
@@ -697,9 +352,6 @@ export function AsciiBeachCanvas({ activeSection }: AsciiBeachCanvasProps) {
 
       ctx.font = resolvedFontStr;
 
-      const falloffRadius = isPhone ? 90 : 145;
-      const headerFalloff = 60; // ~60px falloff band behind header as requested
-      const footerFalloff = 55; // ~55px falloff band behind footer
       const tInt4 = Math.floor(t * 4);
       const tInt2 = Math.floor(t * 2);
 
@@ -709,141 +361,14 @@ export function AsciiBeachCanvas({ activeSection }: AsciiBeachCanvasProps) {
           lastCol[b] = -1;
         }
 
-        const py = (r + 0.5) * cellH;
         const rNorm = r * invRowScale;
         const rowWobble =
           ((valueNoise2D(rNorm * 0.42 + t * 0.24, t * 0.18) - 0.5) * 2.2 +
             Math.sin(rNorm * 0.9 + t * 0.6) * 0.65) *
           rowScale;
 
-        const checkHeader =
-          headerRect.valid &&
-          py >= headerRect.top - headerFalloff &&
-          py <= headerRect.bottom + headerFalloff;
-        const checkFooter =
-          footerRect.valid &&
-          py >= footerRect.top - footerFalloff &&
-          py <= footerRect.bottom + footerFalloff;
-        const checkHeading =
-          headingRect.valid &&
-          py >= headingRect.top - 36 &&
-          py <= headingRect.bottom + 36;
-        const checkPanel =
-          panelRect.valid &&
-          py >= panelRect.top - falloffRadius - 24 &&
-          py <= panelRect.bottom + falloffRadius + 24;
-
         for (let c = 0; c < cols; c++) {
-          const px = (c + 0.5) * cellW;
           const cNorm = c * invColScale;
-
-          let panelAtten = 1.0;
-          let wakeRipple = 0.0;
-          let wakeFoam = 0.0;
-
-          // Header band: thin out and soften characters with a ~60px falloff
-          if (checkHeader) {
-            const hd = sdRoundedBox(
-              px,
-              py,
-              headerRect.left - 8,
-              headerRect.top - 4,
-              headerRect.right + 8,
-              headerRect.bottom + 4,
-              8
-            );
-            if (hd < headerFalloff) {
-              const hFactor = hd <= 0 ? 0.0 : smoothstep(0, headerFalloff, hd);
-              panelAtten = Math.min(panelAtten, hFactor);
-            }
-          }
-
-          // Footer band: thin out and soften characters behind footer links
-          if (checkFooter) {
-            const fd = sdRoundedBox(
-              px,
-              py,
-              footerRect.left - 8,
-              footerRect.top - 4,
-              footerRect.right + 8,
-              footerRect.bottom + 4,
-              8
-            );
-            if (fd < footerFalloff) {
-              const fFactor = fd <= 0 ? 0.0 : smoothstep(0, footerFalloff, fd);
-              panelAtten = Math.min(panelAtten, fFactor);
-            }
-          }
-
-          // Heading overlay in the 22vh top scene strip on mobile content pages
-          if (checkHeading) {
-            const hdgDist = sdRoundedBox(
-              px,
-              py,
-              headingRect.left - 6,
-              headingRect.top - 3,
-              headingRect.right + 6,
-              headingRect.bottom + 3,
-              8
-            );
-            if (hdgDist < 30) {
-              const hdgFactor = hdgDist <= 0 ? 0.0 : smoothstep(0, 30, hdgDist);
-              panelAtten = Math.min(panelAtten, hdgFactor);
-            }
-          }
-
-          // Main content column attenuation & wave ripple
-          if (checkPanel && px <= panelRect.right + falloffRadius + 24) {
-            const rawDist = sdRoundedBox(
-              px,
-              py,
-              panelRect.left - 4,
-              panelRect.top - 4,
-              panelRect.right + 4,
-              panelRect.bottom + 4,
-              18
-            );
-            if (rawDist < falloffRadius + 24) {
-              const boundaryNoise =
-                (valueNoise2D(cNorm * 0.075 + t * 0.18, rNorm * 0.075) - 0.5) *
-                (isPhone ? 16.0 : 30.0);
-              const d = rawDist + boundaryNoise;
-
-              if (isHome) {
-                const homeHalo = isPhone ? 34 : 80;
-                if (d <= 0) {
-                  panelAtten = 0.0;
-                } else if (d < homeHalo) {
-                  panelAtten = Math.min(panelAtten, smoothstep(0, homeHalo, d));
-                }
-              } else {
-                // On mobile content pages, keep a heavily thinned scene (~0.11, whispered '.' dots on wave crests)
-                // behind scrolling content so the page-to-page morph stays visible while text stays 100% clean
-                const innerFloor = isPhone ? 0.11 : 0.0;
-                if (d <= 0) {
-                  panelAtten = Math.min(panelAtten, innerFloor);
-                } else if (d < falloffRadius) {
-                  const f = smoothstep(0, falloffRadius, d);
-                  panelAtten = Math.min(panelAtten, innerFloor + (1 - innerFloor) * f);
-                  const w = 1.0 - d / falloffRadius;
-                  wakeRipple = w * w * Math.sin(d * 0.16 - t * 2.6);
-                  if (d > 14 && d < 58) {
-                    const ring = 1.0 - Math.abs(d - 36) / 22;
-                    wakeFoam =
-                      Math.max(0, ring) *
-                      0.48 *
-                      (0.5 + 0.5 * Math.sin(cNorm * 0.22 + rNorm * 0.15 - t * 2.8));
-                  }
-                }
-              }
-            }
-          }
-
-          if (panelAtten <= 0.01) {
-            rowCharIdx[c] = 0;
-            continue;
-          }
-
           let luma = 0.0;
           let tierIdx = 0;
 
@@ -868,9 +393,7 @@ export function AsciiBeachCanvas({ activeSection }: AsciiBeachCanvasProps) {
             const wavePhase =
               shoalCoord -
               t * (2.15 * P.waveFreq * P.swellSpeed) +
-              lateralBend -
-              scrollRowShift * invRowScale * 0.25 +
-              wakeRipple * 2.4;
+              lateralBend;
 
             const s1 = Math.sin(wavePhase);
             const s2 = 0.38 * Math.sin(wavePhase * 2.0 - 0.85);
@@ -908,10 +431,10 @@ export function AsciiBeachCanvas({ activeSection }: AsciiBeachCanvasProps) {
               );
               if (crestCore + foamPatch * 0.35 > 0.32) {
                 luma = Math.min(0.99, (0.78 + 0.21 * crestCore) * P.brightness);
-                tierIdx = 5; // Crisp white surf foam
+                tierIdx = 5;
               } else {
                 luma = (0.58 + 0.18 * crestCore) * P.brightness;
-                tierIdx = 4; // Lacy seafoam wake
+                tierIdx = 4;
               }
             } else if (
               wrapped < -crestHalfWidth &&
@@ -943,7 +466,7 @@ export function AsciiBeachCanvas({ activeSection }: AsciiBeachCanvasProps) {
               luma = (0.30 + 0.36 * shadowFactor * shoalIntensity) * P.brightness;
               tierIdx = 3;
             } else {
-              // Unbroken ocean swells, caustics & flowing upper-band drift (ensuring no dead gap at the top)
+              // Unbroken ocean swells, caustics & flowing upper-band drift
               const swellFactor = (waveHeightNorm + 1.0) * 0.5;
               const caustic = valueNoise2D(cNorm * 0.14 + t * 0.25, rNorm * 0.22 - t * 0.2);
               const upperFlow = fbm(cNorm * 0.045 - t * 0.08, rNorm * 0.16 + t * 0.05, 3);
@@ -954,7 +477,6 @@ export function AsciiBeachCanvas({ activeSection }: AsciiBeachCanvasProps) {
                   P.brightness;
                 tierIdx = uWater > 0.52 ? 2 : uWater > 0.24 ? 1 : 0;
               } else if (upperFlow > 0.52 && uWater < 0.42) {
-                // Flowing upper-ocean swell/cloud drift so the top band behind hero text has organic motion
                 luma = (0.20 + (upperFlow - 0.52) * 0.75) * P.brightness;
                 tierIdx = upperFlow > 0.66 ? 1 : 0;
               } else if (caustic > 0.64) {
@@ -966,18 +488,13 @@ export function AsciiBeachCanvas({ activeSection }: AsciiBeachCanvasProps) {
                 tierIdx = uWater > 0.50 ? 2 : 0;
               }
             }
-
-            if (wakeFoam > 0.08) {
-              luma = Math.max(luma, 0.56 + wakeFoam * 0.38);
-              tierIdx = luma > 0.74 ? 5 : 4;
-            }
           }
           // ==================================================================
           // TOP-DOWN SHORE (Scalloped Swash + Glistening Wet Sand) & DRY SAND
           // ==================================================================
           else {
             const cellIdx = r * cols + c;
-            const runupRow = peakRunupCol[c] + rowWobble - wakeRipple * 2.0 * rowScale;
+            const runupRow = peakRunupCol[c] + rowWobble;
             const distFromRunup = (r - runupRow) * invRowScale;
             const highTideRow = highTideCol[c] + rowWobble * 0.85;
 
@@ -1015,15 +532,14 @@ export function AsciiBeachCanvas({ activeSection }: AsciiBeachCanvasProps) {
                 }
                 tierIdx = 6;
               } else {
-                const worldRow = r + Math.floor(scrollRowShift);
-                const h = fastHash(c, worldRow);
+                const h = fastHash(c, r);
                 const windRipple =
                   Math.sin(
                     (r - highTideRow) * invRowScale * 1.35 +
                       Math.sin(cNorm * 0.06) * 1.5
                   ) * 0.08;
                 const grainNoise =
-                  valueNoise2D(cNorm * 0.05, worldRow * invRowScale * 0.18) + windRipple;
+                  valueNoise2D(cNorm * 0.05, r * invRowScale * 0.18) + windRipple;
 
                 if (h > 0.987) {
                   luma = 0.62 + (h - 0.987) * 15.0;
@@ -1035,27 +551,13 @@ export function AsciiBeachCanvas({ activeSection }: AsciiBeachCanvasProps) {
                   luma = 0.0;
                 }
               }
-
-              if (wakeFoam > 0.10) {
-                luma = Math.max(luma, 0.50 + wakeFoam * 0.35);
-                tierIdx = 4;
-              }
             }
           }
 
           const dither =
             luma > 0.02 && luma < 0.78 ? (fastHash(c, r) - 0.5) * 0.075 : 0.0;
-          const finalLuma = Math.max(0, Math.min(0.999, (luma + dither) * panelAtten));
-          let charIdx = Math.floor(finalLuma * (RAMP_MAX + 1));
-
-          // When heavily thinned behind mobile content panels, soften bright white foam tiers to muted water/sand tiers
-          if (panelAtten > 0 && panelAtten < 0.35 && charIdx > 0) {
-            if (fastHash(c, r) > 0.42) {
-              charIdx = 0;
-            } else if (tierIdx === 5 || tierIdx === 4) {
-              tierIdx = 2;
-            }
-          }
+          const finalLuma = Math.max(0, Math.min(0.999, luma + dither));
+          const charIdx = Math.floor(finalLuma * (RAMP_MAX + 1));
 
           rowCharIdx[c] = charIdx;
           if (charIdx > 0) {
@@ -1084,10 +586,6 @@ export function AsciiBeachCanvas({ activeSection }: AsciiBeachCanvasProps) {
       if (isTabHidden || reducedMotionRef.current) return;
       rafId = requestAnimationFrame(renderLoop);
 
-      // Pause while scrolling fast on phones
-      if (now < fastScrollPauseUntil) return;
-
-      // Cap at ~24fps on phones (<760px) and ~30fps on desktop
       const frameInterval = width < 760 ? 1000 / 24 : 1000 / 32;
       if (now - lastFrameTime < frameInterval) return;
       lastFrameTime = now;
@@ -1105,11 +603,6 @@ export function AsciiBeachCanvas({ activeSection }: AsciiBeachCanvasProps) {
       drawScene(now);
     };
 
-    requestStaticDrawRef.current = () => {
-      measurePanel();
-      drawScene(performance.now());
-    };
-
     setupGrid(true);
     drawScene(performance.now());
 
@@ -1120,49 +613,9 @@ export function AsciiBeachCanvas({ activeSection }: AsciiBeachCanvasProps) {
       });
     }
 
-    const resizeObserver = new ResizeObserver(() => {
-      measurePanel();
-      if (reducedMotionRef.current) drawScene(performance.now());
-    });
-    const observeCurrentPanel = () => {
-      resizeObserver.disconnect();
-      const el = document.querySelector('[data-ascii-panel="true"]');
-      if (el) resizeObserver.observe(el);
-      const hdg = document.querySelector('[data-ascii-heading="true"]');
-      if (hdg) resizeObserver.observe(hdg);
-      const hdr = document.querySelector('[data-ascii-header="true"]');
-      if (hdr) resizeObserver.observe(hdr);
-      const ftr = document.querySelector('[data-ascii-footer="true"]');
-      if (ftr) resizeObserver.observe(ftr);
-      measurePanel();
-    };
-    observeCurrentPanel();
-    const mutationObserver = new MutationObserver(() => observeCurrentPanel());
-    mutationObserver.observe(document.body, { childList: true, subtree: true });
-
     const onResize = () => {
       setupGrid(false);
       if (reducedMotionRef.current) drawScene(performance.now());
-    };
-    const onScroll = () => {
-      const nextScroll = window.scrollY || 0;
-      const delta = Math.abs(nextScroll - scrollY);
-      scrollY = nextScroll;
-      measurePanel();
-      if (delta > 28) {
-        fastScrollPauseUntil = performance.now() + 135;
-      }
-      if (reducedMotionRef.current) drawScene(performance.now());
-    };
-    const onMouseMove = (e: MouseEvent) => {
-      targetMouseX = (e.clientX / Math.max(1, width) - 0.5) * 2;
-      targetMouseY = (e.clientY / Math.max(1, height) - 0.5) * 2;
-    };
-    const onTouchMove = (e: TouchEvent) => {
-      if (e.touches.length > 0) {
-        targetMouseX = (e.touches[0].clientX / Math.max(1, width) - 0.5) * 2;
-        targetMouseY = (e.touches[0].clientY / Math.max(1, height) - 0.5) * 2;
-      }
     };
     const onVisibilityChange = () => {
       isTabHidden = document.hidden;
@@ -1183,9 +636,6 @@ export function AsciiBeachCanvas({ activeSection }: AsciiBeachCanvasProps) {
     };
 
     window.addEventListener('resize', onResize, { passive: true });
-    window.addEventListener('scroll', onScroll, { passive: true });
-    window.addEventListener('mousemove', onMouseMove, { passive: true });
-    window.addEventListener('touchmove', onTouchMove, { passive: true });
     document.addEventListener('visibilitychange', onVisibilityChange);
     motionQuery.addEventListener('change', onMotionChange);
 
@@ -1195,13 +645,7 @@ export function AsciiBeachCanvas({ activeSection }: AsciiBeachCanvasProps) {
 
     return () => {
       cancelAnimationFrame(rafId);
-      requestStaticDrawRef.current = null;
-      resizeObserver.disconnect();
-      mutationObserver.disconnect();
       window.removeEventListener('resize', onResize);
-      window.removeEventListener('scroll', onScroll);
-      window.removeEventListener('mousemove', onMouseMove);
-      window.removeEventListener('touchmove', onTouchMove);
       document.removeEventListener('visibilitychange', onVisibilityChange);
       motionQuery.removeEventListener('change', onMotionChange);
     };
