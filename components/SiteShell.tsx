@@ -11,6 +11,7 @@ import {
 } from '@/lib/navigation';
 import { profileData } from '@/lib/data';
 import { ThemeToggle } from '@/components/ThemeToggle';
+import { WASH_SURGE_MS, WASH_REVEAL_MS } from '@/components/AsciiBeachCanvas';
 
 export function SiteShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -84,22 +85,23 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
         window.dispatchEvent(new CustomEvent('ascii-wave-wash'));
       }
 
-      // Swap route right when the big ASCII wave crest blankets the content column
+      // Swap route right when the big ASCII wave crest blankets the content column.
+      // Keep washPhase === 'washing-out' (100% clipped) until normalizedPath updates
+      // to the new route so the old page never flashes back while Next.js swaps {children}.
       washTimerRef.current = setTimeout(() => {
         router.push(targetHref);
-        if (typeof window !== 'undefined') {
-          window.scrollTo({ top: 0, behavior: 'auto' });
-        }
-        setWashPhase('revealing-in');
-
-        revealTimerRef.current = setTimeout(() => {
-          setWashPhase('idle');
-          setPendingPath(null);
-        }, 420);
-      }, 330);
+      }, WASH_SURGE_MS);
     },
     [normalizedPath, pendingPath, router]
   );
+
+  // Prefetch primary routes so wave transitions swap {children} immediately at peak crest
+  useEffect(() => {
+    HEADER_NAV_ITEMS.forEach((item) => {
+      router.prefetch(item.href);
+    });
+    router.prefetch('/');
+  }, [router]);
 
   useEffect(() => {
     return () => {
@@ -173,10 +175,19 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
     };
   }, [evaluateNavFit, updateUnderline, isCompactNav]);
 
-  // Clear pending path & update indicator when pathname settles
+  // Trigger top-to-bottom reveal as soon as the new route's {children} has mounted
   useEffect(() => {
-    if (pendingPath === normalizedPath) {
+    if (pendingPath && pendingPath === normalizedPath) {
       setPendingPath(null);
+      if (typeof window !== 'undefined') {
+        window.scrollTo({ top: 0, behavior: 'auto' });
+        window.dispatchEvent(new CustomEvent('ascii-wave-reveal'));
+      }
+      setWashPhase('revealing-in');
+      if (revealTimerRef.current) clearTimeout(revealTimerRef.current);
+      revealTimerRef.current = setTimeout(() => {
+        setWashPhase('idle');
+      }, WASH_REVEAL_MS);
     }
     setMenuOpen(false);
     const id = requestAnimationFrame(() => updateUnderline());
@@ -456,7 +467,9 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
         className={`flex-1 flex flex-col justify-start pt-4 sm:pt-12 pb-10 w-full focus:outline-none page-wave-content ${
           washPhase === 'washing-out'
             ? 'page-wave-washing-out'
-            : 'page-wave-revealing-in'
+            : washPhase === 'revealing-in'
+            ? 'page-wave-revealing-in'
+            : ''
         }`}
       >
         {children}

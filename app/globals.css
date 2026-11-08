@@ -170,24 +170,43 @@
   transition: transform 200ms ease-out, width 200ms ease-out, opacity 150ms ease-out;
 }
 
-/* Synchronized page-content wave wash transition */
+/* Synchronized top-to-bottom page-content wave wash transition */
+@keyframes wave-wipe-out {
+  0% {
+    clip-path: inset(0% 0% 0% 0%);
+    opacity: 1;
+  }
+  88% {
+    opacity: 0.92;
+  }
+  100% {
+    clip-path: inset(100% 0% 0% 0%);
+    opacity: 0;
+  }
+}
+
+@keyframes wave-wipe-in {
+  0% {
+    clip-path: inset(0% 0% 100% 0%);
+    opacity: 0.92;
+  }
+  100% {
+    clip-path: inset(0% 0% 0% 0%);
+    opacity: 1;
+  }
+}
+
 .page-wave-content {
-  transition: opacity 320ms ease-out, transform 340ms cubic-bezier(0.22, 1, 0.36, 1), filter 300ms ease-out;
-  will-change: opacity, transform, filter;
+  will-change: clip-path, opacity;
 }
 
 .page-wave-washing-out {
-  opacity: 0;
-  transform: translateY(10px);
-  filter: blur(3px);
   pointer-events: none;
-  transition: opacity 300ms ease-in, transform 320ms ease-in, filter 280ms ease-in;
+  animation: wave-wipe-out 520ms cubic-bezier(0.35, 0, 0.25, 1) forwards;
 }
 
 .page-wave-revealing-in {
-  opacity: 1;
-  transform: translateY(0);
-  filter: blur(0);
+  animation: wave-wipe-in 630ms cubic-bezier(0.35, 0, 0.25, 1) forwards;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -196,6 +215,8 @@
   .page-wave-washing-out,
   .page-wave-revealing-in {
     transition: none !important;
+    animation: none !important;
+    clip-path: none !important;
     transform: none !important;
     filter: none !important;
   }

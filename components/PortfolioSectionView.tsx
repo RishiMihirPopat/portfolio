@@ -127,10 +127,13 @@ export function PortfolioSectionView({ section }: { section: BeachSectionId }) {
   }
 
   return (
-    <article className="w-full min-[760px]:w-1/2 min-[760px]:max-w-[50%]">
+    <article
+      data-ascii-panel="true"
+      className="w-full min-[760px]:w-1/2 min-[760px]:max-w-[50%]"
+    >
       {/* On mobile (<760px): keep a ~22vh scene strip at the top with the heading overlaid */}
       <div className="max-[759px]:min-h-[17vh] max-[759px]:flex max-[759px]:flex-col max-[759px]:justify-end pb-3 sm:pb-4">
-        <div data-ascii-heading="true" className="w-fit">
+        <div className="w-fit">
           <ScrambleHeading
             text={currentNav.heading}
             className="font-mono text-xl sm:text-2xl font-medium tracking-tight text-ink"
@@ -139,7 +142,7 @@ export function PortfolioSectionView({ section }: { section: BeachSectionId }) {
       </div>
 
       {/* Content column */}
-      <div data-ascii-panel="true" className="w-full space-y-4 sm:space-y-5">
+      <div className="w-full space-y-4 sm:space-y-5">
         {/* PROJECTS */}
         {resolvedSection === 'projects' && (
           <div className="divide-y divide-line border-t border-line">
