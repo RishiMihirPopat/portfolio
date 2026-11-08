@@ -6,6 +6,7 @@
   --color-bg: var(--bg);
   --color-surface: var(--surface);
   --color-ink: var(--ink);
+  --color-ink-nav: var(--ink-nav);
   --color-ink-muted: var(--ink-muted);
   --color-line: var(--line);
   --color-glass: var(--surface);
@@ -25,18 +26,20 @@
   :root,
   .dark {
     --bg: #0b0e12;
-    --surface: rgba(11, 14, 18, 0.88);
-    --ink: #e8ecf1;
-    --ink-muted: #939eae;
-    --line: rgba(168, 180, 196, 0.16);
+    --surface: rgba(11, 14, 18, 0.90);
+    --ink: #eef2f6;
+    --ink-nav: #c4ceda;
+    --ink-muted: #a5b0be;
+    --line: rgba(180, 192, 208, 0.18);
   }
 
   .light {
     --bg: #e6ebe8;
-    --surface: rgba(244, 242, 236, 0.92);
-    --ink: #12161c;
-    --ink-muted: #434d59;
-    --line: rgba(18, 22, 28, 0.16);
+    --surface: rgba(244, 242, 236, 0.94);
+    --ink: #101419;
+    --ink-nav: #242c35;
+    --ink-muted: #353f4b;
+    --line: rgba(16, 20, 25, 0.18);
   }
 
   body {
@@ -52,14 +55,21 @@
     scroll-behavior: smooth;
   }
 
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+  }
+
   ::selection {
     background-color: var(--ink);
     color: var(--bg);
   }
 
   :focus-visible {
-    outline: 1px solid var(--ink-muted);
+    outline: 2px solid var(--ink);
     outline-offset: 3px;
+    border-radius: 2px;
   }
 
   ::-webkit-scrollbar {
@@ -85,6 +95,29 @@
   }
 }
 
+/* Skip to content link: first focusable element */
+.skip-link {
+  position: fixed;
+  top: -100px;
+  left: 16px;
+  z-index: 100;
+  padding: 10px 14px;
+  font-family: var(--font-mono), monospace;
+  font-size: 12px;
+  background-color: var(--bg);
+  color: var(--ink);
+  border: 1px solid var(--ink);
+  text-decoration: none;
+  transition: top 0.15s ease-out;
+}
+
+.skip-link:focus,
+.skip-link:focus-visible {
+  top: 12px;
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
 /* Direct over-scene typography helpers (no card borders or rounded boxes) */
 .quiet-panel {
   background: transparent;
@@ -93,13 +126,36 @@
 }
 
 .quiet-link {
-  color: var(--ink-muted);
-  transition: color 0.2s ease;
+  color: var(--ink-nav);
+  font-weight: 400;
+  transition: color 0.18s ease-out;
 }
 
 .quiet-link:hover,
-.quiet-link[data-active="true"] {
+.quiet-link:focus-visible,
+.quiet-link[aria-current="page"] {
   color: var(--ink);
+}
+
+.nav-cta-link {
+  color: var(--ink);
+  font-weight: 400;
+  transition: opacity 0.18s ease-out, color 0.18s ease-out;
+}
+
+.nav-cta-link:hover,
+.nav-cta-link:focus-visible {
+  opacity: 0.85;
+}
+
+.nav-underline-indicator {
+  transition: transform 200ms ease-out, width 200ms ease-out, opacity 150ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nav-underline-indicator {
+    transition: none !important;
+  }
 }
 
 /* Compatibility classes for /admin and modals */

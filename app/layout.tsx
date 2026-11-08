@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { Inter, JetBrains_Mono } from 'next/font/google';
 import { ThemeProvider } from '@/components/ThemeProvider';
 import { AsciiBeachCanvas } from '@/components/AsciiBeachCanvas';
+import { SiteShell } from '@/components/SiteShell';
 import './globals.css';
 
 const inter = Inter({
@@ -59,19 +60,19 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       className={`${inter.variable} ${jetbrainsMono.variable}`}
       suppressHydrationWarning
     >
-      <body className="min-h-screen flex flex-col relative overflow-x-hidden antialiased">
+      <body className="min-h-[100lvh] flex flex-col relative overflow-x-hidden antialiased">
         <ThemeProvider
           attribute="class"
           defaultTheme="dark"
           enableSystem={false}
           themes={['dark', 'light']}
         >
-          {/* Full-viewport procedural ASCII beach background */}
+          {/* Full-viewport procedural ASCII beach background persisted across routes */}
           <AsciiBeachCanvas />
 
-          {/* Foreground content */}
+          {/* Foreground persistent navigation shell & content */}
           <div className="relative z-10 flex-1 flex flex-col">
-            {children}
+            <SiteShell>{children}</SiteShell>
           </div>
         </ThemeProvider>
       </body>
