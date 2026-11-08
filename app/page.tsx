@@ -3,7 +3,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Download, ArrowUpRight, Mail, Github } from 'lucide-react';
 import {
   Repo,
   Photo,
@@ -28,10 +27,10 @@ const NAV_ITEMS: { id: BeachSectionId; label: string; heading: string }[] = [
   { id: 'projects', label: 'Projects', heading: 'Projects' },
   { id: 'resume', label: 'Resume', heading: 'Resume' },
   { id: 'photography', label: 'Photography', heading: 'Photography' },
-  { id: 'blog', label: 'Blog', heading: 'Blog & Notes' },
-  { id: 'experience', label: 'Professional history', heading: 'Professional History' },
-  { id: 'academics', label: 'Academic history', heading: 'Academic History' },
-  { id: 'skills', label: 'Skills', heading: 'Skills & Methods' },
+  { id: 'blog', label: 'Blog', heading: 'Blog' },
+  { id: 'experience', label: 'Professional history', heading: 'Professional history' },
+  { id: 'academics', label: 'Academic history', heading: 'Academic history' },
+  { id: 'skills', label: 'Skills', heading: 'Skills' },
 ];
 
 const VALID_SECTIONS = new Set<string>(NAV_ITEMS.map((i) => i.id));
@@ -41,27 +40,24 @@ export default function Home() {
   const [activeSection, setActiveSection] = useState<BeachSectionId>('home');
   const [adminClicks, setAdminClicks] = useState(0);
 
-  // Data states (Firebase / LocalStorage fallback + seeded defaults)
   const [posts, setPosts] = useState<Post[]>([]);
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [skills, setSkills] = useState<Skill[]>([]);
-  const [skillCategory, setSkillCategory] = useState<string>('All');
 
-  // Modals & Lightbox
   const [selectedRepo, setSelectedRepo] = useState<Repo | null>(null);
   const [selectedPost, setSelectedPost] = useState<Post | null>(null);
   const [selectedPhoto, setSelectedPhoto] = useState<Photo | null>(null);
 
   const { repos: liveRepos } = useGithubRepos();
 
-  // Merge seeded featured projects with any additional live GitHub repos
   const allProjects = useMemo(() => {
     const seededNames = new Set(mockRepos.map((r) => r.name.toLowerCase()));
-    const extras = liveRepos.filter((r) => !seededNames.has(r.name.toLowerCase()));
+    const extras = liveRepos.filter(
+      (r) => !seededNames.has(r.name.toLowerCase()) && r.featured
+    );
     return [...mockRepos, ...extras];
   }, [liveRepos]);
 
-  // Load posts, photos, and skills from storage layer
   useEffect(() => {
     let active = true;
     (async () => {
@@ -73,7 +69,6 @@ export default function Home() {
       setPosts(loadedPosts);
       setPhotos(loadedPhotos);
 
-      // Merge stored skills with seeded cvSkills so new required skills are always present
       const storedSkills = fetchAllSkills();
       const map = new Map<string, Skill>();
       for (const s of storedSkills) {
@@ -86,7 +81,6 @@ export default function Home() {
     };
   }, []);
 
-  // Synchronize active section with URL hash and notify AsciiBeachCanvas
   useEffect(() => {
     const syncFromHash = () => {
       const raw = window.location.hash.replace(/^#/, '').toLowerCase();
@@ -128,334 +122,233 @@ export default function Home() {
 
   const currentNav = NAV_ITEMS.find((i) => i.id === activeSection) || NAV_ITEMS[0];
 
-  const skillCategories = useMemo(() => {
-    const cats = Array.from(new Set(skills.map((s) => s.category)));
-    return ['All', ...cats];
+  const groupedSkills = useMemo(() => {
+    const groups = new Map<string, string[]>();
+    for (const s of skills) {
+      const list = groups.get(s.category) || [];
+      list.push(s.label);
+      groups.set(s.category, list);
+    }
+    return Array.from(groups.entries());
   }, [skills]);
 
-  const filteredSkills = useMemo(() => {
-    if (skillCategory === 'All') return skills;
-    return skills.filter((s) => s.category === skillCategory);
-  }, [skills, skillCategory]);
-
   return (
-    <div className="min-h-screen flex flex-col justify-between px-4 sm:px-8 md:px-12 py-6 sm:py-10 max-w-4xl mx-auto w-full">
-      {/* Quiet Top Navigation */}
-      <header className="flex flex-col gap-4 pb-6 border-b border-line">
-        <div className="flex items-center justify-between gap-4">
-          <button
-            onClick={() => navigateTo('home')}
-            className="font-mono text-xs tracking-wider uppercase text-ink hover:opacity-80 transition-opacity cursor-pointer text-left"
+    <div className="min-h-screen flex flex-col justify-between px-4 sm:px-10 md:px-14 py-5 sm:py-8 w-full">
+      {/* Header on one row: name left, links right, theme toggle as a small icon */}
+      <header
+        data-ascii-header="true"
+        className="flex items-center justify-between gap-4 w-full whitespace-nowrap"
+      >
+        <button
+          onClick={() => navigateTo('home')}
+          className="font-mono text-xs text-ink hover:opacity-80 transition-opacity cursor-pointer text-left shrink-0"
+        >
+          Rishi Popat
+        </button>
+
+        <div className="flex items-center gap-3 min-w-0">
+          <nav
+            aria-label="Primary navigation"
+            className="flex items-center gap-x-3.5 sm:gap-x-4 font-mono text-xs overflow-x-auto no-scrollbar"
           >
-            rishi mihir popat <span className="text-ink-muted">· msc data science</span>
-          </button>
+            {NAV_ITEMS.map((item) => {
+              const isActive = activeSection === item.id;
+              return (
+                <a
+                  key={item.id}
+                  href={`#${item.id}`}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    navigateTo(item.id);
+                  }}
+                  data-active={isActive}
+                  className={`quiet-link cursor-pointer shrink-0 ${
+                    isActive
+                      ? 'text-ink underline underline-offset-4 decoration-1'
+                      : 'text-ink-muted'
+                  }`}
+                >
+                  {item.label}
+                </a>
+              );
+            })}
+          </nav>
           <ThemeToggle />
         </div>
-
-        <nav
-          aria-label="Primary sections"
-          className="flex flex-wrap items-center gap-x-4 gap-y-2 font-mono text-xs"
-        >
-          {NAV_ITEMS.map((item) => {
-            const isActive = activeSection === item.id;
-            return (
-              <a
-                key={item.id}
-                href={`#${item.id}`}
-                onClick={(e) => {
-                  e.preventDefault();
-                  navigateTo(item.id);
-                }}
-                data-active={isActive}
-                className={`quiet-link py-0.5 cursor-pointer ${
-                  isActive
-                    ? 'text-ink underline underline-offset-4 decoration-1'
-                    : 'text-ink-muted'
-                }`}
-              >
-                {item.label}
-              </a>
-            );
-          })}
-        </nav>
       </header>
 
-      {/* Active Content Panel — Measured by AsciiBeachCanvas for wave & foam wrapping */}
-      <main className="my-auto py-10 sm:py-14">
-        <article
-          data-ascii-panel="true"
-          className="quiet-panel p-6 sm:p-10 space-y-8"
-        >
-          {/* Section Header with Character Scramble */}
-          <div className="space-y-1.5 border-b border-line pb-5">
-            <div className="font-mono text-[11px] uppercase tracking-widest text-ink-muted flex items-center justify-between">
-              <span>{currentNav.label}</span>
-              <span>
-                {activeSection === 'home' && 'manipal academy of higher education'}
-                {activeSection === 'projects' && `${allProjects.length} selected works`}
-                {activeSection === 'resume' && 'curriculum vitae'}
-                {activeSection === 'photography' && `${photos.length} frames`}
-                {activeSection === 'blog' && `${posts.length} notes`}
-                {activeSection === 'experience' && `${experiences.length} roles`}
-                {activeSection === 'academics' && `${education.length} degrees`}
-                {activeSection === 'skills' && `${skills.length} competencies`}
-              </span>
-            </div>
-            <div
-              onClick={activeSection === 'home' ? handleTitleClick : undefined}
-              className={activeSection === 'home' ? 'cursor-default select-none' : ''}
-            >
-              <ScrambleHeading
-                text={currentNav.heading}
-                className="text-2xl sm:text-3xl font-medium tracking-tight text-ink font-mono"
-              />
-            </div>
+      {/* Main Content Area — Left-aligned, max 560px so the beach dominates the right half */}
+      <main className="flex-1 flex flex-col justify-start pt-8 sm:pt-14 pb-12 w-full">
+        {activeSection === 'home' ? (
+          /* Home: no panel at all — just the name, one line, and the scene */
+          <div
+            data-ascii-panel="true"
+            onClick={handleTitleClick}
+            className="w-fit max-w-[540px] space-y-1.5 select-none"
+          >
+            <ScrambleHeading
+              text="Rishi Mihir Popat"
+              className="font-mono text-2xl sm:text-3xl font-medium tracking-tight text-ink"
+            />
+            <p className="font-sans text-sm sm:text-base text-ink-muted leading-relaxed">
+              MSc Data Science at Manipal Academy of Higher Education — statistical modeling, Bayesian computation, and deep learning.
+            </p>
           </div>
+        ) : (
+          /* Active Section Column: max-w-[560px], left-aligned, direct over scene */
+          <article
+            data-ascii-panel="true"
+            className="w-full max-w-[560px] space-y-4 sm:space-y-5"
+          >
+            <ScrambleHeading
+              text={currentNav.heading}
+              className="font-mono text-xl sm:text-2xl font-medium tracking-tight text-ink"
+            />
 
-          {/* SECTION 1: HOME */}
-          {activeSection === 'home' && (
-            <div className="space-y-6">
-              <p className="text-base sm:text-lg text-ink leading-relaxed font-normal">
-                {profileData.intro}
-              </p>
-              <p className="text-sm text-ink-muted leading-relaxed">
-                {profileData.secondaryNote}
-              </p>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 font-mono text-xs">
-                <div className="p-4 rounded border border-line space-y-1.5">
-                  <div className="text-ink-muted uppercase text-[10px] tracking-wider">
-                    Current Program
-                  </div>
-                  <div className="text-ink font-medium">M.Sc. in Data Science</div>
-                  <div className="text-ink-muted">
-                    Manipal Academy of Higher Education
-                  </div>
-                </div>
-                <div className="p-4 rounded border border-line space-y-1.5">
-                  <div className="text-ink-muted uppercase text-[10px] tracking-wider">
-                    Core Focus
-                  </div>
-                  <div className="text-ink font-medium">
-                    Bayesian Modeling & Deep Active Learning
-                  </div>
-                  <div className="text-ink-muted">
-                    SAS · R · Python · Experimental Design
-                  </div>
-                </div>
-              </div>
-
-              <div className="pt-4 flex flex-wrap items-center gap-3">
-                <button
-                  onClick={() => navigateTo('projects')}
-                  className="quiet-btn"
-                >
-                  <span>View Projects</span>
-                  <ArrowUpRight size={13} />
-                </button>
-                <button
-                  onClick={() => navigateTo('resume')}
-                  className="quiet-btn"
-                >
-                  <span>Resume & PDF</span>
-                </button>
-                <a
-                  href={`mailto:${profileData.email}`}
-                  className="quiet-btn text-ink-muted"
-                >
-                  <Mail size={13} />
-                  <span>{profileData.email}</span>
-                </a>
-                <a
-                  href={profileData.github}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="quiet-btn text-ink-muted"
-                >
-                  <Github size={13} />
-                  <span>GitHub</span>
-                </a>
-              </div>
-            </div>
-          )}
-
-          {/* SECTION 2: PROJECTS */}
-          {activeSection === 'projects' && (
-            <div className="space-y-6">
-              <div className="divide-y divide-line">
+            {/* PROJECTS */}
+            {activeSection === 'projects' && (
+              <div className="divide-y divide-line border-t border-line">
                 {allProjects.map((repo) => (
                   <div
                     key={repo.id}
                     onClick={() => setSelectedRepo(repo)}
-                    className="py-5 first:pt-0 last:pb-0 group cursor-pointer space-y-2.5"
+                    className="py-3 sm:py-4 group cursor-pointer space-y-1"
                   >
-                    <div className="flex items-baseline justify-between gap-4">
-                      <h2 className="text-base font-medium text-ink group-hover:underline underline-offset-4">
+                    <div className="flex items-baseline justify-between gap-3">
+                      <h2 className="font-mono text-sm sm:text-base font-medium text-ink group-hover:underline underline-offset-4">
                         {repo.title || repo.name}
                       </h2>
-                      <span className="font-mono text-xs text-ink-muted shrink-0 flex items-center gap-1">
-                        <span>{repo.language || 'Python'}</span>
-                        <ArrowUpRight
-                          size={12}
-                          className="opacity-60 group-hover:opacity-100 transition-opacity"
-                        />
+                      <span className="font-mono text-xs text-ink-muted shrink-0">
+                        {repo.language || 'Python'} ↗
                       </span>
                     </div>
-                    <p className="text-sm text-ink-muted leading-relaxed">
+                    <p className="font-sans text-xs sm:text-sm text-ink/90 leading-relaxed line-clamp-2">
                       {repo.description}
                     </p>
                     {repo.tags && repo.tags.length > 0 && (
-                      <div className="flex flex-wrap gap-1.5 pt-1">
-                        {repo.tags.map((tag) => (
-                          <span key={tag} className="quiet-tag">
-                            {tag}
-                          </span>
-                        ))}
-                      </div>
+                      <p className="font-mono text-[11px] sm:text-xs text-ink-muted truncate">
+                        {repo.tags.join(' · ')}
+                      </p>
                     )}
                   </div>
                 ))}
               </div>
-            </div>
-          )}
+            )}
 
-          {/* SECTION 3: RESUME */}
-          {activeSection === 'resume' && (
-            <div className="space-y-8">
-              <div className="flex flex-wrap items-center justify-between gap-4 p-4 rounded border border-line">
-                <div className="space-y-0.5">
-                  <div className="text-sm font-medium text-ink">
-                    Full Curriculum Vitae (PDF)
-                  </div>
-                  <div className="font-mono text-xs text-ink-muted">
-                    Includes academic record, coursework, research projects, and work history.
-                  </div>
-                </div>
-                <a
-                  href={`${process.env.NEXT_PUBLIC_BASE_PATH || ''}/resume.pdf`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  download
-                  className="quiet-btn"
-                >
-                  <Download size={14} />
-                  <span>Download PDF</span>
-                </a>
-              </div>
-
-              <div className="space-y-6 text-sm">
-                <div className="space-y-3">
-                  <h3 className="font-mono text-xs uppercase tracking-wider text-ink-muted">
-                    Education
-                  </h3>
-                  {education.map((edu, i) => (
-                    <div key={i} className="flex flex-col sm:flex-row sm:justify-between gap-1">
-                      <div>
-                        <span className="font-medium text-ink">{edu.degree}</span>
-                        <span className="text-ink-muted"> · {edu.school}</span>
-                      </div>
-                      <span className="font-mono text-xs text-ink-muted shrink-0">
-                        {edu.duration}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-
-                <div className="space-y-3 pt-4 border-t border-line">
-                  <h3 className="font-mono text-xs uppercase tracking-wider text-ink-muted">
-                    Selected Experience
-                  </h3>
-                  {experiences.map((exp, i) => (
-                    <div key={i} className="flex flex-col sm:flex-row sm:justify-between gap-1">
-                      <div>
-                        <span className="font-medium text-ink">{exp.role}</span>
-                        <span className="text-ink-muted"> · {exp.company}</span>
-                      </div>
-                      <span className="font-mono text-xs text-ink-muted shrink-0">
-                        {exp.duration}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-
-                <div className="space-y-2 pt-4 border-t border-line">
-                  <h3 className="font-mono text-xs uppercase tracking-wider text-ink-muted">
-                    Core Statistical & Computational Methods
-                  </h3>
-                  <p className="text-ink-muted leading-relaxed">
-                    SAS, R, Python, SQL, Regression Modeling, Experimental Design, Bayesian Computation, Deep Learning (PyTorch), Active Learning, Text Mining, Computer Vision.
+            {/* RESUME */}
+            {activeSection === 'resume' && (
+              <div className="space-y-5 border-t border-line pt-4">
+                <div className="flex items-baseline justify-between gap-4">
+                  <p className="font-sans text-sm text-ink-muted">
+                    Curriculum vitae — academic record, research, and work history.
                   </p>
+                  <a
+                    href={`${process.env.NEXT_PUBLIC_BASE_PATH || ''}/resume.pdf`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    download
+                    className="font-mono text-xs text-ink underline underline-offset-4 hover:opacity-80 shrink-0"
+                  >
+                    Download PDF ↓
+                  </a>
+                </div>
+
+                <div className="divide-y divide-line border-t border-line text-sm">
+                  <div className="py-3.5 space-y-2">
+                    <h2 className="font-mono text-xs text-ink-muted">Education</h2>
+                    {education.map((edu, i) => (
+                      <div key={i} className="flex flex-col sm:flex-row sm:justify-between gap-0.5">
+                        <div className="font-sans">
+                          <span className="text-ink font-medium">{edu.degree}</span>
+                          <span className="text-ink-muted"> · {edu.school}</span>
+                        </div>
+                        <span className="font-mono text-xs text-ink-muted shrink-0">
+                          {edu.duration}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="py-3.5 space-y-2">
+                    <h2 className="font-mono text-xs text-ink-muted">Experience</h2>
+                    {experiences.map((exp, i) => (
+                      <div key={i} className="flex flex-col sm:flex-row sm:justify-between gap-0.5">
+                        <div className="font-sans">
+                          <span className="text-ink font-medium">{exp.role}</span>
+                          <span className="text-ink-muted"> · {exp.company}</span>
+                        </div>
+                        <span className="font-mono text-xs text-ink-muted shrink-0">
+                          {exp.duration}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="py-3.5 space-y-1.5">
+                    <h2 className="font-mono text-xs text-ink-muted">Methods & tools</h2>
+                    <p className="font-mono text-xs text-ink/90 leading-relaxed">
+                      SAS · R · Python · SQL · Regression · Experimental Design · Bayesian Computation · Deep Learning · Text Mining
+                    </p>
+                  </div>
                 </div>
               </div>
-            </div>
-          )}
+            )}
 
-          {/* SECTION 4: PHOTOGRAPHY */}
-          {activeSection === 'photography' && (
-            <div className="space-y-6">
-              {photos.length === 0 ? (
-                <p className="font-mono text-xs text-ink-muted py-8 text-center">
-                  No photographs archived yet.
-                </p>
-              ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                  {photos.map((photo) => (
+            {/* PHOTOGRAPHY */}
+            {activeSection === 'photography' && (
+              <div className="divide-y divide-line border-t border-line">
+                {photos.length === 0 ? (
+                  <p className="font-sans text-sm text-ink-muted py-6">
+                    No photographs archived yet.
+                  </p>
+                ) : (
+                  photos.map((photo) => (
                     <div
                       key={photo.id}
                       onClick={() => setSelectedPhoto(photo)}
-                      className="group cursor-pointer space-y-2"
+                      className="py-3.5 group cursor-pointer space-y-1"
                     >
-                      <div className="overflow-hidden rounded border border-line bg-black/20 aspect-[3/2]">
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          src={photo.url}
-                          alt={photo.title}
-                          loading="lazy"
-                          className="w-full h-full object-cover opacity-90 group-hover:opacity-100 group-hover:scale-[1.02] transition-all duration-300"
-                        />
-                      </div>
-                      <div className="flex items-baseline justify-between gap-2 font-mono text-xs">
-                        <span className="text-ink font-sans font-medium truncate">
+                      <div className="flex items-baseline justify-between gap-4">
+                        <h2 className="font-mono text-sm font-medium text-ink group-hover:underline underline-offset-4">
                           {photo.title}
-                        </span>
-                        <span className="text-ink-muted text-[11px] shrink-0">
+                        </h2>
+                        <span className="font-mono text-xs text-ink-muted shrink-0">
                           {photo.createdAt
                             ? new Date(photo.createdAt).toLocaleDateString('en-US', {
                                 year: 'numeric',
                                 month: 'short',
                               })
-                            : ''}
+                            : ''}{' '}
+                          ↗
                         </span>
                       </div>
                       {photo.description && (
-                        <p className="text-xs text-ink-muted line-clamp-1">
+                        <p className="font-sans text-sm text-ink-muted leading-relaxed">
                           {photo.description}
                         </p>
                       )}
                     </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
+                  ))
+                )}
+              </div>
+            )}
 
-          {/* SECTION 5: BLOG */}
-          {activeSection === 'blog' && (
-            <div className="space-y-6">
-              {posts.length === 0 ? (
-                <p className="font-mono text-xs text-ink-muted py-8 text-center">
-                  No notes published yet.
-                </p>
-              ) : (
-                <div className="divide-y divide-line">
-                  {posts.map((post) => (
+            {/* BLOG */}
+            {activeSection === 'blog' && (
+              <div className="divide-y divide-line border-t border-line">
+                {posts.length === 0 ? (
+                  <p className="font-sans text-sm text-ink-muted py-6">
+                    No notes published yet.
+                  </p>
+                ) : (
+                  posts.map((post) => (
                     <div
                       key={post.id}
                       onClick={() => setSelectedPost(post)}
-                      className="py-5 first:pt-0 last:pb-0 group cursor-pointer space-y-2"
+                      className="py-4 group cursor-pointer space-y-1"
                     >
-                      <div className="flex flex-col sm:flex-row sm:items-baseline justify-between gap-1">
-                        <h2 className="text-base font-medium text-ink group-hover:underline underline-offset-4">
+                      <div className="flex items-baseline justify-between gap-4">
+                        <h2 className="font-mono text-sm sm:text-base font-medium text-ink group-hover:underline underline-offset-4">
                           {post.title}
                         </h2>
                         {post.createdAt && (
@@ -468,130 +361,99 @@ export default function Home() {
                           </span>
                         )}
                       </div>
-                      <p className="text-sm text-ink-muted line-clamp-2 leading-relaxed">
+                      <p className="font-sans text-sm text-ink-muted line-clamp-2 leading-relaxed">
                         {post.content.replace(/[#*`]/g, '')}
                       </p>
                     </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
+                  ))
+                )}
+              </div>
+            )}
 
-          {/* SECTION 6: PROFESSIONAL HISTORY */}
-          {activeSection === 'experience' && (
-            <div className="divide-y divide-line">
-              {experiences.map((exp, i) => (
-                <div key={i} className="py-6 first:pt-0 last:pb-0 space-y-3">
-                  <div className="flex flex-col sm:flex-row sm:items-baseline justify-between gap-1">
-                    <div>
-                      <h2 className="text-base font-medium text-ink">
+            {/* PROFESSIONAL HISTORY */}
+            {activeSection === 'experience' && (
+              <div className="divide-y divide-line border-t border-line">
+                {experiences.map((exp, i) => (
+                  <div key={i} className="py-4 space-y-1.5">
+                    <div className="flex flex-col sm:flex-row sm:items-baseline justify-between gap-1">
+                      <h2 className="font-mono text-sm sm:text-base font-medium text-ink">
                         {exp.role} <span className="text-ink-muted">· {exp.company}</span>
                       </h2>
-                      <div className="font-mono text-xs text-ink-muted">
-                        {exp.location}
-                      </div>
-                    </div>
-                    <span className="font-mono text-xs text-ink-muted shrink-0">
-                      {exp.duration}
-                    </span>
-                  </div>
-
-                  <p className="text-sm text-ink/90 leading-relaxed">{exp.summary}</p>
-
-                  <ul className="space-y-1.5 text-sm text-ink-muted list-disc pl-4">
-                    {exp.highlights.map((h, j) => (
-                      <li key={j} className="leading-relaxed">
-                        {h}
-                      </li>
-                    ))}
-                  </ul>
-
-                  <div className="flex flex-wrap gap-1.5 pt-1">
-                    {exp.stack.map((tech) => (
-                      <span key={tech} className="quiet-tag">
-                        {tech}
+                      <span className="font-mono text-xs text-ink-muted shrink-0">
+                        {exp.duration}
                       </span>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* SECTION 7: ACADEMIC HISTORY */}
-          {activeSection === 'academics' && (
-            <div className="divide-y divide-line">
-              {education.map((edu, i) => (
-                <div key={i} className="py-6 first:pt-0 last:pb-0 space-y-3">
-                  <div className="flex flex-col sm:flex-row sm:items-baseline justify-between gap-1">
-                    <div>
-                      <h2 className="text-base font-medium text-ink">{edu.degree}</h2>
-                      <div className="text-sm text-ink-muted">
-                        {edu.school} · {edu.location}
-                      </div>
                     </div>
-                    <div className="font-mono text-xs text-ink-muted shrink-0">
-                      {edu.duration} ({edu.status})
-                    </div>
+                    <p className="font-sans text-sm text-ink/90 leading-relaxed">
+                      {exp.summary}
+                    </p>
+                    <ul className="space-y-1 font-sans text-sm text-ink-muted list-disc pl-4">
+                      {exp.highlights.map((h, j) => (
+                        <li key={j} className="leading-relaxed">
+                          {h}
+                        </li>
+                      ))}
+                    </ul>
+                    {exp.stack && exp.stack.length > 0 && (
+                      <p className="font-mono text-xs text-ink-muted pt-0.5">
+                        {exp.stack.join(' · ')}
+                      </p>
+                    )}
                   </div>
-
-                  <div className="font-mono text-xs text-ink/80">
-                    Focus: {edu.specialization}
-                  </div>
-
-                  <ul className="space-y-1.5 text-sm text-ink-muted list-disc pl-4">
-                    {edu.highlights.map((h, j) => (
-                      <li key={j} className="leading-relaxed">
-                        {h}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* SECTION 8: SKILLS */}
-          {activeSection === 'skills' && (
-            <div className="space-y-6">
-              <div className="flex flex-wrap gap-2 font-mono text-xs">
-                {skillCategories.map((cat) => (
-                  <button
-                    key={cat}
-                    onClick={() => setSkillCategory(cat)}
-                    className={`px-3 py-1 rounded border transition-colors cursor-pointer ${
-                      skillCategory === cat
-                        ? 'border-ink text-ink bg-ink/5'
-                        : 'border-line text-ink-muted hover:text-ink'
-                    }`}
-                  >
-                    {cat}
-                  </button>
                 ))}
               </div>
+            )}
 
-              <div className="flex flex-wrap gap-2 pt-2">
-                {filteredSkills.map((skill) => (
-                  <span
-                    key={skill.label}
-                    className="px-3 py-1.5 rounded border border-line font-mono text-xs text-ink"
-                  >
-                    {skill.label}
-                  </span>
+            {/* ACADEMIC HISTORY */}
+            {activeSection === 'academics' && (
+              <div className="divide-y divide-line border-t border-line">
+                {education.map((edu, i) => (
+                  <div key={i} className="py-4 space-y-1.5">
+                    <div className="flex flex-col sm:flex-row sm:items-baseline justify-between gap-1">
+                      <h2 className="font-mono text-sm sm:text-base font-medium text-ink">
+                        {edu.degree}
+                      </h2>
+                      <span className="font-mono text-xs text-ink-muted shrink-0">
+                        {edu.duration}
+                      </span>
+                    </div>
+                    <p className="font-sans text-sm text-ink/90">
+                      {edu.school}, {edu.location}
+                    </p>
+                    <p className="font-mono text-xs text-ink-muted">
+                      {edu.specialization}
+                    </p>
+                    <ul className="space-y-1 font-sans text-sm text-ink-muted list-disc pl-4">
+                      {edu.highlights.map((h, j) => (
+                        <li key={j} className="leading-relaxed">
+                          {h}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
                 ))}
               </div>
-            </div>
-          )}
-        </article>
+            )}
+
+            {/* SKILLS */}
+            {activeSection === 'skills' && (
+              <div className="divide-y divide-line border-t border-line">
+                {groupedSkills.map(([category, items]) => (
+                  <div key={category} className="py-3.5 space-y-1">
+                    <h2 className="font-mono text-xs text-ink-muted">{category}</h2>
+                    <p className="font-mono text-sm text-ink leading-relaxed">
+                      {items.join(' · ')}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </article>
+        )}
       </main>
 
       {/* Quiet Footer */}
-      <footer className="pt-6 border-t border-line flex flex-col sm:flex-row items-center justify-between gap-4 font-mono text-[11px] text-ink-muted">
-        <div>
-          © {new Date().getFullYear()} {profileData.name}
-        </div>
-        <div className="flex items-center gap-5">
+      <footer className="flex items-center justify-between gap-4 font-mono text-xs text-ink-muted">
+        <div data-ascii-footer="true" className="flex items-center gap-4 w-fit">
           <a
             href={`mailto:${profileData.email}`}
             className="hover:text-ink transition-colors"
@@ -606,7 +468,10 @@ export default function Home() {
           >
             github
           </a>
-          <Link href="/admin" className="hover:text-ink transition-colors opacity-60 hover:opacity-100">
+          <Link
+            href="/admin"
+            className="hover:text-ink transition-colors opacity-50 hover:opacity-100"
+          >
             admin
           </Link>
         </div>

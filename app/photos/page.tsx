@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { ArrowLeft } from 'lucide-react';
 import { Photo } from '@/lib/data';
 import { fetchAllPhotos } from '@/lib/storage';
 import { PhotoLightbox } from '@/components/PhotoLightbox';
@@ -19,62 +18,49 @@ export default function PhotosPage() {
   }, []);
 
   return (
-    <div className="min-h-screen flex flex-col justify-between px-4 sm:px-8 md:px-12 py-6 sm:py-10 max-w-4xl mx-auto w-full">
-      <header className="flex items-center justify-between gap-4 pb-6 border-b border-line">
+    <div className="min-h-screen flex flex-col justify-between px-5 sm:px-10 md:px-14 py-6 sm:py-8 w-full">
+      <header className="flex items-center justify-between gap-4 w-full">
         <Link
           href="/#photography"
-          className="font-mono text-xs text-ink-muted hover:text-ink flex items-center gap-2 transition-colors"
+          className="font-mono text-xs text-ink hover:opacity-80 transition-opacity"
         >
-          <ArrowLeft size={13} />
-          <span>Back to Portfolio</span>
+          ← Rishi Popat
         </Link>
         <ThemeToggle />
       </header>
 
-      <main className="my-auto py-10 sm:py-14">
-        <article data-ascii-panel="true" className="quiet-panel p-6 sm:p-10 space-y-8">
-          <div className="space-y-1.5 border-b border-line pb-5">
-            <div className="font-mono text-[11px] uppercase tracking-widest text-ink-muted flex justify-between">
-              <span>Photography</span>
-              <span>{photos.length} frames</span>
-            </div>
-            <ScrambleHeading
-              text="Photography"
-              className="text-2xl sm:text-3xl font-medium tracking-tight text-ink font-mono"
-            />
-          </div>
+      <main className="flex-1 flex flex-col justify-start pt-12 sm:pt-16 pb-16 w-full">
+        <article data-ascii-panel="true" className="w-full max-w-[560px] space-y-6">
+          <ScrambleHeading
+            text="Photography"
+            className="font-mono text-xl sm:text-2xl font-medium tracking-tight text-ink"
+          />
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+          <div className="divide-y divide-line border-t border-line">
             {photos.map((photo) => (
               <div
                 key={photo.id}
                 onClick={() => setSelectedPhoto(photo)}
-                className="group cursor-pointer space-y-2"
+                className="py-4 group cursor-pointer space-y-1"
               >
-                <div className="overflow-hidden rounded border border-line bg-black/20 aspect-[3/2]">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={photo.url}
-                    alt={photo.title}
-                    loading="lazy"
-                    className="w-full h-full object-cover opacity-90 group-hover:opacity-100 group-hover:scale-[1.02] transition-all duration-300"
-                  />
-                </div>
-                <div className="flex items-baseline justify-between gap-2 font-mono text-xs">
-                  <span className="text-ink font-sans font-medium truncate">
+                <div className="flex items-baseline justify-between gap-4">
+                  <h2 className="font-mono text-sm font-medium text-ink group-hover:underline underline-offset-4">
                     {photo.title}
-                  </span>
-                  <span className="text-ink-muted text-[11px] shrink-0">
+                  </h2>
+                  <span className="font-mono text-xs text-ink-muted shrink-0">
                     {photo.createdAt
                       ? new Date(photo.createdAt).toLocaleDateString('en-US', {
                           year: 'numeric',
                           month: 'short',
                         })
-                      : ''}
+                      : ''}{' '}
+                    ↗
                   </span>
                 </div>
                 {photo.description && (
-                  <p className="text-xs text-ink-muted line-clamp-1">{photo.description}</p>
+                  <p className="font-sans text-sm text-ink-muted leading-relaxed">
+                    {photo.description}
+                  </p>
                 )}
               </div>
             ))}

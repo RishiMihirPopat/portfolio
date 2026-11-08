@@ -20,12 +20,13 @@ const metadataBase = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'
 
 export const metadata: Metadata = {
   title: {
-    default: 'Rishi Mihir Popat — MSc Data Science',
-    template: '%s · Rishi Mihir Popat',
+    default: 'Rishi Popat',
+    template: '%s · Rishi Popat',
   },
   description:
-    'Personal portfolio of Rishi Mihir Popat, MSc Data Science student at Manipal Academy of Higher Education.',
+    'Rishi Mihir Popat — MSc Data Science student at Manipal Academy of Higher Education.',
   keywords: [
+    'Rishi Popat',
     'Rishi Mihir Popat',
     'Data Science',
     'Manipal Academy of Higher Education',
@@ -37,9 +38,9 @@ export const metadata: Metadata = {
   ],
   authors: [{ name: 'Rishi Mihir Popat' }],
   openGraph: {
-    title: 'Rishi Mihir Popat — MSc Data Science',
+    title: 'Rishi Popat',
     description:
-      'Personal portfolio of Rishi Mihir Popat, MSc Data Science student at Manipal Academy of Higher Education.',
+      'Rishi Mihir Popat — MSc Data Science student at Manipal Academy of Higher Education.',
     type: 'website',
     locale: 'en_US',
   },
