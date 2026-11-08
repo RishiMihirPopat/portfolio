@@ -37,9 +37,7 @@ const CONSTANT_SCENE: SceneParams = {
   shallowsSpread: 0.42,
 };
 
-export const WASH_SURGE_MS = 520;
-export const WASH_REVEAL_MS = 630;
-export const WASH_TOTAL_MS = WASH_SURGE_MS + WASH_REVEAL_MS; // 1150ms
+export const WASH_DURATION_MS = 750;
 
 // 12-step brightness ramp driven by per-cell luminance
 const RAMP = ' .,:;-=+*#%@';
@@ -155,18 +153,19 @@ export function AsciiBeachCanvas() {
   const lastPathRef = useRef<string | null>(null);
   const reducedMotionRef = useRef<boolean>(false);
   const washStartRef = useRef<number>(-1);
-  const washRevealStartRef = useRef<number>(-1);
+  const lastWashTriggerRef = useRef<number>(-9999);
 
   useEffect(() => {
     const clean = (pathname || '/').replace(/\/+$/, '') || '/';
     isHomeRef.current = clean === '/';
 
+    // Only trigger from pathname change if it wasn't already triggered by navigateWithWave (e.g. browser back/forward)
     if (lastPathRef.current !== null && lastPathRef.current !== clean) {
       const now = performance.now();
-      if (washStartRef.current < 0) {
+      if (now - lastWashTriggerRef.current > WASH_DURATION_MS + 600) {
         if (!reducedMotionRef.current) {
           washStartRef.current = now;
-          washRevealStartRef.current = -1;
+          lastWashTriggerRef.current = now;
         }
       }
     }
@@ -176,20 +175,14 @@ export function AsciiBeachCanvas() {
   useEffect(() => {
     const onWaveWash = () => {
       if (!reducedMotionRef.current) {
-        washStartRef.current = performance.now();
-        washRevealStartRef.current = -1;
-      }
-    };
-    const onWaveReveal = () => {
-      if (!reducedMotionRef.current && washStartRef.current >= 0) {
-        washRevealStartRef.current = performance.now();
+        const now = performance.now();
+        washStartRef.current = now;
+        lastWashTriggerRef.current = now;
       }
     };
     window.addEventListener('ascii-wave-wash', onWaveWash);
-    window.addEventListener('ascii-wave-reveal', onWaveReveal);
     return () => {
       window.removeEventListener('ascii-wave-wash', onWaveWash);
-      window.removeEventListener('ascii-wave-reveal', onWaveReveal);
     };
   }, []);
 
@@ -226,8 +219,7 @@ export function AsciiBeachCanvas() {
     let baseShoreCol = new Float32Array(cols);
     let peakRunupCol = new Float32Array(cols);
     let highTideCol = new Float32Array(cols);
-    let washLeadCol = new Float32Array(cols);
-    let washTrailCol = new Float32Array(cols);
+    let washCrestCol = new Float32Array(cols);
     let uColTable = new Float32Array(cols);
     let bayArchTable = new Float32Array(cols);
     let rowCharIdx = new Uint8Array(cols);
@@ -338,8 +330,7 @@ export function AsciiBeachCanvas() {
       baseShoreCol = new Float32Array(cols);
       peakRunupCol = new Float32Array(cols);
       highTideCol = new Float32Array(cols);
-      washLeadCol = new Float32Array(cols);
-      washTrailCol = new Float32Array(cols);
+      washCrestCol = new Float32Array(cols);
       uColTable = new Float32Array(cols);
       bayArchTable = new Float32Array(cols);
       rowCharIdx = new Uint8Array(cols);
@@ -380,37 +371,18 @@ export function AsciiBeachCanvas() {
       const isHome = isHomeRef.current;
       const isPhone = width < 760;
 
-      // Evaluate two-stage Big Wave Wash state:
-      // Stage 1 (0 .. WASH_SURGE_MS): leading foam crest sweeps down from top to bottom of content,
-      // filling the entire region behind it with foaming surf (washing over old content).
-      // Stage 2 (WASH_SURGE_MS .. WASH_TOTAL_MS): trailing edge sweeps down from top to bottom,
-      // re-clearing the panel behind it to reveal the newly loaded page content!
+      // Evaluate Single Big Wave Wash state (sweeps once across the screen)
       let washActive = false;
-      let washSurgeProgress = 0;
-      let washRevealProgress = 0;
+      let washProgress = 0;
 
       if (washStartRef.current >= 0) {
         const elapsed = now - washStartRef.current;
-        if (elapsed >= 0) {
+        if (elapsed >= 0 && elapsed <= WASH_DURATION_MS) {
           washActive = true;
-          washSurgeProgress = easeInOutCubic(Math.min(1, elapsed / WASH_SURGE_MS));
-
-          // Fallback if route reveal event wasn't dispatched (e.g. browser back/forward)
-          if (washRevealStartRef.current < 0 && elapsed >= WASH_SURGE_MS + 250) {
-            washRevealStartRef.current = now;
-          }
-
-          if (washRevealStartRef.current >= 0) {
-            const revealElapsed = Math.max(0, now - washRevealStartRef.current);
-            if (revealElapsed <= WASH_REVEAL_MS) {
-              washSurgeProgress = 1.0;
-              washRevealProgress = easeInOutCubic(revealElapsed / WASH_REVEAL_MS);
-            } else {
-              washActive = false;
-              washStartRef.current = -1;
-              washRevealStartRef.current = -1;
-            }
-          }
+          washProgress = easeInOutCubic(elapsed / WASH_DURATION_MS);
+        } else if (elapsed > WASH_DURATION_MS) {
+          washActive = false;
+          washStartRef.current = -1;
         }
       }
 
@@ -457,19 +429,19 @@ export function AsciiBeachCanvas() {
         if (washActive) {
           // Organic bay curve + scalloped cusps along the washing wave front
           const cuspOffset =
-            (bayArchTable[c] * 14.0 +
+            (bayArchTable[c] * 12.0 +
               Math.sin(uCol * Math.PI * 3.5 + t * 2.2) * 2.4 +
               Math.cos(uCol * Math.PI * 6.0 - t * 1.8) * 1.2) *
             rowScale;
 
-          const startR = panelTopRow - 4 + cuspOffset;
-          const endR = panelTopRow + washSpanRows + cuspOffset;
+          const startR = Math.max(2, panelTopRow - 6) + cuspOffset;
+          const endR =
+            Math.max(
+              Math.floor(rows * 0.88),
+              Math.min(rows + 4, panelBottomRow + 8)
+            ) + cuspOffset;
 
-          washLeadCol[c] =
-            startR +
-            (endR - startR) * washSurgeProgress +
-            washRevealProgress * 12.0 * rowScale;
-          washTrailCol[c] = startR + (endR - startR) * washRevealProgress;
+          washCrestCol[c] = startR + (endR - startR) * washProgress;
         }
       }
 
@@ -676,75 +648,69 @@ export function AsciiBeachCanvas() {
           }
 
           // ==================================================================
-          // TWO-STAGE BIG WAVE WASH OVERRIDE (During page transitions)
+          // SINGLE BIG WAVE WASH OVERRIDE (During page transitions)
           // ==================================================================
           let washOverlayLuma = 0.0;
           let washOverlayTier = -1;
 
           if (washActive && !checkHeader) {
-            const leadR = washLeadCol[c];
-            const trailR = washTrailCol[c];
+            const crestR = washCrestCol[c];
+            // dist < 0 is behind/above the crest (trailing wake foam)
+            // dist > 0 is ahead/below the crest (rising face of the wave)
+            const dist = (r - crestR) * invRowScale;
 
-            // Is row `r` inside the active foaming wave blanket between `trailR` and `leadR`?
-            const distFromLead = (leadR - r) * invRowScale; // > 0 behind leading crest
-            const distFromTrail = (r - trailR) * invRowScale; // > 0 ahead of trailing edge
+            if (dist >= -7.0 && dist <= 3.2) {
+              const edgeFade =
+                smoothstep(0.0, 0.08, washProgress) *
+                (1.0 - smoothstep(0.88, 1.0, washProgress));
 
-            if (distFromLead >= -1.8 && distFromTrail >= -3.5) {
-              // Fade out smoothly at the very end of Stage 2
-              const endFade = 1.0 - smoothstep(0.72, 1.0, washRevealProgress);
-
-              if (distFromLead < 0) {
-                // Dark teal trough shadow immediately in front of the crashing wave lip
-                const s = (1.8 + distFromLead) / 1.8;
-                washOverlayLuma = 0.44 * s * endFade;
+              if (dist > 1.2) {
+                // Rising swell / front trough immediately in front of the advancing wave lip
+                const s = (3.2 - dist) / 2.0;
+                washOverlayLuma = 0.42 * s * edgeFade;
                 washOverlayTier = 3;
-              } else if (distFromLead < 5.5) {
-                // Thick, roaring bright white surf crest lip (* # % @)
-                const crestCore = 1.0 - distFromLead / 5.5;
-                const froth = valueNoise2D(cNorm * 0.16 + t * 0.5, rNorm * 0.32 - t * 0.6);
+              } else if (dist >= -2.2) {
+                // The roaring, foaming wave crest lip itself (* # % @)
+                const crestCore = 1.0 - Math.abs(dist) / 2.2;
+                const froth = valueNoise2D(cNorm * 0.18 + t * 0.5, rNorm * 0.35 - t * 0.6);
                 washOverlayLuma = Math.min(
                   0.99,
-                  (0.84 + 0.15 * crestCore + froth * 0.06) * endFade
+                  (0.86 + 0.13 * crestCore + froth * 0.06) * edgeFade
                 );
                 washOverlayTier = 5;
-              } else if (distFromTrail < 4.5 && washRevealProgress > 0.01) {
-                // Receding foamy wake edge right where the new page content is being revealed
-                const wakeEdge = Math.max(0, 1.0 - Math.abs(distFromTrail - 1.2) / 3.5);
-                const lace = valueNoise2D(cNorm * 0.22 + t * 0.3, rNorm * 0.32);
-                if (lace + wakeEdge * 0.4 > 0.48) {
-                  washOverlayLuma = (0.52 + 0.36 * wakeEdge) * endFade;
-                  washOverlayTier = washOverlayLuma > 0.72 ? 5 : 4;
-                }
               } else {
-                // Churning cellular seafoam & turquoise surf blanket covering the transition zone
-                const lace = valueNoise2D(cNorm * 0.18 + t * 0.35, rNorm * 0.28 - t * 0.45);
-                const subCrest = Math.sin(distFromLead * 0.85 - t * 3.0);
+                // Trailing frothy wake left behind in the wave's path
+                const wakeDist = (-dist - 2.2) / 4.8; // 0 at crest back, 1 at wake end
+                const wakeDecay = 1.0 - wakeDist;
+                const lace = valueNoise2D(cNorm * 0.22 + t * 0.3, rNorm * 0.32);
                 const h = fastHash(c + tInt4, r);
-                if (subCrest > 0.55 && lace > 0.38) {
-                  washOverlayLuma = (0.76 + 0.18 * lace) * endFade;
-                  washOverlayTier = 5;
-                } else if (lace > 0.34 && h < 0.82) {
-                  washOverlayLuma = (0.48 + 0.32 * lace) * endFade;
-                  washOverlayTier = 4;
-                } else {
-                  washOverlayLuma = (0.34 + 0.20 * lace) * endFade;
-                  washOverlayTier = 2;
+
+                if (lace * wakeDecay > 0.30) {
+                  washOverlayLuma = (0.52 + 0.38 * wakeDecay * lace) * edgeFade;
+                  washOverlayTier = washOverlayLuma > 0.72 ? 5 : 4;
+                } else if (h < 0.65 && wakeDecay > 0.35) {
+                  washOverlayLuma = (0.34 + 0.24 * wakeDecay) * edgeFade;
+                  washOverlayTier = 3;
                 }
               }
 
-              // Inside the active wave blanket (between trailR and leadR), override panelAtten -> 1.0
-              // so the wave completely covers the content area, and smoothly re-clears behind trailR!
-              if (distFromLead >= 0 && distFromTrail >= 0) {
-                const trailFeather = smoothstep(0, 3.0, distFromTrail);
-                const leadFeather = smoothstep(0, 1.5, distFromLead);
-                const blanketCover = Math.min(trailFeather, leadFeather) * endFade;
-                panelAtten = panelAtten + (1.0 - panelAtten) * blanketCover;
-              }
+              // Inside this single wave, override panelAtten -> 1.0
+              // so the wave washes completely over the content area,
+              // while leaving normal clearance above (behind wake) and below (ahead of swell)
+              const waveBodyCoverage =
+                dist >= -4.5 && dist <= 1.8
+                  ? 1.0
+                  : dist > 1.8
+                  ? Math.max(0, (3.2 - dist) / 1.4)
+                  : Math.max(0, (dist + 7.0) / 2.5);
 
-              if (r >= baseShoreCol[c] && distFromLead >= 0 && distFromTrail >= 0) {
+              const blanketCover = waveBodyCoverage * edgeFade;
+              panelAtten = panelAtten + (1.0 - panelAtten) * blanketCover;
+
+              if (r >= baseShoreCol[c] && dist >= -3.5 && dist <= 1.5) {
                 wetSandBuffer[r * cols + c] = Math.max(
                   wetSandBuffer[r * cols + c],
-                  0.85 * endFade
+                  0.85 * edgeFade
                 );
               }
             }

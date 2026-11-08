@@ -170,50 +170,39 @@
   transition: transform 200ms ease-out, width 200ms ease-out, opacity 150ms ease-out;
 }
 
-/* Synchronized top-to-bottom page-content wave wash transition */
-@keyframes wave-wipe-out {
+/* Synchronized single-wave page-content transition */
+@keyframes single-wave-wipe {
   0% {
     clip-path: inset(0% 0% 0% 0%);
-    opacity: 1;
-  }
-  88% {
-    opacity: 0.92;
   }
   100% {
     clip-path: inset(100% 0% 0% 0%);
-    opacity: 0;
   }
 }
 
-@keyframes wave-wipe-in {
+@keyframes single-wave-reveal {
   0% {
     clip-path: inset(0% 0% 100% 0%);
-    opacity: 0.92;
   }
   100% {
     clip-path: inset(0% 0% 0% 0%);
-    opacity: 1;
   }
 }
 
-.page-wave-content {
-  will-change: clip-path, opacity;
+.single-wave-wipe {
+  animation: single-wave-wipe 750ms cubic-bezier(0.65, 0, 0.35, 1) forwards;
+  will-change: clip-path;
 }
 
-.page-wave-washing-out {
-  pointer-events: none;
-  animation: wave-wipe-out 520ms cubic-bezier(0.35, 0, 0.25, 1) forwards;
-}
-
-.page-wave-revealing-in {
-  animation: wave-wipe-in 630ms cubic-bezier(0.35, 0, 0.25, 1) forwards;
+.single-wave-reveal {
+  animation: single-wave-reveal 750ms cubic-bezier(0.65, 0, 0.35, 1) forwards;
+  will-change: clip-path;
 }
 
 @media (prefers-reduced-motion: reduce) {
   .nav-underline-indicator,
-  .page-wave-content,
-  .page-wave-washing-out,
-  .page-wave-revealing-in {
+  .single-wave-wipe,
+  .single-wave-reveal {
     transition: none !important;
     animation: none !important;
     clip-path: none !important;

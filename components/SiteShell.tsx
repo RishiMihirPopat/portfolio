@@ -11,7 +11,7 @@ import {
 } from '@/lib/navigation';
 import { profileData } from '@/lib/data';
 import { ThemeToggle } from '@/components/ThemeToggle';
-import { WASH_SURGE_MS, WASH_REVEAL_MS } from '@/components/AsciiBeachCanvas';
+import { WASH_DURATION_MS } from '@/components/AsciiBeachCanvas';
 
 export function SiteShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -20,9 +20,11 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
   const isAdminRoute = normalizedPath.startsWith('/admin');
 
   const [pendingPath, setPendingPath] = useState<string | null>(null);
-  const [washPhase, setWashPhase] = useState<'idle' | 'washing-out' | 'revealing-in'>('idle');
+  const [isWashing, setIsWashing] = useState(false);
+  const [outgoingChildren, setOutgoingChildren] = useState<React.ReactNode | null>(null);
+  const [outgoingHeight, setOutgoingHeight] = useState<number | null>(null);
+  const mainRef = useRef<HTMLElement>(null);
   const washTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const revealTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const effectivePath = pendingPath || normalizedPath;
   const currentPage = getPageByPathname(effectivePath);
@@ -49,7 +51,7 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
     ready: false,
   });
 
-  // Orchestrate the Big Wave Wash page transition
+  // Orchestrate the Single Big Wave Wash page transition
   const navigateWithWave = useCallback(
     (targetHref: string, e?: React.MouseEvent) => {
       if (e) {
@@ -76,26 +78,33 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
       }
 
       if (washTimerRef.current) clearTimeout(washTimerRef.current);
-      if (revealTimerRef.current) clearTimeout(revealTimerRef.current);
 
+      // Snapshot current height and content so layout remains smooth
+      if (mainRef.current) {
+        setOutgoingHeight(mainRef.current.offsetHeight);
+      }
+      setOutgoingChildren(children);
       setPendingPath(normTarget);
-      setWashPhase('washing-out');
+      setIsWashing(true);
 
       if (typeof window !== 'undefined') {
+        window.scrollTo({ top: 0, behavior: 'auto' });
         window.dispatchEvent(new CustomEvent('ascii-wave-wash'));
       }
 
-      // Swap route right when the big ASCII wave crest blankets the content column.
-      // Keep washPhase === 'washing-out' (100% clipped) until normalizedPath updates
-      // to the new route so the old page never flashes back while Next.js swaps {children}.
+      router.push(targetHref);
+
       washTimerRef.current = setTimeout(() => {
-        router.push(targetHref);
-      }, WASH_SURGE_MS);
+        setIsWashing(false);
+        setOutgoingChildren(null);
+        setOutgoingHeight(null);
+        setPendingPath(null);
+      }, WASH_DURATION_MS);
     },
-    [normalizedPath, pendingPath, router]
+    [children, normalizedPath, pendingPath, router]
   );
 
-  // Prefetch primary routes so wave transitions swap {children} immediately at peak crest
+  // Prefetch primary routes so wave transitions swap {children} immediately
   useEffect(() => {
     HEADER_NAV_ITEMS.forEach((item) => {
       router.prefetch(item.href);
@@ -106,7 +115,6 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     return () => {
       if (washTimerRef.current) clearTimeout(washTimerRef.current);
-      if (revealTimerRef.current) clearTimeout(revealTimerRef.current);
     };
   }, []);
 
@@ -175,19 +183,10 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
     };
   }, [evaluateNavFit, updateUnderline, isCompactNav]);
 
-  // Trigger top-to-bottom reveal as soon as the new route's {children} has mounted
+  // Clear pending path & update indicator when pathname settles
   useEffect(() => {
-    if (pendingPath && pendingPath === normalizedPath) {
+    if (pendingPath === normalizedPath) {
       setPendingPath(null);
-      if (typeof window !== 'undefined') {
-        window.scrollTo({ top: 0, behavior: 'auto' });
-        window.dispatchEvent(new CustomEvent('ascii-wave-reveal'));
-      }
-      setWashPhase('revealing-in');
-      if (revealTimerRef.current) clearTimeout(revealTimerRef.current);
-      revealTimerRef.current = setTimeout(() => {
-        setWashPhase('idle');
-      }, WASH_REVEAL_MS);
     }
     setMenuOpen(false);
     const id = requestAnimationFrame(() => updateUnderline());
@@ -460,19 +459,29 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
         </div>
       )}
 
-      {/* Main Content Landmark — washed out and revealed in sync with the big ASCII wave */}
+      {/* Main Content Landmark — single wave washes over old content to reveal new content */}
       <main
+        ref={mainRef}
         id="main-content"
         tabIndex={-1}
-        className={`flex-1 flex flex-col justify-start pt-4 sm:pt-12 pb-10 w-full focus:outline-none page-wave-content ${
-          washPhase === 'washing-out'
-            ? 'page-wave-washing-out'
-            : washPhase === 'revealing-in'
-            ? 'page-wave-revealing-in'
-            : ''
-        }`}
+        className="flex-1 flex flex-col justify-start pt-4 sm:pt-12 pb-10 w-full focus:outline-none"
       >
-        {children}
+        <div className="relative w-full min-h-[calc(100lvh-140px)]">
+          {/* Incoming Page: Revealed from top to bottom by the single wave */}
+          <div className={isWashing ? 'w-full single-wave-reveal' : 'w-full'}>
+            {children}
+          </div>
+
+          {/* Outgoing Page: Washed away from top to bottom by the single wave */}
+          {isWashing && outgoingChildren && (
+            <div
+              aria-hidden="true"
+              className="absolute top-0 left-0 w-full pointer-events-none single-wave-wipe"
+            >
+              {outgoingChildren}
+            </div>
+          )}
+        </div>
       </main>
 
       {/* Quiet Footer: email & github left; previous & next page links on phone only */}
