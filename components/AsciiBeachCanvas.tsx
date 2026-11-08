@@ -154,19 +154,27 @@ export function AsciiBeachCanvas() {
   const reducedMotionRef = useRef<boolean>(false);
   const washStartRef = useRef<number>(-1);
   const lastWashTriggerRef = useRef<number>(-9999);
+  const isWashingOrSwappingRef = useRef<boolean>(false);
+  const fadeStartRef = useRef<number>(-1);
 
   useEffect(() => {
     const clean = (pathname || '/').replace(/\/+$/, '') || '/';
     isHomeRef.current = clean === '/';
 
-    // Only trigger from pathname change if it wasn't already triggered by navigateWithWave (e.g. browser back/forward)
+    // If route changed (e.g. browser back/forward or programmatic navigation):
     if (lastPathRef.current !== null && lastPathRef.current !== clean) {
       const now = performance.now();
       if (now - lastWashTriggerRef.current > WASH_DURATION_MS + 600) {
         if (!reducedMotionRef.current) {
           washStartRef.current = now;
           lastWashTriggerRef.current = now;
+          isWashingOrSwappingRef.current = true;
+          fadeStartRef.current = -1;
         }
+      } else {
+        // Navigation already completed wash: fade in the new box
+        isWashingOrSwappingRef.current = false;
+        fadeStartRef.current = now;
       }
     }
     lastPathRef.current = clean;
@@ -178,11 +186,19 @@ export function AsciiBeachCanvas() {
         const now = performance.now();
         washStartRef.current = now;
         lastWashTriggerRef.current = now;
+        isWashingOrSwappingRef.current = true;
+        fadeStartRef.current = -1;
       }
     };
+    const onPageFadeIn = () => {
+      isWashingOrSwappingRef.current = false;
+      fadeStartRef.current = performance.now();
+    };
     window.addEventListener('ascii-wave-wash', onWaveWash);
+    window.addEventListener('ascii-page-fade-in', onPageFadeIn);
     return () => {
       window.removeEventListener('ascii-wave-wash', onWaveWash);
+      window.removeEventListener('ascii-page-fade-in', onPageFadeIn);
     };
   }, []);
 
@@ -387,6 +403,20 @@ export function AsciiBeachCanvas() {
         }
       }
 
+      // Check whether new page is currently fading in
+      let isFadingIn = false;
+      let fadeFactor = 1.0;
+      if (fadeStartRef.current >= 0) {
+        const fadeElapsed = now - fadeStartRef.current;
+        if (fadeElapsed >= 0 && fadeElapsed <= 520) {
+          isFadingIn = true;
+          const fp = fadeElapsed / 520;
+          fadeFactor = fp * fp * (3 - 2 * fp); // smoothstep
+        } else {
+          fadeStartRef.current = -1;
+        }
+      }
+
       ctx.clearRect(0, 0, width, height);
 
       const rowScale = rows / 64;
@@ -486,7 +516,14 @@ export function AsciiBeachCanvas() {
           ctx.fillStyle = hGrad;
           ctx.fillRect(0, 0, width, headerRect.bottom + 40);
         }
-        if (panelRect.valid) {
+        let veilAlpha = 1.0;
+        if (isWashingOrSwappingRef.current) {
+          veilAlpha = washActive ? Math.max(0, 1.0 - washProgress * 1.6) : 0.0;
+        } else if (isFadingIn) {
+          veilAlpha = fadeFactor;
+        }
+
+        if (panelRect.valid && veilAlpha > 0.01) {
           const cx = (panelRect.left + panelRect.right) * 0.5;
           const cy = (panelRect.top + panelRect.bottom) * 0.5;
           const rx = Math.max(260, (panelRect.right - panelRect.left) * 0.85 + 90);
@@ -495,8 +532,8 @@ export function AsciiBeachCanvas() {
           ctx.translate(cx, cy);
           ctx.scale(1, ry / rx);
           const veil = ctx.createRadialGradient(0, 0, rx * 0.15, 0, 0, rx);
-          veil.addColorStop(0, 'hsla(42, 30%, 96%, 0.64)');
-          veil.addColorStop(0.65, 'hsla(42, 28%, 95%, 0.36)');
+          veil.addColorStop(0, `hsla(42, 30%, 96%, ${(0.64 * veilAlpha).toFixed(3)})`);
+          veil.addColorStop(0.65, `hsla(42, 28%, 95%, ${(0.36 * veilAlpha).toFixed(3)})`);
           veil.addColorStop(1, 'hsla(42, 28%, 95%, 0.0)');
           ctx.fillStyle = veil;
           ctx.beginPath();
@@ -609,6 +646,7 @@ export function AsciiBeachCanvas() {
           }
 
           // Main content column attenuation with wide organic wave-aligned feathering (no hard box outline)
+          let rawPanelAtten = 1.0;
           if (checkPanel && px <= panelRect.right + falloffRadius + 48) {
             const rawDist = sdRoundedBox(
               px,
@@ -629,21 +667,49 @@ export function AsciiBeachCanvas() {
               if (isHome) {
                 const homeHalo = isPhone ? 36 : 85;
                 if (d <= 0) {
-                  panelAtten = 0.0;
+                  rawPanelAtten = 0.0;
                 } else if (d < homeHalo) {
-                  panelAtten = Math.min(panelAtten, smoothstep(0, homeHalo, d));
+                  rawPanelAtten = Math.min(rawPanelAtten, smoothstep(0, homeHalo, d));
                 }
               } else {
                 const innerFloor = isPhone ? 0.11 : 0.04;
                 if (d <= 0) {
-                  panelAtten = Math.min(panelAtten, innerFloor);
+                  rawPanelAtten = Math.min(rawPanelAtten, innerFloor);
                 } else if (d < falloffRadius) {
                   const f = smoothstep(0, falloffRadius, d);
-                  panelAtten = Math.min(panelAtten, innerFloor + (1 - innerFloor) * f);
+                  rawPanelAtten = Math.min(rawPanelAtten, innerFloor + (1 - innerFloor) * f);
                 }
               }
             }
           }
+
+          // Wash away the background blur box along with the contents when the wave washes over
+          let boxAtten = rawPanelAtten;
+          if (isWashingOrSwappingRef.current) {
+            if (washActive) {
+              const crestR = washCrestCol[c];
+              const distToWave = (r - crestR) * invRowScale;
+              if (distToWave <= 0) {
+                // Wave crest has swept past row r: background blur box is washed away!
+                boxAtten = 1.0;
+              } else if (distToWave <= 1.4) {
+                // Wave lip is breaking over row r: wipe the background blur box away in lockstep with the wave
+                const wipeFrac = distToWave / 1.4;
+                boxAtten = 1.0 - wipeFrac * (1.0 - rawPanelAtten);
+              } else {
+                // Ahead of the wave: background blur box remains visible until wave crest arrives
+                boxAtten = rawPanelAtten;
+              }
+            } else {
+              // Wave wash completed, routes swapping: box remains completely washed away
+              boxAtten = 1.0;
+            }
+          } else if (isFadingIn) {
+            // Calm fade-in: new background blur box gently fades in alongside the new page contents
+            boxAtten = 1.0 - fadeFactor * (1.0 - rawPanelAtten);
+          }
+
+          panelAtten = Math.min(panelAtten, boxAtten);
 
           // ==================================================================
           // SINGLE BIG WAVE WASH OVERRIDE (During page transitions)
@@ -691,19 +757,6 @@ export function AsciiBeachCanvas() {
                   washOverlayTier = 3;
                 }
               }
-
-              // Inside this single wave, override panelAtten -> 1.0
-              // so the wave washes completely over the content area,
-              // while leaving normal clearance above (behind wake) and below (ahead of swell)
-              const waveBodyCoverage =
-                dist >= -4.5 && dist <= 1.8
-                  ? 1.0
-                  : dist > 1.8
-                  ? Math.max(0, (3.2 - dist) / 1.4)
-                  : Math.max(0, (dist + 7.0) / 2.5);
-
-              const blanketCover = waveBodyCoverage * edgeFade;
-              panelAtten = panelAtten + (1.0 - panelAtten) * blanketCover;
 
               if (r >= baseShoreCol[c] && dist >= -3.5 && dist <= 1.5) {
                 wetSandBuffer[r * cols + c] = Math.max(

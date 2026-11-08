@@ -200,6 +200,11 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
       isTransitioningRef.current = false;
       setTransitionPhase('fading-in');
 
+      // Notify ASCII canvas that new route has mounted and new background blur box can fade in
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('ascii-page-fade-in'));
+      }
+
       fadeTimerRef.current = setTimeout(() => {
         setTransitionPhase('idle');
       }, 520);
