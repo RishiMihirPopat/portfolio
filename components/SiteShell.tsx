@@ -18,8 +18,14 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
   const normalizedPath = normalizePathname(pathname);
   const isAdminRoute = normalizedPath.startsWith('/admin');
 
-  const currentPage = getPageByPathname(pathname);
-  const { prev: prevPage, next: nextPage } = getAdjacentPages(pathname);
+  const [pendingPath, setPendingPath] = useState<string | null>(null);
+  const [washPhase, setWashPhase] = useState<'idle' | 'washing-out' | 'revealing-in'>('idle');
+  const washTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const revealTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const effectivePath = pendingPath || normalizedPath;
+  const currentPage = getPageByPathname(effectivePath);
+  const { prev: prevPage, next: nextPage } = getAdjacentPages(effectivePath);
 
   const [isCompactNav, setIsCompactNav] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -41,6 +47,66 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
     visible: false,
     ready: false,
   });
+
+  // Orchestrate the Big Wave Wash page transition
+  const navigateWithWave = useCallback(
+    (targetHref: string, e?: React.MouseEvent) => {
+      if (e) {
+        if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) {
+          return; // allow normal new-tab / modifier clicks
+        }
+        e.preventDefault();
+      }
+
+      const normTarget = normalizePathname(targetHref);
+      setMenuOpen(false);
+
+      if (normTarget === normalizedPath && !pendingPath) {
+        return;
+      }
+
+      const prefersReduced =
+        typeof window !== 'undefined' &&
+        window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+      if (prefersReduced) {
+        router.push(targetHref);
+        return;
+      }
+
+      if (washTimerRef.current) clearTimeout(washTimerRef.current);
+      if (revealTimerRef.current) clearTimeout(revealTimerRef.current);
+
+      setPendingPath(normTarget);
+      setWashPhase('washing-out');
+
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('ascii-wave-wash'));
+      }
+
+      // Swap route right when the big ASCII wave crest blankets the content column
+      washTimerRef.current = setTimeout(() => {
+        router.push(targetHref);
+        if (typeof window !== 'undefined') {
+          window.scrollTo({ top: 0, behavior: 'auto' });
+        }
+        setWashPhase('revealing-in');
+
+        revealTimerRef.current = setTimeout(() => {
+          setWashPhase('idle');
+          setPendingPath(null);
+        }, 420);
+      }, 330);
+    },
+    [normalizedPath, pendingPath, router]
+  );
+
+  useEffect(() => {
+    return () => {
+      if (washTimerRef.current) clearTimeout(washTimerRef.current);
+      if (revealTimerRef.current) clearTimeout(revealTimerRef.current);
+    };
+  }, []);
 
   // Recompute desktop sliding underline position and width
   const updateUnderline = useCallback(() => {
@@ -107,14 +173,17 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
     };
   }, [evaluateNavFit, updateUnderline, isCompactNav]);
 
-  // Close mobile menu and update indicator on route change
+  // Clear pending path & update indicator when pathname settles
   useEffect(() => {
+    if (pendingPath === normalizedPath) {
+      setPendingPath(null);
+    }
     setMenuOpen(false);
     const id = requestAnimationFrame(() => updateUnderline());
     return () => cancelAnimationFrame(id);
-  }, [normalizedPath, updateUnderline]);
+  }, [normalizedPath, pendingPath, updateUnderline]);
 
-  // Keyboard shortcuts 1–4 to navigate to the header pages (ignored when typing in an input)
+  // Keyboard shortcuts 1–4 to navigate to the header pages with wave wash
   useEffect(() => {
     if (isAdminRoute) return;
     const onKeyDown = (e: KeyboardEvent) => {
@@ -132,15 +201,15 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
 
       if (e.key >= '1' && e.key <= '6') {
         const match = HEADER_NAV_ITEMS.find((item) => item.shortcut === e.key);
-        if (match && match.href !== normalizedPath) {
+        if (match && match.href !== effectivePath) {
           e.preventDefault();
-          router.push(match.href);
+          navigateWithWave(match.href);
         }
       }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [isAdminRoute, normalizedPath, router]);
+  }, [isAdminRoute, effectivePath, navigateWithWave]);
 
   // Mobile menu Escape handling, body scroll lock, and Focus Trap
   useEffect(() => {
@@ -218,6 +287,7 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
       >
         <Link
           href="/"
+          onClick={(e) => navigateWithWave('/', e)}
           aria-current={currentPage.id === 'home' ? 'page' : undefined}
           className="font-mono text-xs font-normal text-ink hover:opacity-85 transition-opacity min-h-[44px] inline-flex items-center shrink-0"
         >
@@ -247,6 +317,7 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
                     linkRefs.current[item.id] = el;
                   }}
                   href={item.href}
+                  onClick={(e) => navigateWithWave(item.href, e)}
                   aria-current={isActive ? 'page' : undefined}
                   className={`min-h-[44px] inline-flex items-center font-normal shrink-0 ${
                     idx === 0 ? '' : isNewGroup ? 'ml-6 lg:ml-8' : 'ml-3.5 lg:ml-4'
@@ -317,7 +388,7 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
             <Link
               href="/"
               aria-current={currentPage.id === 'home' ? 'page' : undefined}
-              onClick={() => setMenuOpen(false)}
+              onClick={(e) => navigateWithWave('/', e)}
               className="font-mono text-xs font-normal text-ink min-h-[44px] inline-flex items-center"
             >
               Rishi Popat
@@ -350,7 +421,7 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
                   key={item.id}
                   href={item.href}
                   aria-current={isActive ? 'page' : undefined}
-                  onClick={() => setMenuOpen(false)}
+                  onClick={(e) => navigateWithWave(item.href, e)}
                   className={`min-h-[48px] w-full flex items-center justify-between py-2.5 font-normal ${
                     item.isCta ? 'text-ink' : isActive ? 'text-ink' : 'text-ink-nav'
                   }`}
@@ -378,11 +449,15 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
         </div>
       )}
 
-      {/* Main Content Landmark */}
+      {/* Main Content Landmark — washed out and revealed in sync with the big ASCII wave */}
       <main
         id="main-content"
         tabIndex={-1}
-        className="flex-1 flex flex-col justify-start pt-4 sm:pt-12 pb-10 w-full focus:outline-none"
+        className={`flex-1 flex flex-col justify-start pt-4 sm:pt-12 pb-10 w-full focus:outline-none page-wave-content ${
+          washPhase === 'washing-out'
+            ? 'page-wave-washing-out'
+            : 'page-wave-revealing-in'
+        }`}
       >
         {children}
       </main>
@@ -418,6 +493,7 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
         >
           <Link
             href={prevPage.href}
+            onClick={(e) => navigateWithWave(prevPage.href, e)}
             aria-label={`Previous page: ${prevPage.label}`}
             className="quiet-link min-h-[44px] inline-flex items-center gap-1.5"
           >
@@ -426,6 +502,7 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
           </Link>
           <Link
             href={nextPage.href}
+            onClick={(e) => navigateWithWave(nextPage.href, e)}
             aria-label={`Next page: ${nextPage.label}`}
             className="quiet-link min-h-[44px] inline-flex items-center gap-1.5"
           >

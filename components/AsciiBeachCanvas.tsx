@@ -25,7 +25,7 @@ export interface SceneParams {
   shallowsSpread: number;
 }
 
-// Constant scene parameters — waves and shoreline do not shift on scroll or page change
+// Constant baseline scene parameters
 const CONSTANT_SCENE: SceneParams = {
   shoreAngle: 0.05,
   tidePosition: 0.64,
@@ -36,6 +36,8 @@ const CONSTANT_SCENE: SceneParams = {
   brightness: 1.0,
   shallowsSpread: 0.42,
 };
+
+const WASH_DURATION_MS = 920;
 
 // 12-step brightness ramp driven by per-cell luminance
 const RAMP = ' .,:;-=+*#%@';
@@ -116,6 +118,16 @@ function smoothstep(edge0: number, edge1: number, x: number): number {
   return t * t * (3 - 2 * t);
 }
 
+function easeOutCubic(x: number): number {
+  const t = Math.max(0, Math.min(1, x));
+  return 1 - Math.pow(1 - t, 3);
+}
+
+function easeInOutCubic(x: number): number {
+  const t = Math.max(0, Math.min(1, x));
+  return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+}
+
 function sdRoundedBox(
   px: number,
   py: number,
@@ -143,12 +155,36 @@ export function AsciiBeachCanvas() {
   const pathname = usePathname();
   const { resolvedTheme } = useTheme();
   const isHomeRef = useRef<boolean>(true);
+  const lastPathRef = useRef<string | null>(null);
   const reducedMotionRef = useRef<boolean>(false);
+  // Timestamp when the page-transition big wave wash started (-1 = inactive)
+  const washStartRef = useRef<number>(-1);
 
   useEffect(() => {
     const clean = (pathname || '/').replace(/\/+$/, '') || '/';
     isHomeRef.current = clean === '/';
+
+    // If route changed without an explicit pre-triggered wave wash (e.g. browser Back/Forward), trigger wash
+    if (lastPathRef.current !== null && lastPathRef.current !== clean) {
+      const now = performance.now();
+      if (washStartRef.current < 0 || now - washStartRef.current > WASH_DURATION_MS * 0.75) {
+        if (!reducedMotionRef.current) {
+          washStartRef.current = now;
+        }
+      }
+    }
+    lastPathRef.current = clean;
   }, [pathname]);
+
+  useEffect(() => {
+    const onWaveWash = () => {
+      if (!reducedMotionRef.current) {
+        washStartRef.current = performance.now();
+      }
+    };
+    window.addEventListener('ascii-wave-wash', onWaveWash);
+    return () => window.removeEventListener('ascii-wave-wash', onWaveWash);
+  }, []);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -183,6 +219,7 @@ export function AsciiBeachCanvas() {
     let baseShoreCol = new Float32Array(cols);
     let peakRunupCol = new Float32Array(cols);
     let highTideCol = new Float32Array(cols);
+    let washFrontCol = new Float32Array(cols);
     let uColTable = new Float32Array(cols);
     let bayArchTable = new Float32Array(cols);
     let rowCharIdx = new Uint8Array(cols);
@@ -247,7 +284,6 @@ export function AsciiBeachCanvas() {
       const nextW = window.innerWidth;
       const nextH = Math.max(window.innerHeight, document.documentElement.clientHeight || 0);
 
-      // Ignore height-only resizes under ~120px (e.g. mobile browser address bar collapsing)
       if (
         !force &&
         lastSetupWidth > 0 &&
@@ -306,6 +342,7 @@ export function AsciiBeachCanvas() {
       baseShoreCol = new Float32Array(cols);
       peakRunupCol = new Float32Array(cols);
       highTideCol = new Float32Array(cols);
+      washFrontCol = new Float32Array(cols);
       uColTable = new Float32Array(cols);
       bayArchTable = new Float32Array(cols);
       rowCharIdx = new Uint8Array(cols);
@@ -346,6 +383,31 @@ export function AsciiBeachCanvas() {
       const isHome = isHomeRef.current;
       const isPhone = width < 760;
 
+      // Evaluate page-transition Big Wave Wash state (0.0 -> 1.0)
+      let washActive = false;
+      let washU = 0;
+      let washSurge = 0; // 0 -> 1 during forward surge (0..0.52)
+      let washRecede = 0; // 0 -> 1 during retreat/dissolve (0.52..1.0)
+      let washCoverStrength = 0; // How strongly the big wave fills in the cleared text panel
+
+      if (washStartRef.current >= 0) {
+        const elapsed = now - washStartRef.current;
+        if (elapsed >= 0 && elapsed <= WASH_DURATION_MS) {
+          washActive = true;
+          washU = elapsed / WASH_DURATION_MS;
+          if (washU <= 0.50) {
+            washSurge = easeOutCubic(washU / 0.50);
+            washCoverStrength = smoothstep(0.05, 0.42, washU);
+          } else {
+            washSurge = 1.0;
+            washRecede = easeInOutCubic((washU - 0.50) / 0.50);
+            washCoverStrength = 1.0 - washRecede;
+          }
+        } else if (elapsed > WASH_DURATION_MS) {
+          washStartRef.current = -1;
+        }
+      }
+
       ctx.clearRect(0, 0, width, height);
 
       const rowScale = rows / 64;
@@ -356,7 +418,7 @@ export function AsciiBeachCanvas() {
       const swashScale = swashZoneRows * Math.min(1.35, P.waveHeight);
       const effectiveTide = isPhone ? P.tidePosition * 0.80 : P.tidePosition;
 
-      // Compute top-down shoreline contour & scalloped swash tongues across columns
+      // Compute top-down shoreline contour, scalloped swash tongues, and transition wave front
       for (let c = 0; c < cols; c++) {
         const uCol = uColTable[c];
         const shoreRatio =
@@ -378,6 +440,22 @@ export function AsciiBeachCanvas() {
 
         peakRunupCol[c] = bRow + combinedSurge * swashScale;
         highTideCol[c] = bRow + swashScale * 0.98;
+
+        if (washActive) {
+          // Big wave crest contour: curves naturally with the bay and has organic scalloped cusps
+          const waveArch =
+            bayArchTable[c] * rows * 1.35 +
+            (uCol - 0.5) * P.shoreAngle * rows +
+            Math.sin(uCol * Math.PI * 3.2 - washU * 4.0) * 3.2 * rowScale;
+          const startRow = rows * 0.04 + waveArch;
+          const peakRow = rows * 1.06 + waveArch;
+          const endRow = bRow + swashScale * 0.85;
+
+          washFrontCol[c] =
+            washU <= 0.50
+              ? startRow + (peakRow - startRow) * washSurge
+              : peakRow - (peakRow - endRow) * washRecede * 0.45;
+        }
       }
 
       const meanShoreY = Math.min(
@@ -414,26 +492,27 @@ export function AsciiBeachCanvas() {
       ctx.fillStyle = bgGrad;
       ctx.fillRect(0, 0, width, height);
 
-      // In Light Mode, add a soft feathered readability veil behind the active text column, header & footer
+      // In Light Mode, add a soft feathered readability veil behind the active text column & header
       if (isLight) {
         if (headerRect.valid) {
-          const hGrad = ctx.createLinearGradient(0, 0, 0, headerRect.bottom + 55);
+          const hGrad = ctx.createLinearGradient(0, 0, 0, headerRect.bottom + 40);
           hGrad.addColorStop(0, 'hsla(195, 25%, 94%, 0.52)');
           hGrad.addColorStop(1, 'hsla(195, 25%, 94%, 0.0)');
           ctx.fillStyle = hGrad;
-          ctx.fillRect(0, 0, width, headerRect.bottom + 55);
+          ctx.fillRect(0, 0, width, headerRect.bottom + 40);
         }
-        if (panelRect.valid) {
+        if (panelRect.valid && washCoverStrength < 0.85) {
+          const veilAlpha = 1.0 - washCoverStrength;
           const cx = (panelRect.left + panelRect.right) * 0.5;
           const cy = (panelRect.top + panelRect.bottom) * 0.5;
-          const rx = Math.max(260, (panelRect.right - panelRect.left) * 0.85 + 140);
-          const ry = Math.max(180, (panelRect.bottom - panelRect.top) * 0.75 + 120);
+          const rx = Math.max(260, (panelRect.right - panelRect.left) * 0.85 + 90);
+          const ry = Math.max(180, (panelRect.bottom - panelRect.top) * 0.75 + 90);
           ctx.save();
           ctx.translate(cx, cy);
           ctx.scale(1, ry / rx);
           const veil = ctx.createRadialGradient(0, 0, rx * 0.15, 0, 0, rx);
-          veil.addColorStop(0, 'hsla(42, 30%, 96%, 0.64)');
-          veil.addColorStop(0.65, 'hsla(42, 28%, 95%, 0.36)');
+          veil.addColorStop(0, `hsla(42, 30%, 96%, ${0.64 * veilAlpha})`);
+          veil.addColorStop(0.65, `hsla(42, 28%, 95%, ${0.36 * veilAlpha})`);
           veil.addColorStop(1, 'hsla(42, 28%, 95%, 0.0)');
           ctx.fillStyle = veil;
           ctx.beginPath();
@@ -513,7 +592,7 @@ export function AsciiBeachCanvas() {
           let wakeRipple = 0.0;
           let wakeFoam = 0.0;
 
-          // Header band: thin out and soften characters with a tight falloff
+          // Header band stays readable at all times
           if (checkHeader) {
             const hd = sdRoundedBox(
               px,
@@ -530,7 +609,7 @@ export function AsciiBeachCanvas() {
             }
           }
 
-          // Footer pills: tight minimal padding around email/github (and phone prev/next)
+          // Footer pills
           if (checkFooter) {
             for (let fi = 0; fi < footerRects.length; fi++) {
               const fr = footerRects[fi];
@@ -608,6 +687,68 @@ export function AsciiBeachCanvas() {
                       (0.5 + 0.5 * Math.sin(cNorm * 0.22 + rNorm * 0.15 - t * 2.8));
                   }
                 }
+              }
+            }
+          }
+
+          // ==================================================================
+          // BIG WAVE WASH OVERRIDE (During page transitions)
+          // ==================================================================
+          let washOverlayLuma = 0.0;
+          let washOverlayTier = -1;
+
+          if (washActive && !checkHeader) {
+            const wfRow = washFrontCol[c] + rowWobble * 0.7;
+            // Distance behind the advancing big wave front (in normalized 64-row units)
+            const behindFront = (wfRow - r) * invRowScale;
+            const waveBodySpan = 34.0;
+
+            if (behindFront >= -1.5 && behindFront <= waveBodySpan) {
+              const fadeAlpha = 1.0 - washRecede * 0.92;
+              if (behindFront < 0) {
+                // Deep wave-front trough shadow just ahead of the crashing lip
+                const s = (1.5 + behindFront) / 1.5;
+                washOverlayLuma = 0.42 * s * fadeAlpha;
+                washOverlayTier = 3;
+              } else if (behindFront < 4.8) {
+                // Roaring white surf crest lip (* # % @) washing across the page
+                const crestCore = 1.0 - behindFront / 4.8;
+                const froth = valueNoise2D(cNorm * 0.18 + t * 0.5, rNorm * 0.35 - t * 0.6);
+                washOverlayLuma = Math.min(0.99, (0.82 + 0.17 * crestCore + froth * 0.08) * fadeAlpha);
+                washOverlayTier = 5;
+              } else if (behindFront < 18.5) {
+                // Dense boiling cellular seafoam sheet behind the crest
+                const foamDecay = 1.0 - (behindFront - 4.8) / 13.7;
+                const lace = valueNoise2D(cNorm * 0.20 + t * 0.35, rNorm * 0.30 - t * 0.45);
+                const h = fastHash(c + tInt4, r);
+                if (lace > 0.30 - foamDecay * 0.22 && h < 0.88) {
+                  washOverlayLuma = (0.50 + 0.38 * foamDecay * lace) * fadeAlpha;
+                  washOverlayTier = washOverlayLuma > 0.72 ? 5 : 4;
+                } else {
+                  washOverlayLuma = (0.36 + 0.22 * foamDecay) * fadeAlpha;
+                  washOverlayTier = 2;
+                }
+              } else {
+                // Trailing turquoise surge water
+                const tailDecay = 1.0 - (behindFront - 18.5) / (waveBodySpan - 18.5);
+                const ripple = valueNoise2D(cNorm * 0.14 + t * 0.3, rNorm * 0.25);
+                washOverlayLuma = (0.24 + 0.32 * tailDecay * ripple) * fadeAlpha;
+                washOverlayTier = 2;
+              }
+
+              // Allow the big wave to wash directly over the cleared content panel!
+              const localWaveCover =
+                behindFront >= 0 && behindFront < 22.0
+                  ? washCoverStrength
+                  : washCoverStrength * Math.max(0, 1.0 - (behindFront - 22.0) / 12.0);
+              panelAtten = panelAtten + (1.0 - panelAtten) * localWaveCover;
+
+              // Leave glistening wet sand wherever the big wave washes over the beach
+              if (r >= baseShoreCol[c] && behindFront >= 0) {
+                wetSandBuffer[r * cols + c] = Math.max(
+                  wetSandBuffer[r * cols + c],
+                  0.85 * fadeAlpha
+                );
               }
             }
           }
@@ -809,12 +950,18 @@ export function AsciiBeachCanvas() {
             }
           }
 
+          // Blend in the Big Wave Wash crest & foam when active
+          if (washOverlayTier >= 0 && washOverlayLuma > luma * 0.85) {
+            luma = Math.max(luma, washOverlayLuma);
+            tierIdx = washOverlayTier;
+          }
+
           const dither =
             luma > 0.02 && luma < 0.78 ? (fastHash(c, r) - 0.5) * 0.075 : 0.0;
           const finalLuma = Math.max(0, Math.min(0.999, (luma + dither) * panelAtten));
           let charIdx = Math.floor(finalLuma * (RAMP_MAX + 1));
 
-          if (panelAtten > 0 && panelAtten < 0.35 && charIdx > 0) {
+          if (!washActive && panelAtten > 0 && panelAtten < 0.35 && charIdx > 0) {
             if (fastHash(c, r) > 0.42) {
               charIdx = 0;
             } else if (tierIdx === 5 || tierIdx === 4) {
