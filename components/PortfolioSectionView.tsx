@@ -111,7 +111,10 @@ export function PortfolioSectionView({ section }: { section: BeachSectionId }) {
 
   if (resolvedSection === 'home') {
     return (
-      <div className="scene-text-veil w-fit max-w-[540px] space-y-2 py-3 pr-8 sm:pr-12">
+      <div
+        data-ascii-panel="true"
+        className="w-fit max-w-[540px] space-y-2 pt-2 sm:pt-4"
+      >
         <ScrambleHeading
           text="Rishi Mihir Popat"
           className="font-mono text-2xl sm:text-3xl font-medium tracking-tight text-ink"
@@ -124,10 +127,10 @@ export function PortfolioSectionView({ section }: { section: BeachSectionId }) {
   }
 
   return (
-    <article className="scene-text-veil w-full max-w-[580px] pr-4 sm:pr-10 py-2">
+    <article className="w-full max-w-[560px]">
       {/* On mobile (<760px): keep a ~22vh scene strip at the top with the heading overlaid */}
       <div className="max-[759px]:min-h-[17vh] max-[759px]:flex max-[759px]:flex-col max-[759px]:justify-end pb-3 sm:pb-4">
-        <div className="w-fit">
+        <div data-ascii-heading="true" className="w-fit">
           <ScrambleHeading
             text={currentNav.heading}
             className="font-mono text-xl sm:text-2xl font-medium tracking-tight text-ink"
@@ -136,7 +139,7 @@ export function PortfolioSectionView({ section }: { section: BeachSectionId }) {
       </div>
 
       {/* Content column */}
-      <div className="w-full space-y-4 sm:space-y-5">
+      <div data-ascii-panel="true" className="w-full space-y-4 sm:space-y-5">
         {/* PROJECTS */}
         {resolvedSection === 'projects' && (
           <div className="divide-y divide-line border-t border-line">

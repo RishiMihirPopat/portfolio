@@ -213,6 +213,7 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
       {/* Header on one row: Name left, nav links right at desktop, menu button below 760px */}
       <header
         ref={headerRef}
+        data-ascii-header="true"
         className="flex items-center justify-between gap-4 w-full whitespace-nowrap relative z-30"
       >
         <Link
@@ -387,7 +388,10 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
       </main>
 
       {/* Quiet Footer: email & github left, previous & next page links right */}
-      <footer className="flex flex-wrap items-center justify-between gap-x-6 gap-y-1 font-mono text-xs text-ink-nav w-full relative z-20">
+      <footer
+        data-ascii-footer="true"
+        className="flex flex-wrap items-center justify-between gap-x-6 gap-y-1 font-mono text-xs text-ink-nav w-full relative z-20"
+      >
         <div className="flex items-center gap-5">
           <a
             href={`mailto:${profileData.email}`}
