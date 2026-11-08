@@ -14,96 +14,96 @@ export type BeachSectionId =
   | 'skills';
 
 export interface SceneParams {
-  horizonRatio: number; // ~0.39 from top
-  tidePosition: number; // ~0.68 from top (sea spans ~29% of viewport)
-  cloudSpeed: number;
-  cloudDensity: number;
+  shoreAngle: number; // Gentle diagonal/bay tilt of the coastline in top-down view
+  tidePosition: number; // Mean shoreline position (~0.62–0.68 from top)
+  swellSpeed: number;
+  foamDensity: number;
   waveHeight: number;
   waveFreq: number;
   brightness: number;
-  haze: number;
+  shallowsSpread: number;
 }
 
 export const SECTION_PRESETS: Record<BeachSectionId, SceneParams> = {
   home: {
-    horizonRatio: 0.39,
-    tidePosition: 0.68,
-    cloudSpeed: 0.85,
-    cloudDensity: 1.0,
+    shoreAngle: 0.06,
+    tidePosition: 0.64,
+    swellSpeed: 0.90,
+    foamDensity: 1.0,
     waveHeight: 1.08,
     waveFreq: 1.0,
     brightness: 1.0,
-    haze: 0.42,
+    shallowsSpread: 0.42,
   },
   projects: {
-    horizonRatio: 0.37,
-    tidePosition: 0.67,
-    cloudSpeed: 1.25,
-    cloudDensity: 1.12,
-    waveHeight: 1.30,
-    waveFreq: 1.22,
+    shoreAngle: -0.05,
+    tidePosition: 0.60,
+    swellSpeed: 1.22,
+    foamDensity: 1.18,
+    waveHeight: 1.32,
+    waveFreq: 1.24,
     brightness: 1.04,
-    haze: 0.36,
+    shallowsSpread: 0.46,
   },
   photography: {
-    horizonRatio: 0.39,
-    tidePosition: 0.69,
-    cloudSpeed: 0.65,
-    cloudDensity: 0.90,
-    waveHeight: 0.92,
-    waveFreq: 0.84,
-    brightness: 1.18,
-    haze: 0.52,
+    shoreAngle: 0.08,
+    tidePosition: 0.65,
+    swellSpeed: 0.72,
+    foamDensity: 0.94,
+    waveHeight: 0.94,
+    waveFreq: 0.82,
+    brightness: 1.15,
+    shallowsSpread: 0.50,
   },
   blog: {
-    horizonRatio: 0.38,
-    tidePosition: 0.68,
-    cloudSpeed: 0.75,
-    cloudDensity: 1.28,
-    waveHeight: 0.84,
+    shoreAngle: 0.03,
+    tidePosition: 0.63,
+    swellSpeed: 0.78,
+    foamDensity: 1.10,
+    waveHeight: 0.86,
     waveFreq: 0.90,
-    brightness: 0.90,
-    haze: 0.56,
+    brightness: 0.92,
+    shallowsSpread: 0.38,
   },
   resume: {
-    horizonRatio: 0.40,
-    tidePosition: 0.70,
-    cloudSpeed: 0.45,
-    cloudDensity: 0.82,
-    waveHeight: 0.55,
-    waveFreq: 0.74,
-    brightness: 0.95,
-    haze: 0.38,
+    shoreAngle: 0.04,
+    tidePosition: 0.68,
+    swellSpeed: 0.52,
+    foamDensity: 0.78,
+    waveHeight: 0.56,
+    waveFreq: 0.72,
+    brightness: 0.96,
+    shallowsSpread: 0.36,
   },
   experience: {
-    horizonRatio: 0.40,
-    tidePosition: 0.69,
-    cloudSpeed: 0.48,
-    cloudDensity: 0.84,
-    waveHeight: 0.58,
-    waveFreq: 0.76,
+    shoreAngle: -0.03,
+    tidePosition: 0.67,
+    swellSpeed: 0.55,
+    foamDensity: 0.82,
+    waveHeight: 0.60,
+    waveFreq: 0.75,
     brightness: 0.96,
-    haze: 0.38,
+    shallowsSpread: 0.38,
   },
   academics: {
-    horizonRatio: 0.40,
-    tidePosition: 0.70,
-    cloudSpeed: 0.42,
-    cloudDensity: 0.78,
-    waveHeight: 0.50,
-    waveFreq: 0.70,
+    shoreAngle: 0.05,
+    tidePosition: 0.68,
+    swellSpeed: 0.48,
+    foamDensity: 0.75,
+    waveHeight: 0.52,
+    waveFreq: 0.68,
     brightness: 0.94,
-    haze: 0.40,
+    shallowsSpread: 0.36,
   },
   skills: {
-    horizonRatio: 0.39,
-    tidePosition: 0.68,
-    cloudSpeed: 0.55,
-    cloudDensity: 0.88,
-    waveHeight: 0.64,
+    shoreAngle: -0.04,
+    tidePosition: 0.65,
+    swellSpeed: 0.64,
+    foamDensity: 0.88,
+    waveHeight: 0.68,
     waveFreq: 0.80,
-    brightness: 0.96,
-    haze: 0.38,
+    brightness: 0.98,
+    shallowsSpread: 0.40,
   },
 };
 
@@ -175,7 +175,6 @@ function fbm(x: number, y: number, octaves: number): number {
   return value / norm;
 }
 
-// 32-bit integer hash using Math.imul
 function fastHash(c: number, r: number): number {
   let n = (Math.imul(c, 374761393) + Math.imul(r, 668265263)) ^ 0x5bf03635;
   n = Math.imul(n ^ (n >>> 13), 1274126177);
@@ -194,14 +193,14 @@ function smoothstep(edge0: number, edge1: number, x: number): number {
 function lerpParams(a: SceneParams, b: SceneParams, t: number): SceneParams {
   const e = easeInOutCubic(Math.max(0, Math.min(1, t)));
   return {
-    horizonRatio: a.horizonRatio + (b.horizonRatio - a.horizonRatio) * e,
+    shoreAngle: a.shoreAngle + (b.shoreAngle - a.shoreAngle) * e,
     tidePosition: a.tidePosition + (b.tidePosition - a.tidePosition) * e,
-    cloudSpeed: a.cloudSpeed + (b.cloudSpeed - a.cloudSpeed) * e,
-    cloudDensity: a.cloudDensity + (b.cloudDensity - a.cloudDensity) * e,
+    swellSpeed: a.swellSpeed + (b.swellSpeed - a.swellSpeed) * e,
+    foamDensity: a.foamDensity + (b.foamDensity - a.foamDensity) * e,
     waveHeight: a.waveHeight + (b.waveHeight - a.waveHeight) * e,
     waveFreq: a.waveFreq + (b.waveFreq - a.waveFreq) * e,
     brightness: a.brightness + (b.brightness - a.brightness) * e,
-    haze: a.haze + (b.haze - a.haze) * e,
+    shallowsSpread: a.shallowsSpread + (b.shallowsSpread - a.shallowsSpread) * e,
   };
 }
 
@@ -290,10 +289,8 @@ export function AsciiBeachCanvas({ activeSection = 'home' }: AsciiBeachCanvasPro
     let rafId = 0;
     let isTabHidden = document.hidden;
     let lastFrameTime = 0;
-    const FRAME_INTERVAL = 1000 / 32; // Locks 60Hz rAF to every 2nd tick = 30 FPS
+    const FRAME_INTERVAL = 1000 / 32; // 30 FPS
 
-    let octaves = 3;
-    let slowFrameStreak = 0;
     let fpsFrameCount = 0;
     let fpsWindowStart = performance.now();
     (window as unknown as Record<string, number>).__asciiFps = 30;
@@ -308,12 +305,13 @@ export function AsciiBeachCanvas({ activeSection = 'home' }: AsciiBeachCanvasPro
     let resolvedFontStr = '8px Consolas, "Courier New", monospace';
 
     let wetSandBuffer = new Float32Array(cols * rows);
+    let baseShoreCol = new Float32Array(cols);
     let peakRunupCol = new Float32Array(cols);
+    let highTideCol = new Float32Array(cols);
     let uColTable = new Float32Array(cols);
-    let cuspSinTable = new Float32Array(cols);
+    let bayArchTable = new Float32Array(cols);
     let rowCharIdx = new Uint8Array(cols);
     let rowTierIdx = new Uint8Array(cols);
-    let skyCloudSample = new Float32Array(cols + 1);
 
     let mouseNormX = 0;
     let mouseNormY = 0;
@@ -366,8 +364,6 @@ export function AsciiBeachCanvas({ activeSection = 'home' }: AsciiBeachCanvasPro
       height = window.innerHeight;
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
 
-      // High-density ASCII grid resolution: ~8px font / 8.5px row height on desktop (~300x106 grid),
-      // ~7px font / 7.5px row height on mobile (~96x112 grid)
       const isSmallScreen = width < 640;
       fontSize = isSmallScreen ? 7 : 8;
       cellH = isSmallScreen ? 7.5 : 8.5;
@@ -406,25 +402,32 @@ export function AsciiBeachCanvas({ activeSection = 'home' }: AsciiBeachCanvasPro
       rows = Math.max(45, Math.ceil(height / cellH) + 1);
 
       wetSandBuffer = new Float32Array(cols * rows);
+      baseShoreCol = new Float32Array(cols);
       peakRunupCol = new Float32Array(cols);
+      highTideCol = new Float32Array(cols);
       uColTable = new Float32Array(cols);
-      cuspSinTable = new Float32Array(cols);
+      bayArchTable = new Float32Array(cols);
       rowCharIdx = new Uint8Array(cols);
       rowTierIdx = new Uint8Array(cols);
-      skyCloudSample = new Float32Array(cols + 1);
 
       const rowScale = rows / 64;
-      const initShore = Math.floor(rows * 0.68);
-      const initSwash = Math.max(8, Math.floor(rows * 0.10));
+      const initSwash = Math.max(9, Math.floor(rows * 0.12));
+
       for (let c = 0; c < cols; c++) {
         const uCol = c / cols;
         uColTable[c] = uCol;
-        cuspSinTable[c] = Math.sin(uCol * Math.PI * 3.0 + 0.5) * 1.6;
-        const cusp = cuspSinTable[c] * rowScale;
-        const maxReach = Math.floor(initShore + initSwash + cusp);
+        // Gentle coastal bay curve + natural scalloped beach cusps
+        const arch =
+          Math.sin(uCol * Math.PI) * 0.045 +
+          Math.sin(uCol * Math.PI * 3.2 + 0.4) * 0.024 +
+          Math.cos(uCol * Math.PI * 6.4 - 0.7) * 0.010;
+        bayArchTable[c] = arch;
+
+        const initShore = Math.floor(rows * (0.64 + arch + (uCol - 0.5) * 0.06));
+        const maxReach = Math.floor(initShore + initSwash);
         for (let r = initShore; r <= Math.min(rows - 1, maxReach); r++) {
           const frac = 1.0 - (r - initShore) / Math.max(1, maxReach - initShore);
-          wetSandBuffer[r * cols + c] = 0.18 + 0.65 * frac;
+          wetSandBuffer[r * cols + c] = 0.20 + 0.65 * frac;
         }
       }
 
@@ -502,7 +505,6 @@ export function AsciiBeachCanvas({ activeSection = 'home' }: AsciiBeachCanvasPro
         fpsWindowStart = now;
       }
 
-      const frameStart = performance.now();
       const t = now * 0.001;
 
       mouseNormX += (targetMouseX - mouseNormX) * 0.05;
@@ -524,107 +526,126 @@ export function AsciiBeachCanvas({ activeSection = 'home' }: AsciiBeachCanvasPro
       const rowScale = rows / 64;
       const invRowScale = 1 / rowScale;
       const invColScale = 180 / cols;
-      const scrollRowShift = (smoothScrollY / cellH) * 0.2;
+      const scrollRowShift = (smoothScrollY / cellH) * 0.25;
 
-      const horizonRow = Math.max(
-        10,
-        Math.min(
-          rows - 26,
-          Math.floor(
-            rows * P.horizonRatio +
-              mouseNormY * 1.5 * rowScale -
-              Math.min(6 * rowScale, scrollRowShift * 0.25)
+      const swashZoneRows = Math.max(9, Math.floor(rows * 0.125));
+      const swashScale = swashZoneRows * Math.min(1.35, P.waveHeight);
+
+      // Compute top-down shoreline contour & scalloped swash tongues across columns
+      for (let c = 0; c < cols; c++) {
+        const uCol = uColTable[c];
+        // Coastline contour: sweeping bay curve + subtle tilt + slow organic drift
+        const shoreRatio =
+          P.tidePosition +
+          bayArchTable[c] +
+          (uCol - 0.5) * (P.shoreAngle + mouseNormX * 0.03) +
+          (valueNoise2D(uCol * 5.0 + t * 0.04, t * 0.08) - 0.5) * 0.025;
+
+        const bRow = Math.max(
+          Math.floor(rows * 0.28),
+          Math.min(
+            rows - Math.floor(14 * rowScale),
+            rows * shoreRatio + mouseNormY * 1.2 * rowScale - scrollRowShift * 0.35
           )
-        )
-      );
-      const baseShoreRow = Math.max(
-        horizonRow + Math.floor(14 * rowScale),
-        Math.min(
-          rows - Math.floor(12 * rowScale),
-          Math.floor(
-            rows * P.tidePosition +
-              mouseNormY * 0.8 * rowScale -
-              Math.min(8 * rowScale, scrollRowShift * 0.45)
-          )
-        )
-      );
-      const swashZoneRows = Math.max(8, Math.floor(rows * 0.10));
+        );
+        baseShoreCol[c] = bRow;
 
-      const horizonY = Math.min(0.85, Math.max(0.15, (horizonRow * cellH) / Math.max(1, height)));
-      const shoreY = Math.min(
-        0.92,
-        Math.max(
-          horizonY + 0.12,
-          ((baseShoreRow + swashZoneRows * 0.5) * cellH) / Math.max(1, height)
-        )
+        // Overlapping scalloped swash tongues (beach cusps) surging up the shore
+        const tongue1 = 0.5 + 0.5 * Math.sin(t * (1.15 * P.waveFreq) - uCol * Math.PI * 2.6);
+        const tongue2 =
+          0.5 + 0.5 * Math.sin(t * (0.85 * P.waveFreq) + uCol * Math.PI * 3.8 + 1.4);
+        const combinedSurge = 0.65 * Math.pow(tongue1, 1.35) + 0.35 * Math.pow(tongue2, 1.5);
+
+        peakRunupCol[c] = bRow + combinedSurge * swashScale;
+        highTideCol[c] = bRow + swashScale * 0.98;
+      }
+
+      const meanShoreY = Math.min(
+        0.88,
+        Math.max(0.35, ((rows * P.tidePosition + swashZoneRows * 0.4) * cellH) / Math.max(1, height))
       );
 
-      // Subtle atmospheric coastal color wash behind the ASCII glyphs
-      const bgGrad = ctx.createLinearGradient(0, 0, 0, height);
+      // Top-down aerial coastal wash:
+      // Deep Ocean Blue-Teal (top) -> Turquoise Shallows & Surf Zone -> Damp Bronze Wet Sand -> Golden Dry Sand (bottom)
+      const bgGrad = ctx.createLinearGradient(
+        width * (0.5 + P.shoreAngle * 0.8),
+        0,
+        width * (0.5 - P.shoreAngle * 0.8),
+        height
+      );
       if (isLight) {
-        bgGrad.addColorStop(0.0, 'hsla(205, 42%, 84%, 0.42)');
-        bgGrad.addColorStop(Math.max(0, horizonY - 0.03), 'hsla(198, 32%, 88%, 0.36)');
-        bgGrad.addColorStop(horizonY, 'hsla(186, 36%, 80%, 0.40)');
-        bgGrad.addColorStop(shoreY, 'hsla(182, 30%, 78%, 0.34)');
-        bgGrad.addColorStop(Math.min(1, shoreY + 0.08), 'hsla(35, 38%, 80%, 0.42)');
-        bgGrad.addColorStop(1.0, 'hsla(38, 45%, 82%, 0.48)');
+        bgGrad.addColorStop(0.0, 'hsla(198, 42%, 66%, 0.88)');
+        bgGrad.addColorStop(Math.max(0.15, meanShoreY * 0.48), 'hsla(188, 38%, 71%, 0.88)');
+        bgGrad.addColorStop(Math.max(0.28, meanShoreY - 0.05), 'hsla(180, 34%, 75%, 0.88)');
+        bgGrad.addColorStop(meanShoreY, 'hsla(165, 22%, 74%, 0.86)');
+        bgGrad.addColorStop(Math.min(1, meanShoreY + 0.08), 'hsla(32, 30%, 70%, 0.88)');
+        bgGrad.addColorStop(Math.min(1, meanShoreY + 0.15), 'hsla(37, 42%, 78%, 0.90)');
+        bgGrad.addColorStop(1.0, 'hsla(39, 46%, 82%, 0.92)');
       } else {
-        bgGrad.addColorStop(0.0, 'hsla(210, 42%, 14%, 0.36)');
-        bgGrad.addColorStop(Math.max(0, horizonY - 0.03), 'hsla(200, 34%, 20%, 0.32)');
-        bgGrad.addColorStop(horizonY, 'hsla(188, 40%, 16%, 0.38)');
-        bgGrad.addColorStop(shoreY, 'hsla(184, 34%, 15%, 0.32)');
-        bgGrad.addColorStop(Math.min(1, shoreY + 0.08), 'hsla(32, 34%, 15%, 0.36)');
-        bgGrad.addColorStop(1.0, 'hsla(36, 40%, 17%, 0.42)');
+        bgGrad.addColorStop(0.0, 'hsla(206, 48%, 11%, 0.45)');
+        bgGrad.addColorStop(Math.max(0.15, meanShoreY * 0.48), 'hsla(194, 44%, 14%, 0.42)');
+        bgGrad.addColorStop(Math.max(0.28, meanShoreY - 0.05), 'hsla(184, 40%, 16%, 0.40)');
+        bgGrad.addColorStop(meanShoreY, 'hsla(176, 28%, 15%, 0.36)');
+        bgGrad.addColorStop(Math.min(1, meanShoreY + 0.08), 'hsla(30, 34%, 14%, 0.38)');
+        bgGrad.addColorStop(1.0, 'hsla(36, 40%, 16%, 0.42)');
       }
       ctx.fillStyle = bgGrad;
       ctx.fillRect(0, 0, width, height);
 
-      // 8 Subtle Naturalistic Coastal Color Tiers
+      // In Light Mode, add a soft feathered readability veil behind the active text column
+      // so dark typography stays 100% crisp over the top-down ocean & sand
+      if (isLight && panelRect.valid) {
+        const cx = (panelRect.left + panelRect.right) * 0.5;
+        const cy = (panelRect.top + panelRect.bottom) * 0.5;
+        const rx = Math.max(260, (panelRect.right - panelRect.left) * 0.85 + 140);
+        const ry = Math.max(180, (panelRect.bottom - panelRect.top) * 0.75 + 120);
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.scale(1, ry / rx);
+        const veil = ctx.createRadialGradient(0, 0, rx * 0.15, 0, 0, rx);
+        veil.addColorStop(0, 'hsla(42, 30%, 96%, 0.62)');
+        veil.addColorStop(0.65, 'hsla(42, 28%, 95%, 0.34)');
+        veil.addColorStop(1, 'hsla(42, 28%, 95%, 0.0)');
+        ctx.fillStyle = veil;
+        ctx.beginPath();
+        ctx.arc(0, 0, rx, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+
+      // 8 Top-Down Coastal Color Tiers:
+      // 0: Deep ocean swells & caustics (Deep Indigo-Teal)
+      // 1: Mid-ocean swell face (Cerulean-Teal)
+      // 2: Turquoise shallows & shoaling water ripples (Luminous Sea-Green / Aquamarine)
+      // 3: Wave-front trough shadow (Deep Ocean Teal shadow immediately in front of breaking crest)
+      // 4: Cellular / lacy foam wake & collapsing spray behind crests (Soft Seafoam / Aqua-White)
+      // 5: Breaking wave crest foam & scalloped swash lip (Crisp Bright White / Ivory `#%@`)
+      // 6: Dark glistening wet-sand band & scalloped tide mark (Rich Damp Umber / Bronze)
+      // 7: Dry sunlit golden sand grain, wind ripples & shells (Warm Golden Ochre)
       const tiers = isLight
         ? [
-            'hsla(206, 44%, 44%, 0.38)', // 0: soft sky blue haze
-            'hsla(204, 46%, 34%, 0.58)', // 1: sky blue cloud body
-            'hsla(198, 42%, 24%, 0.76)', // 2: cloud tops & horizon line
-            'hsla(186, 46%, 32%, 0.54)', // 3: coastal sea-green water
-            'hsla(182, 50%, 22%, 0.76)', // 4: rising wave face & spray
-            'hsla(190, 48%, 11%, 0.95)', // 5: crisp breaking foam (#%@)
-            'hsla(28,  48%, 24%, 0.78)', // 6: dark damp umber wet-sand edge
-            'hsla(36,  52%, 36%, 0.58)', // 7: warm golden-ochre dry sand
+            'hsla(202, 46%, 34%, 0.44)', // 0: deep ocean caustics
+            'hsla(194, 48%, 30%, 0.56)', // 1: mid-ocean swell
+            'hsla(186, 48%, 28%, 0.54)', // 2: turquoise shallows ripples
+            'hsla(192, 54%, 20%, 0.78)', // 3: deep wave-front shadow under breaking crest
+            'hsla(180, 40%, 94%, 0.78)', // 4: lacy cellular foam wake & spray
+            'hsla(48,  65%, 99%, 0.98)', // 5: crisp bright white breaking surf & swash lip (#%@)
+            'hsla(28,  46%, 26%, 0.74)', // 6: dark damp umber wet-sand band & tide line
+            'hsla(34,  48%, 36%, 0.62)', // 7: warm golden-ochre dry sand grain
           ]
         : [
-            'hsla(208, 45%, 58%, 0.38)', // 0: soft sky blue haze
-            'hsla(204, 44%, 70%, 0.60)', // 1: powder-blue cloud body
-            'hsla(196, 38%, 83%, 0.80)', // 2: misty cloud tops & horizon glint
-            'hsla(186, 42%, 54%, 0.52)', // 3: coastal sea-green / teal swell
-            'hsla(180, 44%, 72%, 0.78)', // 4: aquamarine wave curl & spray
-            'hsla(46,  36%, 93%, 0.96)', // 5: warm sunlit ivory foam (#%@)
-            'hsla(28,  40%, 44%, 0.56)', // 6: dark damp umber wet-sand edge
+            'hsla(204, 48%, 48%, 0.36)', // 0: deep ocean swells & caustics
+            'hsla(194, 46%, 58%, 0.50)', // 1: mid-ocean swell face
+            'hsla(184, 45%, 64%, 0.58)', // 2: turquoise shallows
+            'hsla(192, 42%, 38%, 0.46)', // 3: wave trough shadow
+            'hsla(178, 42%, 80%, 0.78)', // 4: lacy cellular foam wake & spray
+            'hsla(46,  38%, 95%, 0.97)', // 5: bright ivory breaking surf & swash lip (#%@)
+            'hsla(28,  40%, 44%, 0.58)', // 6: dark damp umber wet-sand band & tide line
             'hsla(38,  50%, 72%, 0.70)', // 7: warm golden-ochre dry sand grain
           ];
 
-      const driftX = t * 0.12 * P.cloudSpeed + mouseNormX * 0.45;
-      const swashScale = swashZoneRows * Math.min(1.3, P.waveHeight);
-      for (let c = 0; c < cols; c++) {
-        const uCol = uColTable[c];
-        const cusp =
-          (cuspSinTable[c] +
-            Math.cos(uCol * Math.PI * 6.5 - 0.7) * 0.6 +
-            (valueNoise2D(uCol * 6.5 + t * 0.05, t * 0.1) - 0.5) * 1.8) *
-          rowScale;
-
-        const swashPhase =
-          t * (1.25 * P.waveFreq) - uCol * Math.PI * 2.4 + Math.sin(uCol * 4.0) * 0.5;
-        const surgeWave = 0.5 + 0.5 * Math.sin(swashPhase);
-        const shapedSurge = surgeWave * Math.sqrt(surgeWave) * swashScale;
-
-        peakRunupCol[c] = baseShoreRow + shapedSurge + cusp;
-      }
-
       ctx.font = resolvedFontStr;
 
-      const seaSpan = Math.max(1, baseShoreRow - horizonRow);
-      const cloudThresh = 0.47 - 0.09 * P.cloudDensity;
-      const invCloudSpan = 1.0 / (1.0 - cloudThresh);
       const falloffRadius = width < 640 ? 95 : 145;
       const tInt4 = Math.floor(t * 4);
       const tInt2 = Math.floor(t * 2);
@@ -638,57 +659,10 @@ export function AsciiBeachCanvas({ activeSection = 'home' }: AsciiBeachCanvasPro
         const py = (r + 0.5) * cellH;
         const rNorm = r * invRowScale;
         const rowWobble =
-          ((valueNoise2D(rNorm * 0.42 + t * 0.24, t * 0.18) - 0.5) * 2.3 +
+          ((valueNoise2D(rNorm * 0.42 + t * 0.24, t * 0.18) - 0.5) * 2.2 +
             Math.sin(rNorm * 0.9 + t * 0.6) * 0.65) *
           rowScale;
 
-        // Precompute row-level quantities for Sky or Sea
-        let ySky = 0;
-        let nySky = 0;
-        let horizonHaze = 0;
-        let skyVertProfile = 0;
-
-        let depth = 0;
-        let persp = 0;
-        let perspCoord = 0;
-        let horizonCalm = 0;
-
-        if (r < horizonRow) {
-          ySky = r / Math.max(1, horizonRow);
-          nySky =
-            Math.pow(ySky, 0.75) * 2.8 -
-            t * 0.032 * P.cloudSpeed +
-            scrollRowShift * invRowScale * 0.02;
-          horizonHaze =
-            ySky > 0.58
-              ? Math.pow((ySky - 0.58) / 0.42, 1.8) * (0.34 + 0.22 * P.haze)
-              : 0.0;
-          skyVertProfile = 0.78 * P.cloudDensity * (0.30 + 0.70 * Math.sin(ySky * Math.PI * 0.88));
-
-          // Sample domain-warped FBM at every 2nd column and linearly interpolate odd columns
-          for (let c = 0; c <= cols; c += 2) {
-            const uC = c / cols;
-            const nx = (uC - 0.5) * 3.6 + driftX;
-            const qx = fbm(nx, nySky, octaves) - 0.5;
-            const qy = fbm(nx + 4.3, nySky + 2.1, octaves) - 0.5;
-            const raw = fbm(nx + 1.8 * qx, nySky + 1.45 * qy, octaves);
-            skyCloudSample[c] =
-              raw > cloudThresh ? Math.pow((raw - cloudThresh) * invCloudSpan, 0.9) * skyVertProfile : 0.0;
-          }
-          for (let c = 1; c < cols; c += 2) {
-            skyCloudSample[c] = 0.5 * (skyCloudSample[c - 1] + skyCloudSample[c + 1]);
-          }
-        } else if (r > horizonRow && r < baseShoreRow) {
-          depth = (r - horizonRow) / seaSpan;
-          persp = Math.pow(depth, 0.62);
-          perspCoord =
-            Math.pow(depth, 0.48) * 24.0 * P.waveFreq -
-            t * (2.2 * P.waveFreq) -
-            scrollRowShift * invRowScale * 0.28;
-          horizonCalm = (1.0 - depth) * 0.34;
-        }
-
-        // Fast Y-bounding-box rejections for header, footer, and panel
         const checkHeader =
           headerRect.valid && py >= headerRect.top - 32 && py <= headerRect.bottom + 32;
         const checkFooter =
@@ -769,7 +743,7 @@ export function AsciiBeachCanvas({ activeSection = 'home' }: AsciiBeachCanvasPro
                     const ring = 1.0 - Math.abs(d - 36) / 22;
                     wakeFoam =
                       Math.max(0, ring) *
-                      0.46 *
+                      0.48 *
                       (0.5 + 0.5 * Math.sin(cNorm * 0.22 + rNorm * 0.15 - t * 2.8));
                   }
                 }
@@ -785,105 +759,123 @@ export function AsciiBeachCanvas({ activeSection = 'home' }: AsciiBeachCanvasPro
           let luma = 0.0;
           let tierIdx = 0;
 
-          // LAYER 1: SKY
-          if (r < horizonRow) {
-            const cloudLuma = skyCloudSample[c];
-            luma = Math.max(horizonHaze, cloudLuma + horizonHaze * 0.30) * P.brightness;
-            luma = Math.min(0.84, luma + wakeFoam * 0.45);
+          const shoreRow = baseShoreCol[c];
 
-            if (luma < 0.28) tierIdx = 0;
-            else if (luma < 0.54) tierIdx = 1;
-            else tierIdx = 2;
-          }
-          // LAYER 2: HORIZON
-          else if (r === horizonRow) {
-            const shimmer =
-              0.5 +
-              0.5 *
-                Math.sin(cNorm * 0.11 + t * 1.1 + mouseNormX * 2.0) *
-                Math.cos(cNorm * 0.04 - t * 0.7);
-            luma = (0.58 + 0.22 * shimmer) * P.brightness;
-            tierIdx = 2;
-          }
-          // LAYER 3: SEA
-          else if (r > horizonRow && r < baseShoreRow) {
+          // ==================================================================
+          // TOP-DOWN OCEAN & SURF ZONE (r < shoreRow)
+          // ==================================================================
+          if (r < shoreRow) {
+            // uWater = 0.0 at top (deep water) -> 1.0 at shoreLine (shoaling surf)
+            const uWater = Math.max(0, Math.min(1, r / Math.max(1, shoreRow)));
             const uCol = uColTable[c];
-            const bendNoise =
-              fbm(uCol * 3.0 - t * 0.08, depth * 2.5 - t * 0.15, 2) - 0.5;
-            const lateralCurve =
-              Math.sin(uCol * Math.PI * 2.2 + depth * 3.0) * 1.4 +
-              Math.cos(uCol * Math.PI * 4.8 - depth * 1.8 + t * 0.35) * 0.65 +
-              bendNoise * 3.6;
 
-            const wavePhase = perspCoord + lateralCurve + wakeRipple * 2.4;
+            // In top-down view, wave wavelength compresses slightly as waves shoal into shallow water
+            const shoalCoord = Math.pow(uWater, 0.78) * 28.0 * P.waveFreq;
+
+            // Organic wave refraction along the curved bay contour
+            const refractNoise =
+              fbm(uCol * 2.8 - t * 0.06, uWater * 2.4 - t * 0.14, 2) - 0.5;
+            const lateralBend =
+              Math.sin(uCol * Math.PI * 2.0 + uWater * 2.2) * 1.1 +
+              Math.cos(uCol * Math.PI * 4.5 - uWater * 1.6 + t * 0.3) * 0.55 +
+              refractNoise * 3.4;
+
+            const wavePhase =
+              shoalCoord -
+              t * (2.15 * P.waveFreq * P.swellSpeed) +
+              lateralBend -
+              scrollRowShift * invRowScale * 0.25 +
+              wakeRipple * 2.4;
 
             const s1 = Math.sin(wavePhase);
-            const s2 = 0.35 * Math.sin(wavePhase * 2.0 - 0.9);
-            const waveHeightNorm = (s1 + s2) / 1.35;
+            const s2 = 0.38 * Math.sin(wavePhase * 2.0 - 0.85);
+            const waveHeightNorm = (s1 + s2) / 1.38;
 
+            // Lateral wave set envelope so surf lines form natural coastal wave groups
             const crestEnvelope =
-              0.52 +
-              0.48 *
+              0.48 +
+              0.52 *
                 valueNoise2D(
-                  cNorm * 0.042 + depth * 2.8 + t * 0.14,
-                  depth * 4.6 - t * 0.2
+                  cNorm * 0.038 + uWater * 2.4 + t * 0.12,
+                  uWater * 4.2 - t * 0.18
                 );
 
+            // Wrapped phase around each wave peak (0 = breaking crest lip, < 0 = trailing wake, > 0 = front trough)
             const wrapped =
               (((wavePhase - Math.PI * 0.42) % (Math.PI * 2)) + Math.PI * 3) %
                 (Math.PI * 2) -
               Math.PI;
+
+            const shoalIntensity = smoothstep(0.10, 0.85, uWater);
             const crestHalfWidth =
-              (0.28 + 0.42 * persp) * Math.min(1.35, P.waveHeight) * crestEnvelope;
+              (0.22 + 0.44 * shoalIntensity) *
+              Math.min(1.35, P.waveHeight) *
+              crestEnvelope;
 
             if (
               Math.abs(wrapped) < crestHalfWidth &&
-              depth > 0.10 &&
+              uWater > 0.12 &&
               crestEnvelope > 0.44
             ) {
+              // Breaking wave crest seen from top-down: thick, curving bright white foam line (* # % @)
               const crestCore = 1.0 - Math.abs(wrapped) / crestHalfWidth;
               const foamPatch = valueNoise2D(
-                cNorm * 0.15 + t * 0.35,
-                rNorm * 0.3 - t * 0.4
+                cNorm * 0.15 + t * 0.3,
+                rNorm * 0.28 - t * 0.35
               );
-              if (crestCore + foamPatch * 0.35 > 0.34) {
+              if (crestCore + foamPatch * 0.35 > 0.32) {
                 luma = Math.min(0.99, (0.78 + 0.21 * crestCore) * P.brightness);
-                tierIdx = 5;
+                tierIdx = 5; // Crisp white surf foam
               } else {
                 luma = (0.58 + 0.18 * crestCore) * P.brightness;
-                tierIdx = 4;
+                tierIdx = 4; // Lacy seafoam wake
               }
             } else if (
               wrapped < -crestHalfWidth &&
-              wrapped > -crestHalfWidth * 3.4 &&
-              depth > 0.16 &&
+              wrapped > -crestHalfWidth * (2.6 + 2.2 * shoalIntensity) &&
+              uWater > 0.16 &&
               crestEnvelope > 0.42
             ) {
-              const sprayDecay =
-                1.0 - (-wrapped - crestHalfWidth) / (crestHalfWidth * 2.4);
+              // Top-down cellular/lacy foam wake trailing behind the breaking wave crest
+              const wakeSpan = crestHalfWidth * (1.6 + 2.2 * shoalIntensity);
+              const wakeDecay = 1.0 - (-wrapped - crestHalfWidth) / Math.max(0.01, wakeSpan);
+              const cellWeb = valueNoise2D(cNorm * 0.22 + t * 0.2, rNorm * 0.32 - t * 0.3);
               const sprayHash = fastHash(c + tInt4, r);
-              if (sprayHash < sprayDecay * 0.62) {
-                luma = (0.28 + 0.44 * sprayDecay * sprayHash) * P.brightness;
-                tierIdx = luma > 0.50 ? 4 : 3;
+
+              if (cellWeb > 0.56 - wakeDecay * 0.28 && sprayHash < wakeDecay * 0.78 * P.foamDensity) {
+                luma = (0.32 + 0.46 * wakeDecay * cellWeb) * P.brightness;
+                tierIdx = 4; // Cellular white/aqua foam wake
               } else {
-                luma = 0.0;
+                luma = (0.20 + 0.16 * shoalIntensity) * P.brightness;
+                tierIdx = uWater > 0.45 ? 2 : 1;
               }
+            } else if (
+              wrapped > crestHalfWidth &&
+              wrapped < crestHalfWidth * 2.2 &&
+              uWater > 0.14 &&
+              crestEnvelope > 0.44
+            ) {
+              // Steep wave face / trough shadow immediately in front of the breaking crest
+              const shadowFactor = 1.0 - (wrapped - crestHalfWidth) / (crestHalfWidth * 1.2);
+              luma = (0.30 + 0.36 * shadowFactor * shoalIntensity) * P.brightness;
+              tierIdx = 3; // Deep wave-front shadow
             } else {
+              // Unbroken top-down ocean swells & caustics (deep ocean at top -> turquoise shallows)
               const swellFactor = (waveHeightNorm + 1.0) * 0.5;
-              if (swellFactor > 0.46) {
+              const caustic = valueNoise2D(cNorm * 0.14 + t * 0.25, rNorm * 0.22 - t * 0.2);
+
+              if (swellFactor > 0.48) {
                 luma =
-                  (0.28 +
-                    (swellFactor - 0.46) * 0.65 * (0.45 + 0.55 * persp) +
-                    horizonCalm * 0.3) *
+                  (0.24 + (swellFactor - 0.48) * 0.62 * (0.4 + 0.6 * shoalIntensity)) *
                   P.brightness;
-                tierIdx = luma > 0.48 ? 4 : 3;
-              } else if (depth < 0.28 && fastHash(c, r) > 0.35) {
-                luma = (0.26 + 0.18 * (1.0 - depth / 0.28)) * P.brightness;
-                tierIdx = 3;
+                tierIdx = uWater > 0.52 ? 2 : uWater > 0.24 ? 1 : 0;
+              } else if (caustic > 0.66) {
+                luma = (0.18 + (caustic - 0.66) * 0.55) * P.brightness;
+                tierIdx = uWater > 0.50 ? 2 : 0;
               } else {
                 const glint = fastHash(c + tInt2, r);
-                luma = glint > 0.86 ? 0.22 : 0.0;
-                tierIdx = 3;
+                luma = glint > 0.89 ? 0.20 : 0.0;
+                tierIdx = uWater > 0.50 ? 2 : 0;
               }
             }
 
@@ -892,60 +884,74 @@ export function AsciiBeachCanvas({ activeSection = 'home' }: AsciiBeachCanvasPro
               tierIdx = luma > 0.74 ? 5 : 4;
             }
           }
-          // LAYER 4 & 5: SHORE & DRY SAND
+          // ==================================================================
+          // TOP-DOWN SHORE (Scalloped Swash + Glistening Wet Sand) & DRY SAND
+          // ==================================================================
           else {
             const cellIdx = r * cols + c;
             const runupRow = peakRunupCol[c] + rowWobble - wakeRipple * 2.0 * rowScale;
             const distFromRunup = (r - runupRow) * invRowScale;
-
-            const highTideRow =
-              baseShoreRow +
-              swashZoneRows * 1.02 +
-              cuspSinTable[c] * rowScale +
-              rowWobble * 0.85;
+            const highTideRow = highTideCol[c] + rowWobble * 0.85;
 
             if (distFromRunup <= 0) {
+              // Scalloped swash wave sheet actively surging over the sand
               wetSandBuffer[cellIdx] = 1.0;
 
-              if (distFromRunup > -1.7) {
-                const lipCore = 1.0 - Math.abs(distFromRunup) / 1.7;
+              if (distFromRunup > -1.8) {
+                // Thick bright white foam lip at the leading edge of the swash tongue (* # % @)
+                const lipCore = 1.0 - Math.abs(distFromRunup) / 1.8;
                 luma = Math.min(0.99, 0.78 + 0.21 * lipCore);
                 tierIdx = 5;
-              } else if (distFromRunup > -3.8) {
+              } else if (distFromRunup > -4.5) {
+                // Lacy cellular foam web trailing inside the swash tongue
                 const h = fastHash(c + tInt4, r);
-                luma = h > 0.38 ? 0.32 + 0.36 * h : 0.0;
-                tierIdx = luma > 0.48 ? 4 : 3;
+                const lace = valueNoise2D(cNorm * 0.2 + t * 0.25, rNorm * 0.35);
+                luma = h > 0.36 && lace > 0.38 ? 0.36 + 0.38 * h : 0.0;
+                tierIdx = luma > 0.46 ? 4 : 2;
               } else {
-                const filmNoise = valueNoise2D(cNorm * 0.12 + t * 0.3, rNorm * 0.4);
-                luma = filmNoise > 0.42 ? 0.32 + 0.12 * filmNoise : 0.0;
-                tierIdx = 3;
+                // Thin glassy turquoise water film over wet sand
+                const filmNoise = valueNoise2D(cNorm * 0.12 + t * 0.3, rNorm * 0.35);
+                luma = filmNoise > 0.44 ? 0.28 + 0.14 * filmNoise : 0.0;
+                tierIdx = 2;
               }
             } else {
+              // Above the current swash tongue: wet sand glistens and slowly fades
               const prevWet = wetSandBuffer[cellIdx];
               const nextWet = prevWet * 0.986;
               wetSandBuffer[cellIdx] = nextWet;
 
               const distToHighTide = (r - highTideRow) * invRowScale;
 
-              if (distToHighTide <= 1.6 || nextWet > 0.12) {
+              if (distToHighTide <= 1.8 || nextWet > 0.12) {
+                // DARK GLISTENING WET-SAND BAND & SCALLOPED TIDE EDGE (Umber Tier 6)
                 const isDarkWetEdge =
-                  Math.abs(distToHighTide) < 1.6 || (nextWet > 0.14 && nextWet < 0.45);
+                  Math.abs(distToHighTide) < 1.7 || (nextWet > 0.14 && nextWet < 0.45);
                 if (isDarkWetEdge) {
                   luma = 0.54 + 0.18 * valueNoise2D(cNorm * 0.15, rNorm * 0.3);
                 } else {
-                  luma = 0.32 + 0.18 * nextWet;
+                  luma = 0.30 + 0.20 * nextWet;
                 }
                 tierIdx = 6;
               } else {
+                // TOP-DOWN DRY SAND (Golden-ochre sand ripples, fine sparse grain & shells)
                 const worldRow = r + Math.floor(scrollRowShift);
                 const h = fastHash(c, worldRow);
-                const grainRipple = valueNoise2D(cNorm * 0.05, worldRow * invRowScale * 0.18);
+                // Subtle wind-blown sand ripple contours parallel to the beach
+                const windRipple =
+                  Math.sin(
+                    (r - highTideRow) * invRowScale * 1.35 +
+                      Math.sin(cNorm * 0.06) * 1.5
+                  ) * 0.08;
+                const grainNoise =
+                  valueNoise2D(cNorm * 0.05, worldRow * invRowScale * 0.18) + windRipple;
 
-                if (h > 0.988) {
-                  luma = 0.62 + (h - 0.988) * 15.0;
+                if (h > 0.987) {
+                  // Small shell, pebble, or driftwood speck (+ * #)
+                  luma = 0.62 + (h - 0.987) * 15.0;
                   tierIdx = 7;
-                } else if (h > 0.68 - grainRipple * 0.14) {
-                  luma = 0.14 + (h - 0.54) * 0.82;
+                } else if (h > 0.66 - grainNoise * 0.16) {
+                  // Fine golden dry sand grain (. , : ; -)
+                  luma = 0.15 + (h - 0.52) * 0.82;
                   tierIdx = 7;
                 } else {
                   luma = 0.0;
@@ -984,16 +990,6 @@ export function AsciiBeachCanvas({ activeSection = 'home' }: AsciiBeachCanvasPro
           ctx.fillStyle = tiers[b];
           ctx.fillText(str, startC * cellW, yPos);
         }
-      }
-
-      const frameCost = performance.now() - frameStart;
-      if (frameCost > 16) {
-        slowFrameStreak++;
-        if (slowFrameStreak > 8 && octaves > 2) {
-          octaves = 2;
-        }
-      } else if (frameCost < 8 && slowFrameStreak > 0) {
-        slowFrameStreak--;
       }
     };
 

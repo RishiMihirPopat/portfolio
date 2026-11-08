@@ -32,11 +32,11 @@
   }
 
   .light {
-    --bg: #f3f1ec;
-    --surface: rgba(243, 241, 236, 0.90);
-    --ink: #161a20;
-    --ink-muted: #555e6b;
-    --line: rgba(22, 26, 32, 0.14);
+    --bg: #e6ebe8;
+    --surface: rgba(244, 242, 236, 0.92);
+    --ink: #12161c;
+    --ink-muted: #434d59;
+    --line: rgba(18, 22, 28, 0.16);
   }
 
   body {
