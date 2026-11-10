@@ -37,7 +37,8 @@ const CONSTANT_SCENE: SceneParams = {
   shallowsSpread: 0.42,
 };
 
-export const WASH_DURATION_MS = 800;
+export const WASH_DURATION_MS = 560;
+export const FADE_DURATION_MS = 460;
 
 // 12-step brightness ramp driven by per-cell luminance
 const RAMP = ' .,:;-=+*#%@';
@@ -408,9 +409,9 @@ export function AsciiBeachCanvas() {
       let fadeFactor = 1.0;
       if (fadeStartRef.current >= 0) {
         const fadeElapsed = now - fadeStartRef.current;
-        if (fadeElapsed >= 0 && fadeElapsed <= 520) {
+        if (fadeElapsed >= 0 && fadeElapsed <= FADE_DURATION_MS) {
           isFadingIn = true;
-          const fp = fadeElapsed / 520;
+          const fp = fadeElapsed / FADE_DURATION_MS;
           fadeFactor = fp * fp * (3 - 2 * fp); // smoothstep
         } else {
           fadeStartRef.current = -1;
@@ -807,9 +808,9 @@ export function AsciiBeachCanvas() {
                   cNorm * 0.038 + uWater * 2.4 + t * 0.12,
                   uWater * 4.2 - t * 0.18
                 );
-            // Suppress ambient breaking swells while the big transition wave washes over,
-            // guaranteeing exactly ONE wave on screen during page transitions.
-            const crestEnvelope = washActive ? baseCrestEnvelope * 0.22 : baseCrestEnvelope;
+            // Suppress ambient breaking swells completely while the big transition wave washes over,
+            // guaranteeing strictly ONE single wave on screen during page transitions.
+            const crestEnvelope = washActive ? 0.0 : baseCrestEnvelope;
 
             const wrapped =
               (((wavePhase - Math.PI * 0.42) % (Math.PI * 2)) + Math.PI * 3) %
@@ -903,8 +904,8 @@ export function AsciiBeachCanvas() {
 
               if (distFromRunup > -1.8) {
                 const lipCore = 1.0 - Math.abs(distFromRunup) / 1.8;
-                luma = Math.min(0.99, 0.78 + 0.21 * lipCore);
-                tierIdx = 5;
+                luma = washActive ? 0.0 : Math.min(0.99, 0.78 + 0.21 * lipCore);
+                tierIdx = washActive ? 0 : 5;
               } else if (distFromRunup > -4.5) {
                 const h = fastHash(c + tInt4, r);
                 const lace = valueNoise2D(cNorm * 0.2 + t * 0.25, rNorm * 0.35);

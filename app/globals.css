@@ -173,31 +173,31 @@
 /* Wave wash away & calm fade in page transitions */
 @keyframes wave-wash-away {
   0% {
-    clip-path: inset(0% 0% 0% 0%);
     opacity: 1;
     transform: translateY(0);
+    filter: blur(0px);
   }
-  10% {
-    clip-path: inset(0% 0% 0% 0%);
-    opacity: 1;
-    transform: translateY(0);
+  25% {
+    opacity: 0.95;
+    transform: translateY(2px);
+    filter: blur(0px);
   }
-  92% {
-    clip-path: inset(100% 0% 0% 0%);
-    opacity: 1;
-    transform: translateY(4px);
+  70% {
+    opacity: 0.25;
+    transform: translateY(6px);
+    filter: blur(1.5px);
   }
   100% {
-    clip-path: inset(100% 0% 0% 0%);
     opacity: 0;
-    transform: translateY(4px);
+    transform: translateY(10px);
+    filter: blur(3px);
   }
 }
 
 @keyframes calm-fade-in {
   0% {
     opacity: 0;
-    transform: translateY(6px);
+    transform: translateY(8px);
   }
   100% {
     opacity: 1;
@@ -206,9 +206,9 @@
 }
 
 .wave-wash-away {
-  animation: wave-wash-away 540ms linear forwards;
+  animation: wave-wash-away 560ms cubic-bezier(0.25, 0.1, 0.25, 1) forwards;
   pointer-events: none;
-  will-change: clip-path, opacity, transform;
+  will-change: opacity, transform, filter;
 }
 
 .page-swapping {
@@ -217,7 +217,7 @@
 }
 
 .calm-fade-in {
-  animation: calm-fade-in 520ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: calm-fade-in 460ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
   will-change: opacity, transform;
 }
 

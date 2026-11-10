@@ -90,17 +90,37 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
       targetPathRef.current = normTarget;
       setTransitionPhase('washing-away');
 
+      // Immediately glide desktop underline to the clicked nav link for responsive feedback
+      const targetItem = HEADER_NAV_ITEMS.find((item) => item.href === targetHref);
+      if (targetItem && desktopNavRef.current) {
+        const targetEl = linkRefs.current[targetItem.id];
+        if (targetEl) {
+          const navRect = desktopNavRef.current.getBoundingClientRect();
+          const linkRect = targetEl.getBoundingClientRect();
+          if (navRect.width > 0 && linkRect.width > 0) {
+            setIndicator({
+              left: Math.round((linkRect.left - navRect.left) * 10) / 10,
+              width: Math.round(linkRect.width * 10) / 10,
+              visible: true,
+              ready: true,
+            });
+          }
+        }
+      } else {
+        setIndicator((prev) => ({ ...prev, visible: false }));
+      }
+
       // Trigger the single ASCII beach wave to wash over the old content
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent('ascii-wave-wash'));
       }
 
-      // After 520ms: wave crest has washed away the old content. Swap route.
+      // After 560ms: wave crest has washed away the old content. Swap route.
       // (The new page will fade in araam se as soon as Next.js finishes mounting it!)
       washTimerRef.current = setTimeout(() => {
         setTransitionPhase('swapping');
         router.push(targetHref);
-      }, 520);
+      }, 560);
     },
     [normalizedPath, router]
   );
@@ -207,7 +227,7 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
 
       fadeTimerRef.current = setTimeout(() => {
         setTransitionPhase('idle');
-      }, 520);
+      }, 460);
     }
 
     setMenuOpen(false);
