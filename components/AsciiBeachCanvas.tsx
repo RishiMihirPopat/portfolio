@@ -624,22 +624,21 @@ export function AsciiBeachCanvas() {
             }
           }
 
-          // Footer pills: gently soften sand characters underneath without punching a dark box hole
+          // Footer pills: completely clear sand characters underneath without leaving stray dots
           if (checkFooter) {
             for (let fi = 0; fi < footerRects.length; fi++) {
               const fr = footerRects[fi];
               const fd = sdRoundedBox(
                 px,
                 py,
-                fr.left - 2,
-                fr.top - 1,
-                fr.right + 2,
-                fr.bottom + 1,
-                4
+                fr.left - (isPhone ? 8 : 4),
+                fr.top - (isPhone ? 4 : 2),
+                fr.right + (isPhone ? 8 : 4),
+                fr.bottom + (isPhone ? 4 : 2),
+                isPhone ? 6 : 4
               );
               if (fd < footerFalloff) {
-                const fFactor =
-                  fd <= 0 ? 0.28 : 0.28 + 0.72 * smoothstep(0, footerFalloff, fd);
+                const fFactor = fd <= 0 ? 0.0 : smoothstep(0, footerFalloff, fd);
                 panelAtten = Math.min(panelAtten, fFactor);
               }
             }
@@ -651,18 +650,18 @@ export function AsciiBeachCanvas() {
             const rawDist = sdRoundedBox(
               px,
               py,
-              panelRect.left - 6,
-              panelRect.top - 6,
-              panelRect.right - (isPhone ? 0 : 18),
-              panelRect.bottom + 6,
-              36
+              panelRect.left - (isPhone ? 10 : 6),
+              panelRect.top - (isPhone ? 8 : 6),
+              panelRect.right + (isPhone ? 10 : -18),
+              panelRect.bottom + (isPhone ? 14 : 6),
+              isPhone ? 24 : 36
             );
             if (rawDist < falloffRadius + 48) {
               const boundaryNoise =
                 (valueNoise2D(cNorm * 0.06 + t * 0.15, rNorm * 0.12) - 0.5) *
                   (isPhone ? 22.0 : 52.0) +
                 Math.sin(rNorm * 0.45 - t * 1.2) * (isPhone ? 8.0 : 20.0);
-              const d = rawDist + boundaryNoise;
+              const d = rawDist <= 0 ? rawDist : rawDist + boundaryNoise;
 
               if (isHome) {
                 const homeHalo = isPhone ? 36 : 85;
@@ -672,12 +671,11 @@ export function AsciiBeachCanvas() {
                   rawPanelAtten = Math.min(rawPanelAtten, smoothstep(0, homeHalo, d));
                 }
               } else {
-                const innerFloor = isPhone ? 0.11 : 0.04;
                 if (d <= 0) {
-                  rawPanelAtten = Math.min(rawPanelAtten, innerFloor);
+                  rawPanelAtten = 0.0;
                 } else if (d < falloffRadius) {
                   const f = smoothstep(0, falloffRadius, d);
-                  rawPanelAtten = Math.min(rawPanelAtten, innerFloor + (1 - innerFloor) * f);
+                  rawPanelAtten = Math.min(rawPanelAtten, f);
                 }
               }
             }
@@ -970,11 +968,7 @@ export function AsciiBeachCanvas() {
           let charIdx = Math.floor(finalLuma * (RAMP_MAX + 1));
 
           if (!washActive && panelAtten > 0 && panelAtten < 0.35 && charIdx > 0) {
-            if (fastHash(c, r) > 0.42) {
-              charIdx = 0;
-            } else if (tierIdx === 5 || tierIdx === 4) {
-              tierIdx = 2;
-            }
+            charIdx = 0;
           }
 
           rowCharIdx[c] = charIdx;
