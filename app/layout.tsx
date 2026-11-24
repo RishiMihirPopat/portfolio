@@ -1,9 +1,13 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import { Inter, JetBrains_Mono } from 'next/font/google';
 import { ThemeProvider } from '@/components/ThemeProvider';
 import { AsciiBeachCanvas } from '@/components/AsciiBeachCanvas';
 import { SiteShell } from '@/components/SiteShell';
 import './globals.css';
+
+export const viewport: Viewport = {
+  colorScheme: 'dark light',
+};
 
 const inter = Inter({
   subsets: ['latin'],

@@ -144,7 +144,7 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
   const updateUnderline = useCallback(() => {
     const navEl = desktopNavRef.current;
     const activeLink = linkRefs.current[currentPage.id];
-    if (!navEl || !activeLink || !currentPage.showInHeader) {
+    if (!navEl || !activeLink || !currentPage.showInHeader || isAdminRoute) {
       setIndicator((prev) => ({ ...prev, visible: false }));
       return;
     }
@@ -165,7 +165,7 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
       visible: true,
       ready: prev.visible,
     }));
-  }, [currentPage.id, currentPage.showInHeader]);
+  }, [currentPage.id, currentPage.showInHeader, isAdminRoute]);
 
   const evaluateNavFit = useCallback(() => {
     if (typeof window === 'undefined') return;
@@ -320,10 +320,6 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
     };
   }, [menuOpen]);
 
-  if (isAdminRoute) {
-    return <>{children}</>;
-  }
-
   return (
     <div className="min-h-[100lvh] flex flex-col justify-between px-4 sm:px-10 md:px-14 py-3 sm:py-6 w-full max-w-[100vw] overflow-x-hidden">
       {/* Skip to content link: first focusable element */}
@@ -340,7 +336,7 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
         <Link
           href="/"
           onClick={(e) => navigateWithWave('/', e)}
-          aria-current={currentPage.id === 'home' ? 'page' : undefined}
+          aria-current={normalizedPath === '/' ? 'page' : undefined}
           className="font-mono text-xs font-normal text-ink hover:opacity-85 transition-opacity min-h-[44px] inline-flex items-center shrink-0"
         >
           Rishi Popat
@@ -440,7 +436,7 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
           <div className="flex items-center justify-between gap-4 w-full shrink-0">
             <Link
               href="/"
-              aria-current={currentPage.id === 'home' ? 'page' : undefined}
+              aria-current={normalizedPath === '/' ? 'page' : undefined}
               onClick={(e) => navigateWithWave('/', e)}
               className="font-mono text-xs font-normal text-ink min-h-[44px] inline-flex items-center"
             >

@@ -23,6 +23,8 @@ export interface Photo {
   title: string;
   description: string;
   createdAt: string;
+  width?: number;
+  height?: number;
 }
 
 export interface Post {
@@ -274,6 +276,8 @@ export const mockPhotos: Photo[] = [
     title: 'Low Tide, Late Afternoon',
     description: 'Flat water and wet sand reflection after the swell.',
     createdAt: '2026-09-14T12:00:00.000Z',
+    width: 900,
+    height: 600,
   },
   {
     id: '2',
@@ -281,6 +285,8 @@ export const mockPhotos: Photo[] = [
     title: 'Overcast Horizon',
     description: 'Monsoon cloud deck over the coast.',
     createdAt: '2026-08-29T12:00:00.000Z',
+    width: 900,
+    height: 600,
   },
   {
     id: '3',
@@ -288,6 +294,8 @@ export const mockPhotos: Photo[] = [
     title: 'Campus Walkway in Rain',
     description: 'Quiet geometry and wet stone.',
     createdAt: '2026-07-19T12:00:00.000Z',
+    width: 600,
+    height: 800,
   },
   {
     id: '4',
@@ -295,6 +303,8 @@ export const mockPhotos: Photo[] = [
     title: 'Sodium Vapor Study',
     description: 'Late evening stillness.',
     createdAt: '2026-06-04T12:00:00.000Z',
+    width: 900,
+    height: 600,
   },
 ];
 

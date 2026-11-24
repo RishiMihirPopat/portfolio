@@ -1,114 +1,306 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
-import { motion } from 'motion/react';
-import { 
-  Lock, LogOut, Plus, Send, ArrowRight, Camera, 
-  Eye, Edit2, Trash2, ImagePlus, ShieldAlert, Cpu, Database, PlusCircle 
+import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
+import {
+  ArrowRight,
+  Camera,
+  Eye,
+  EyeOff,
+  ImagePlus,
+  Plus,
+  Trash2,
+  X,
 } from 'lucide-react';
-import { useRouter } from 'next/navigation';
 import ReactMarkdown from 'react-markdown';
-import { extractDataImages } from '@/lib/markdown';
-import { 
-  savePost, savePhotos, fetchAllSkills, saveSkill, deleteSkill,
-  fetchAllPosts, fetchAllPhotos, deletePost, deletePhoto, updatePost, updatePhoto 
+import { extractDataImages, createImgRenderer } from '@/lib/markdown';
+import {
+  savePost,
+  savePhotos,
+  fetchAllSkills,
+  saveSkill,
+  deleteSkill,
+  fetchAllPosts,
+  fetchAllPhotos,
+  deletePost,
+  deletePhoto,
+  updatePost,
+  updatePhoto,
 } from '@/lib/storage';
 import { Skill, Post, Photo } from '@/lib/data';
 import { getFirebaseAuth, isFirebaseConfigured } from '@/lib/firebase';
+import { ScrambleHeading } from '@/components/ScrambleHeading';
 
 const SECURE_PASS_HASHES = [
   'b75b9de0c93a0a38f32a76f26487e416d8a39a2f7c00e6a1005a305e55ff16bd', // slayr2026
-  '8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918'  // admin
+  '8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918', // admin
 ];
 
+const DEFAULT_SKILL_CATEGORIES = [
+  'Languages & Stats',
+  'Methods & Modeling',
+  'Libraries & Tools',
+];
+
+type AdminTab = 'blog' | 'manage-blog' | 'photo' | 'manage-photo' | 'skills';
+
+interface AuthUserSummary {
+  isAnonymous?: boolean;
+  email?: string | null;
+}
+
+interface PendingDeleteTarget {
+  kind: 'post' | 'photo';
+  id: string;
+  title: string;
+}
+
+interface StatusFeedback {
+  kind: 'success' | 'error';
+  text: string;
+}
+
+interface CompressedImage {
+  url: string;
+  width: number;
+  height: number;
+}
+
+interface PendingPhoto {
+  id: string;
+  url: string;
+  title: string;
+  description: string;
+  width: number;
+  height: number;
+}
+
+const INPUT_CLASS =
+  'w-full bg-surface/90 border border-line px-3 py-2.5 min-h-[44px] text-base sm:text-sm text-ink placeholder:text-ink-muted/70 focus:border-ink focus:outline-none transition-colors rounded-[2px]';
+const LABEL_CLASS = 'block font-mono text-xs text-ink-muted';
+const PRIMARY_BTN_CLASS =
+  'font-mono text-xs px-4 py-2.5 min-h-[44px] bg-ink text-bg border border-ink hover:opacity-85 transition-opacity cursor-pointer inline-flex items-center justify-center gap-2 whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed rounded-[2px]';
+const SECONDARY_BTN_CLASS =
+  'font-mono text-xs px-3.5 py-2 min-h-[44px] bg-surface/85 text-ink border border-line hover:border-ink transition-colors cursor-pointer inline-flex items-center justify-center gap-1.5 whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed rounded-[2px]';
+const INLINE_ACTION_CLASS =
+  'font-mono text-xs text-ink-nav hover:text-ink underline underline-offset-4 cursor-pointer min-h-[36px] inline-flex items-center';
+const DANGER_INLINE_CLASS =
+  'font-mono text-xs text-red-700 dark:text-red-400 hover:underline underline-offset-4 cursor-pointer min-h-[36px] inline-flex items-center';
+
+function summarizePostContent(raw: string): string {
+  const firstParagraph = raw
+    .replace(/[#*`]/g, '')
+    .split(/\n\s*\n/)[0]
+    ?.trim();
+  return firstParagraph || raw.replace(/[#*`]/g, '').slice(0, 140);
+}
+
+interface ModalDialogProps {
+  open: boolean;
+  onClose: () => void;
+  titleId: string;
+  title: string;
+  maxWidthClass?: string;
+  children: React.ReactNode;
+}
+
+function ModalDialog({
+  open,
+  onClose,
+  titleId,
+  title,
+  maxWidthClass = 'max-w-lg',
+  children,
+}: ModalDialogProps) {
+  const dialogRef = useRef<HTMLDialogElement>(null);
+
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    if (open && !dialog.open) {
+      dialog.showModal();
+    } else if (!open && dialog.open) {
+      dialog.close();
+    }
+  }, [open]);
+
+  // Progressive enhancement light-dismiss fallback for browsers lacking closedby="any"
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog || !open || 'closedBy' in HTMLDialogElement.prototype) return;
+
+    let pressedOutside = false;
+    const isOutside = (e: PointerEvent) => {
+      const r = dialog.getBoundingClientRect();
+      return (
+        e.clientX < r.left ||
+        e.clientX > r.right ||
+        e.clientY < r.top ||
+        e.clientY > r.bottom
+      );
+    };
+
+    const onPointerDown = (e: PointerEvent) => {
+      pressedOutside = isOutside(e);
+    };
+    const onPointerUp = (e: PointerEvent) => {
+      if (pressedOutside && isOutside(e)) {
+        dialog.close();
+      }
+      pressedOutside = false;
+    };
+
+    dialog.addEventListener('pointerdown', onPointerDown);
+    dialog.addEventListener('pointerup', onPointerUp);
+    return () => {
+      dialog.removeEventListener('pointerdown', onPointerDown);
+      dialog.removeEventListener('pointerup', onPointerUp);
+    };
+  }, [open]);
+
+  const handleClose = () => {
+    if (dialogRef.current) {
+      dialogRef.current.returnValue = '';
+    }
+    onClose();
+  };
+
+  return (
+    <dialog
+      ref={dialogRef}
+      aria-labelledby={titleId}
+      onClose={handleClose}
+      {...({ closedby: 'any' } as Record<string, string>)}
+      className={`p-0 m-auto w-[calc(100%-2rem)] ${maxWidthClass} max-h-[85vh] bg-bg/95 border border-line text-ink shadow-2xl overflow-hidden`}
+    >
+      <div className="flex flex-col max-h-[85vh]">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-line shrink-0">
+          <h2 id={titleId} className="font-mono text-xs uppercase tracking-wider text-ink-muted truncate pr-4">
+            {title}
+          </h2>
+          <button
+            type="button"
+            onClick={handleClose}
+            className="text-ink-muted hover:text-ink transition-colors p-1.5 min-w-[36px] min-h-[36px] inline-flex items-center justify-center cursor-pointer"
+            aria-label="Close dialog"
+          >
+            <X size={16} />
+          </button>
+        </div>
+        <div className="p-6 overflow-y-auto text-ink text-sm leading-relaxed">
+          {children}
+        </div>
+      </div>
+    </dialog>
+  );
+}
+
 export default function Admin() {
-  const router = useRouter();
-  
-  // Security in-memory states (no persistent localstorage or cookies saved)
+  // Security in-memory states (no persistent localStorage or cookies saved for auth)
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [username, setUsername] = useState('');
   const [loginError, setLoginError] = useState('');
   const [loginAttempts, setLoginAttempts] = useState(0);
   const [lockoutTime, setLockoutTime] = useState(0);
 
   // Tab state
-  const [activeTab, setActiveTab] = useState<'blog' | 'photo' | 'skills' | 'manage-blog' | 'manage-photo'>('blog');
+  const [activeTab, setActiveTab] = useState<AdminTab>('blog');
 
   // Management lists and editing states
   const [allPosts, setAllPosts] = useState<Post[]>([]);
   const [allPhotos, setAllPhotos] = useState<Photo[]>([]);
   const [editingPostId, setEditingPostId] = useState<string | null>(null);
-  const [editingPhoto, setEditingPhoto] = useState<Photo | null>(null); // holds metadata of photo currently being edited
+  const [editingPhoto, setEditingPhoto] = useState<Photo | null>(null);
   const [editPhotoTitle, setEditPhotoTitle] = useState('');
   const [editPhotoDescription, setEditPhotoDescription] = useState('');
-  const [fbUser, setFbUser] = useState<any>(null);
-
-  // Listen to Firebase Auth state changes
-  useEffect(() => {
-    if (isFirebaseConfigured()) {
-      const auth = getFirebaseAuth();
-      if (auth) {
-        import('firebase/auth').then(({ onAuthStateChanged }) => {
-          onAuthStateChanged(auth, (user) => {
-            setFbUser(user);
-          });
-        });
-      }
-    }
-  }, []);
+  const [pendingDelete, setPendingDelete] = useState<PendingDeleteTarget | null>(null);
+  const [fbUser, setFbUser] = useState<AuthUserSummary | null>(null);
 
   // Skills state
   const [skills, setSkills] = useState<Skill[]>([]);
   const [newSkillLabel, setNewSkillLabel] = useState('');
-  const [newSkillCategory, setNewSkillCategory] = useState('Languages');
+  const [newSkillCategory, setNewSkillCategory] = useState(DEFAULT_SKILL_CATEGORIES[0]);
 
-  // Form states
+  // Blog / upload form states
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [imageUrl, setImageUrl] = useState('');
   const [isPublishing, setIsPublishing] = useState(false);
-  const [publishMessage, setPublishMessage] = useState('');
+  const [feedback, setFeedback] = useState<StatusFeedback | null>(null);
   const [isPreview, setIsPreview] = useState(false);
-  
+  const [isDraggingPhotos, setIsDraggingPhotos] = useState(false);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const inlineImageRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const photoInputRef = useRef<HTMLInputElement>(null);
+  const selectPhotosButtonRef = useRef<HTMLButtonElement>(null);
+  const usernameInputRef = useRef<HTMLInputElement>(null);
+  const tabButtonRefs = useRef<Partial<Record<AdminTab, HTMLButtonElement | null>>>({});
+  const redirectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Inline images state
-  const [inlineImages, setInlineImages] = useState<{id: number, name: string, url: string}[]>([]);
+  const [inlineImages, setInlineImages] = useState<{ id: number; name: string; url: string }[]>([]);
   const inlineImageCounter = useRef(0);
 
   // Photo uploading state
-  const [pendingPhotos, setPendingPhotos] = useState<{id: string, url: string, title: string, description: string}[]>([]);
-  const photoInputRef = useRef<HTMLInputElement>(null);
+  const [pendingPhotos, setPendingPhotos] = useState<PendingPhoto[]>([]);
 
-  // Console output log
+  // Diagnostic action log
   const [sysLogs, setSysLogs] = useState<string[]>([
-    'SYSTEM v2.08 INITIALIZED.',
-    'WAITING FOR AUTHENTICATION PORT ACCESS...'
+    'Session initialized.',
+    'Waiting for sign-in.',
   ]);
 
-  // Lockout timer
-  useEffect(() => {
-    if (lockoutTime > 0) {
-      const timer = setInterval(() => {
-        setLockoutTime((prev) => prev - 1);
-      }, 1000);
-      return () => clearInterval(timer);
-    }
-  }, [lockoutTime]);
+  const addLog = useCallback((msg: string) => {
+    setSysLogs((prev) => [...prev, `[${new Date().toLocaleTimeString()}] ${msg}`]);
+  }, []);
 
-  const addLog = (msg: string) => {
-    setSysLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ${msg}`]);
-  };
+  const clearRedirectTimer = useCallback(() => {
+    if (redirectTimerRef.current) {
+      clearTimeout(redirectTimerRef.current);
+      redirectTimerRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => {
+    return () => clearRedirectTimer();
+  }, [clearRedirectTimer]);
+
+  // Listen to Firebase Auth state changes
+  useEffect(() => {
+    if (!isFirebaseConfigured()) return;
+    const auth = getFirebaseAuth();
+    if (!auth) return;
+
+    let unsubscribe: (() => void) | undefined;
+    import('firebase/auth').then(({ onAuthStateChanged }) => {
+      unsubscribe = onAuthStateChanged(auth, (user) => {
+        setFbUser(user ? { isAnonymous: user.isAnonymous, email: user.email } : null);
+      });
+    });
+
+    return () => {
+      unsubscribe?.();
+    };
+  }, []);
+
+  // Lockout countdown timer
+  useEffect(() => {
+    if (lockoutTime <= 0) return;
+    const timer = setInterval(() => {
+      setLockoutTime((prev) => Math.max(0, prev - 1));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [lockoutTime]);
 
   const hashPassword = async (rawPassword: string): Promise<string> => {
     const encoder = new TextEncoder();
     const data = encoder.encode(rawPassword);
     const hashBuffer = await crypto.subtle.digest('SHA-256', data);
     const hashArray = Array.from(new Uint8Array(hashBuffer));
-    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+    return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
   };
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -116,26 +308,26 @@ export default function Admin() {
     if (lockoutTime > 0) return;
 
     setLoginError('');
-    addLog(`ATTEMPTING AUTHENTICATION FOR: "${username}"`);
+    addLog(`Authentication requested for "${username}".`);
 
     try {
-      // 1. If username is an email and Firebase is configured, attempt Firebase Auth sign-in
+      // 1. Email + Firebase Auth path
       if (username.includes('@') && isFirebaseConfigured()) {
         const authInstance = getFirebaseAuth();
         if (authInstance) {
-          addLog('CONNECTING TO FIREBASE AUTH SERVICES...');
+          addLog('Signing in via Firebase Auth...');
           const { signInWithEmailAndPassword } = await import('firebase/auth');
           await signInWithEmailAndPassword(authInstance, username, password);
           setIsAuthenticated(true);
           setPassword('');
-          addLog('FIREBASE SYSTEM AUTHENTICATION SECURED. ACCESS GRANTED.');
+          addLog('Firebase sign-in succeeded.');
           return;
         }
       }
 
-      // 2. Otherwise fall back to local passcode hashing check
+      // 2. Local passcode verification fallback
       const hashedInput = await hashPassword(password);
-      
+
       if (username === 'admin' && SECURE_PASS_HASHES.includes(hashedInput)) {
         if (isFirebaseConfigured()) {
           const authInstance = getFirebaseAuth();
@@ -143,44 +335,48 @@ export default function Admin() {
             try {
               const { signInAnonymously } = await import('firebase/auth');
               await signInAnonymously(authInstance);
-              addLog('ANONYMOUS STORAGE SECURITY CLEARANCE GRANTED.');
-            } catch (err: any) {
-              addLog('ANONYMOUS AUTH REJECTED. WRITE PERMISSIONS MAY BE RESTRICTED.');
+              addLog('Anonymous Firebase session established.');
+            } catch {
+              addLog('Anonymous Firebase session declined; cloud writes may be restricted.');
             }
           }
         }
         setIsAuthenticated(true);
         setPassword('');
-        addLog('LOCAL SYSTEM SECURITY CLEARANCE GRANTED. ACCESS GRANTED.');
+        addLog('Local session authenticated.');
       } else {
         const nextAttempts = loginAttempts + 1;
         setLoginAttempts(nextAttempts);
-        addLog(`ACCESS DENIED. ATTEMPTS: ${nextAttempts}/3`);
-        
+        addLog(`Sign-in rejected (${nextAttempts}/3).`);
+
         if (nextAttempts >= 3) {
-          setLockoutTime(30); // 30 seconds lockout
+          setLockoutTime(30);
           setLoginAttempts(0);
-          setLoginError('Too many failed attempts. Console locked for 30s.');
-          addLog('SECURITY LOCKDOWN TRIGGERED. TEMPORARY DEACTIVATION.');
+          setLoginError('Too many failed attempts. Please wait 30 seconds before trying again.');
+          addLog('Temporary 30s sign-in cooldown active.');
         } else {
-          setLoginError('Invalid credentials.');
+          setLoginError('Invalid username or password.');
         }
+        usernameInputRef.current?.focus();
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Sign-in verification failed.';
       console.error(err);
-      setLoginError(err.message || 'Verification process failed.');
-      addLog(`AUTHENTICATION ERROR: ${err.message || 'UNKNOWN'}`);
+      setLoginError(message);
+      addLog(`Sign-in error: ${message}`);
+      usernameInputRef.current?.focus();
     }
   };
 
   const handleLogout = async () => {
+    clearRedirectTimer();
     if (isFirebaseConfigured()) {
       const authInstance = getFirebaseAuth();
       if (authInstance) {
         try {
           const { signOut } = await import('firebase/auth');
           await signOut(authInstance);
-          addLog('FIREBASE AUTHENTICATION CLOSED.');
+          addLog('Firebase session closed.');
         } catch (err) {
           console.error('Signout error', err);
         }
@@ -188,35 +384,48 @@ export default function Admin() {
     }
     setIsAuthenticated(false);
     setUsername('');
-    setSysLogs([
-      'SESSION VOLUNTARILY TERMINATED.',
-      'WAITING FOR AUTHENTICATION PORT ACCESS...'
-    ]);
+    setPassword('');
+    setShowPassword(false);
+    setFeedback(null);
+    setSysLogs(['Signed out.', 'Waiting for sign-in.']);
   };
 
-  const loadPostsAndPhotos = async () => {
+  const loadPostsAndPhotos = useCallback(async () => {
     try {
-      const postsData = await fetchAllPosts();
-      const photosData = await fetchAllPhotos();
+      const [postsData, photosData] = await Promise.all([
+        fetchAllPosts(),
+        fetchAllPhotos(),
+      ]);
       setAllPosts(postsData);
       setAllPhotos(photosData);
-      addLog('DATABASE SYNCHRONIZED [BLOGS & PHOTOS].');
+      addLog(`Synced ${postsData.length} posts and ${photosData.length} photos.`);
     } catch (err) {
       console.error('Failed to load posts/photos', err);
-      addLog('ERROR CONNECTING TO CENTRAL ARCHIVES.');
+      addLog('Failed to load posts or photos.');
     }
-  };
+  }, [addLog]);
 
   useEffect(() => {
-    if (isAuthenticated) {
-      Promise.resolve().then(async () => {
-        setSkills(fetchAllSkills());
-        addLog('SKILLS DATABASE SYNCHRONIZED.');
-        await loadPostsAndPhotos();
+    if (!isAuthenticated) return;
+    Promise.resolve().then(async () => {
+      const loadedSkills = fetchAllSkills();
+      setSkills(loadedSkills);
+      addLog(`Loaded ${loadedSkills.length} skills.`);
+      await loadPostsAndPhotos();
+    });
+  }, [isAuthenticated, addLog, loadPostsAndPhotos]);
+
+  const switchTab = (nextTab: AdminTab, clearFeedback = true) => {
+    clearRedirectTimer();
+    setActiveTab(nextTab);
+    if (clearFeedback) setFeedback(null);
+    requestAnimationFrame(() => {
+      tabButtonRefs.current[nextTab]?.scrollIntoView({
+        block: 'nearest',
+        inline: 'nearest',
       });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isAuthenticated]);
+    });
+  };
 
   const handleAddSkill = (e: React.FormEvent) => {
     e.preventDefault();
@@ -224,26 +433,28 @@ export default function Admin() {
     try {
       const added = saveSkill({
         label: newSkillLabel.trim(),
-        category: newSkillCategory
+        category: newSkillCategory,
       });
-      setSkills(prev => [...prev, added]);
+      setSkills((prev) => [...prev, added]);
       setNewSkillLabel('');
-      addLog(`ADDED SKILL: "${added.label}" [${added.category}]`);
-      setPublishMessage(`Skill "${added.label}" added successfully!`);
-    } catch (err: any) {
-      setPublishMessage(`Error: ${err.message || 'Failed to add skill'}`);
-      addLog(`ERROR ADDING SKILL: ${err.message}`);
+      addLog(`Added skill "${added.label}" under ${added.category}.`);
+      setFeedback({ kind: 'success', text: `Added "${added.label}" to ${added.category}.` });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to add skill';
+      setFeedback({ kind: 'error', text: message });
+      addLog(`Error adding skill: ${message}`);
     }
   };
 
   const handleDeleteSkill = (label: string) => {
     try {
       deleteSkill(label);
-      setSkills(prev => prev.filter(s => s.label.toLowerCase() !== label.toLowerCase()));
-      addLog(`DELETED SKILL: "${label}"`);
-      setPublishMessage(`Skill "${label}" deleted successfully!`);
-    } catch (err: any) {
-      setPublishMessage(`Error: ${err.message || 'Failed to delete skill'}`);
+      setSkills((prev) => prev.filter((s) => s.label.toLowerCase() !== label.toLowerCase()));
+      addLog(`Removed skill "${label}".`);
+      setFeedback({ kind: 'success', text: `Removed "${label}".` });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to remove skill';
+      setFeedback({ kind: 'error', text: message });
     }
   };
 
@@ -252,82 +463,105 @@ export default function Admin() {
     setTitle(post.title);
     setContent(post.content);
     setImageUrl(post.imageUrl || '');
-    setActiveTab('blog');
-    addLog(`LOADING POST "${post.title}" INTO CANVAS.`);
-  };
-
-  const handleDeletePost = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this transmission log?')) return;
-    try {
-      addLog(`DELETING POST: ${id.toUpperCase()}`);
-      await deletePost(id);
-      addLog(`POST ${id.toUpperCase()} DELETED.`);
-      await loadPostsAndPhotos();
-    } catch (err: any) {
-      console.error(err);
-      addLog(`ERROR DELETING POST: ${err.message}`);
-    }
+    setInlineImages([]);
+    setIsPreview(false);
+    switchTab('blog');
+    addLog(`Loaded post "${post.title}" for editing.`);
   };
 
   const handleEditPhoto = (photo: Photo) => {
     setEditingPhoto(photo);
     setEditPhotoTitle(photo.title);
     setEditPhotoDescription(photo.description || '');
-    addLog(`LOADING PHOTO METADATA "${photo.title}".`);
+    addLog(`Editing metadata for "${photo.title}".`);
   };
 
   const handleSavePhotoMetadata = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingPhoto) return;
     try {
-      addLog(`UPDATING PHOTO METADATA: ${editingPhoto.id.toUpperCase()}`);
+      addLog(`Updating photo "${editPhotoTitle}"...`);
       await updatePhoto(editingPhoto.id, {
         title: editPhotoTitle,
         description: editPhotoDescription,
       });
-      addLog(`PHOTO METADATA DEPLOYED.`);
+      addLog(`Updated photo "${editPhotoTitle}".`);
+      setFeedback({ kind: 'success', text: `Updated "${editPhotoTitle}".` });
       setEditingPhoto(null);
       await loadPostsAndPhotos();
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to update photo';
       console.error(err);
-      addLog(`ERROR UPDATING PHOTO: ${err.message}`);
+      setFeedback({ kind: 'error', text: message });
+      addLog(`Error updating photo: ${message}`);
     }
   };
 
-  const handleDeletePhoto = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this photographic capture?')) return;
+  const handleConfirmDelete = async () => {
+    if (!pendingDelete) return;
+    const target = pendingDelete;
+    setPendingDelete(null);
+
     try {
-      addLog(`DELETING PHOTO: ${id.toUpperCase()}`);
-      await deletePhoto(id);
-      addLog(`PHOTO ${id.toUpperCase()} DELETED.`);
+      if (target.kind === 'post') {
+        addLog(`Deleting post "${target.title}"...`);
+        await deletePost(target.id);
+        addLog(`Deleted post "${target.title}".`);
+        setFeedback({ kind: 'success', text: `Deleted "${target.title}".` });
+      } else {
+        addLog(`Deleting photo "${target.title}"...`);
+        await deletePhoto(target.id);
+        addLog(`Deleted photo "${target.title}".`);
+        setFeedback({ kind: 'success', text: `Deleted "${target.title}".` });
+      }
       await loadPostsAndPhotos();
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Delete failed';
       console.error(err);
-      addLog(`ERROR DELETING PHOTO: ${err.message}`);
+      setFeedback({ kind: 'error', text: message });
+      addLog(`Error deleting ${target.kind}: ${message}`);
     }
   };
 
-  const compressImage = (file: File, maxSize: number, quality: number): Promise<string> => {
-    return new Promise((resolve) => {
+  /** Resizes and compresses an image file, returning its data URL and canvas dimensions. */
+  const compressImageWithDimensions = (
+    file: File,
+    maxSize: number,
+    quality: number
+  ): Promise<CompressedImage> => {
+    return new Promise((resolve, reject) => {
       const reader = new FileReader();
+      reader.onerror = () => reject(new Error(`Could not read ${file.name}`));
       reader.onload = (event) => {
         const img = new Image();
+        img.onerror = () => reject(new Error(`Invalid image file: ${file.name}`));
         img.onload = () => {
           const canvas = document.createElement('canvas');
-          let w = img.width, h = img.height;
-          if (w > h) {
-            if (w > maxSize) { h *= maxSize / w; w = maxSize; }
-          } else {
-            if (h > maxSize) { w *= maxSize / h; h = maxSize; }
+          let w = img.width;
+          let h = img.height;
+          if (w <= 0 || h <= 0) {
+            reject(new Error(`Invalid image dimensions: ${file.name}`));
+            return;
           }
-          canvas.width = w;
-          canvas.height = h;
-          canvas.getContext('2d')?.drawImage(img, 0, 0, w, h);
+          if (w > h) {
+            if (w > maxSize) {
+              h *= maxSize / w;
+              w = maxSize;
+            }
+          } else if (h > maxSize) {
+            w *= maxSize / h;
+            h = maxSize;
+          }
+          const width = Math.max(1, Math.round(w));
+          const height = Math.max(1, Math.round(h));
+          canvas.width = width;
+          canvas.height = height;
+          canvas.getContext('2d')?.drawImage(img, 0, 0, width, height);
           let dataUrl = canvas.toDataURL('image/webp', quality);
           if (!dataUrl.startsWith('data:image/webp')) {
             dataUrl = canvas.toDataURL('image/jpeg', quality);
           }
-          resolve(dataUrl);
+          resolve({ url: dataUrl, width, height });
         };
         img.src = event.target?.result as string;
       };
@@ -335,42 +569,76 @@ export default function Admin() {
     });
   };
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, isPhotoTab: boolean = false) => {
+  const compressImage = async (file: File, maxSize: number, quality: number): Promise<string> => {
+    const { url } = await compressImageWithDimensions(file, maxSize, quality);
+    return url;
+  };
+
+  const stagePhotoFiles = async (files: File[]) => {
+    const imageFiles = files.filter((f) => f.type.startsWith('image/'));
+    if (imageFiles.length === 0) {
+      setFeedback({ kind: 'error', text: 'Please select valid image files.' });
+      return;
+    }
+
+    for (const file of imageFiles) {
+      try {
+        addLog(`Preparing photo: ${file.name}`);
+        const { url, width, height } = await compressImageWithDimensions(file, 1600, 0.82);
+        setPendingPhotos((prev) => [
+          ...prev,
+          {
+            id: Math.random().toString(36).substring(2, 9),
+            url,
+            title: file.name.replace(/\.[^/.]+$/, ''),
+            description: '',
+            width,
+            height,
+          },
+        ]);
+        addLog(`Staged "${file.name}".`);
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : 'Could not process image.';
+        setFeedback({ kind: 'error', text: message });
+        addLog(`Image error: ${message}`);
+      }
+    }
+  };
+
+  const handleImageUpload = async (
+    e: React.ChangeEvent<HTMLInputElement>,
+    isPhotoTab = false
+  ) => {
     const files = Array.from(e.target.files || []);
     if (!files.length) return;
 
     if (isPhotoTab) {
-      files.forEach(async (file) => {
-        addLog(`COMPRESSING PHOTO: ${file.name}`);
-        const dataUrl = await compressImage(file, 1600, 0.82);
-        setPendingPhotos(prev => [...prev, {
-          id: Math.random().toString(36).substring(7),
-          url: dataUrl,
-          title: file.name.replace(/\.[^/.]+$/, ""),
-          description: ''
-        }]);
-        addLog(`PHOTO STAGED SUCCESSFULLY.`);
-      });
+      await stagePhotoFiles(files);
     } else {
       const file = files[0];
-      addLog(`COMPRESSING COVER IMAGE: ${file.name}`);
-      compressImage(file, 800, 0.80).then(dataUrl => {
+      try {
+        addLog(`Compressing cover image: ${file.name}`);
+        const dataUrl = await compressImage(file, 800, 0.8);
         setImageUrl(dataUrl);
-        addLog(`COVER IMAGE READY.`);
-      });
+        addLog('Cover image ready.');
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : 'Could not process cover image.';
+        setFeedback({ kind: 'error', text: message });
+      }
     }
-    
+
     if (e.target) e.target.value = '';
   };
 
-  const handleInlineImage = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleInlineImage = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     const name = file.name.replace(/\.[^/.]+$/, '');
-    addLog(`PROCESSING INLINE IMAGE: ${file.name}`);
-    compressImage(file, 1200, 0.80).then(dataUrl => {
+    try {
+      addLog(`Processing inline image: ${file.name}`);
+      const dataUrl = await compressImage(file, 1200, 0.8);
       const id = ++inlineImageCounter.current;
-      setInlineImages(prev => [...prev, { id, name, url: dataUrl }]);
+      setInlineImages((prev) => [...prev, { id, name, url: dataUrl }]);
       const tag = `\n![${name}](inline:${id})\n`;
       const ta = textareaRef.current;
       if (ta) {
@@ -379,665 +647,508 @@ export default function Admin() {
         const after = content.slice(ta.selectionEnd);
         setContent(before + tag + after);
       } else {
-        setContent(content + tag);
+        setContent((prev) => prev + tag);
       }
-      addLog(`INLINE IMAGE INSTANTIATED.`);
-    });
+      addLog(`Inserted inline image (${name}).`);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Could not process inline image.';
+      setFeedback({ kind: 'error', text: message });
+    }
     if (e.target) e.target.value = '';
   };
 
   const resolveInlineImages = (text: string) => {
     return text.replace(/\(inline:(\d+)\)/g, (match, idStr) => {
-      const img = inlineImages.find(i => i.id === parseInt(idStr));
+      const img = inlineImages.find((i) => i.id === parseInt(idStr, 10));
       return img ? `(${img.url})` : match;
     });
   };
 
   const renderPreviewContent = (text: string) => {
-    let resolved = text.replace(/\(inline:(\d+)\)/g, (match, idStr) => {
-      const img = inlineImages.find(i => i.id === parseInt(idStr));
-      return img ? `(${img.url})` : match;
-    });
+    const resolved = resolveInlineImages(text);
     const { processed, images } = extractDataImages(resolved);
-    const imgRenderer = ({ src, alt }: any) => {
-      const resolvedSrc = (src && images[src]) || src;
-      if (!resolvedSrc) return null;
-      // eslint-disable-next-line @next/next/no-img-element
-      return <img src={resolvedSrc} alt={alt || ''} className="rounded-xl max-w-full border-2 border-black" />;
-    };
-    return <ReactMarkdown components={{ img: imgRenderer }}>{processed}</ReactMarkdown>;
+    return (
+      <ReactMarkdown components={{ img: createImgRenderer(images) }}>
+        {processed}
+      </ReactMarkdown>
+    );
   };
 
-  const handlePublish = async (e: React.FormEvent) => {
+  const handlePublishPost = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!isAuthenticated) return;
-    
+    clearRedirectTimer();
+
     setIsPublishing(true);
-    setPublishMessage('');
-    addLog('COMMENCING DATA SYNCHRONIZATION...');
-    
+    setFeedback(null);
+    addLog(editingPostId ? 'Updating post...' : 'Publishing post...');
+
     try {
-      if (activeTab === 'blog') {
-        if (!title || !content) throw new Error('Title and content required');
-        const finalContent = resolveInlineImages(content);
-        
-        if (editingPostId) {
-          await updatePost(editingPostId, {
-            title,
-            content: finalContent,
-            imageUrl: imageUrl || undefined,
-          });
-          setPublishMessage('Log entry updated successfully!');
-          addLog(`LOG ENTRY "${title}" UPDATED SUCCESSFULLY.`);
-          setEditingPostId(null);
-        } else {
-          await savePost({
-            title,
-            content: finalContent,
-            imageUrl: imageUrl || undefined,
-          });
-          setPublishMessage('Log entry broadcasted to Journal feed!');
-          addLog('LOG ENTRY DEPLOYED SUCCESSFULLY.');
-        }
-        
-        setTitle('');
-        setContent('');
-        setImageUrl('');
-        setInlineImages([]);
-        await loadPostsAndPhotos();
-        setTimeout(() => setActiveTab('manage-blog'), 1500);
-      } else {
-        if (pendingPhotos.length === 0) throw new Error('No photos to upload');
-        if (pendingPhotos.some(p => !p.title)) throw new Error('All photos must have a title');
-        
-        await savePhotos(pendingPhotos.map(p => ({
-          title: p.title,
-          description: p.description,
-          url: p.url,
-        })));
-        
-        setPublishMessage(`Successfully committed ${pendingPhotos.length} capture(s)!`);
-        addLog(`${pendingPhotos.length} CAPTURES STORED IN SYSTEM FILE.`);
-        setPendingPhotos([]);
-        await loadPostsAndPhotos();
-        setTimeout(() => setActiveTab('manage-photo'), 1500);
+      if (!title.trim() || !content.trim()) {
+        throw new Error('Title and body content are required.');
       }
-    } catch (error: any) {
-      console.error('Publish error', error);
-      const errText = error.message || 'Unknown network error';
-      setPublishMessage('Error: ' + errText);
-      addLog(`FATAL WRITING ERROR: ${errText.toUpperCase()}`);
+      const finalContent = resolveInlineImages(content);
+
+      if (editingPostId) {
+        await updatePost(editingPostId, {
+          title: title.trim(),
+          content: finalContent,
+          imageUrl: imageUrl.trim() || undefined,
+        });
+        setFeedback({ kind: 'success', text: `Updated "${title.trim()}".` });
+        addLog(`Updated post "${title.trim()}".`);
+        setEditingPostId(null);
+      } else {
+        await savePost({
+          title: title.trim(),
+          content: finalContent,
+          imageUrl: imageUrl.trim() || undefined,
+        });
+        setFeedback({ kind: 'success', text: `Published "${title.trim()}".` });
+        addLog(`Published post "${title.trim()}".`);
+      }
+
+      setTitle('');
+      setContent('');
+      setImageUrl('');
+      setInlineImages([]);
+      setIsPreview(false);
+      await loadPostsAndPhotos();
+      redirectTimerRef.current = setTimeout(() => {
+        switchTab('manage-blog', false);
+      }, 1000);
+    } catch (error: unknown) {
+      console.error('Publish post error', error);
+      const errText = error instanceof Error ? error.message : 'Unknown error while saving.';
+      setFeedback({ kind: 'error', text: errText });
+      addLog(`Error saving post: ${errText}`);
     } finally {
       setIsPublishing(false);
     }
   };
 
+  const handlePublishPhotos = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!isAuthenticated) return;
+    clearRedirectTimer();
+
+    if (pendingPhotos.length === 0) {
+      setFeedback({ kind: 'error', text: 'Select at least one photo to upload.' });
+      selectPhotosButtonRef.current?.focus();
+      return;
+    }
+    if (pendingPhotos.some((p) => !p.title.trim())) {
+      setFeedback({ kind: 'error', text: 'Every staged photo must have a title.' });
+      return;
+    }
+
+    setIsPublishing(true);
+    setFeedback(null);
+    addLog(`Uploading ${pendingPhotos.length} photo(s)...`);
+
+    try {
+      await savePhotos(
+        pendingPhotos.map((p) => ({
+          title: p.title.trim(),
+          description: p.description.trim(),
+          url: p.url,
+          width: p.width,
+          height: p.height,
+        }))
+      );
+
+      const uploadedCount = pendingPhotos.length;
+      setFeedback({
+        kind: 'success',
+        text: `Published ${uploadedCount} photograph${uploadedCount === 1 ? '' : 's'}.`,
+      });
+      addLog(`Published ${uploadedCount} photograph(s).`);
+      setPendingPhotos([]);
+      await loadPostsAndPhotos();
+      redirectTimerRef.current = setTimeout(() => {
+        switchTab('manage-photo', false);
+      }, 1000);
+    } catch (error: unknown) {
+      console.error('Publish photos error', error);
+      const errText = error instanceof Error ? error.message : 'Unknown error while uploading.';
+      setFeedback({ kind: 'error', text: errText });
+      addLog(`Error uploading photos: ${errText}`);
+    } finally {
+      setIsPublishing(false);
+    }
+  };
+
+  const skillCategories = useMemo(() => {
+    const ordered = [...DEFAULT_SKILL_CATEGORIES];
+    for (const s of skills) {
+      if (s.category && !ordered.includes(s.category)) {
+        ordered.push(s.category);
+      }
+    }
+    return ordered;
+  }, [skills]);
+
+  const tabs = useMemo<{ id: AdminTab; label: string }[]>(
+    () => [
+      { id: 'blog', label: editingPostId ? 'Edit post' : 'Write' },
+      { id: 'manage-blog', label: `Posts (${allPosts.length})` },
+      { id: 'photo', label: 'Upload' },
+      { id: 'manage-photo', label: `Photos (${allPhotos.length})` },
+      { id: 'skills', label: `Skills (${skills.length})` },
+    ],
+    [editingPostId, allPosts.length, allPhotos.length, skills.length]
+  );
+
+  const handleTabKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    const idx = tabs.findIndex((t) => t.id === activeTab);
+    if (idx === -1) return;
+
+    let nextIdx = -1;
+    if (e.key === 'ArrowRight') nextIdx = (idx + 1) % tabs.length;
+    else if (e.key === 'ArrowLeft') nextIdx = (idx - 1 + tabs.length) % tabs.length;
+    else if (e.key === 'Home') nextIdx = 0;
+    else if (e.key === 'End') nextIdx = tabs.length - 1;
+
+    if (nextIdx !== -1) {
+      e.preventDefault();
+      const nextId = tabs[nextIdx].id;
+      switchTab(nextId);
+      tabButtonRefs.current[nextId]?.focus();
+    }
+  };
+
+  const storageSummary = isFirebaseConfigured()
+    ? fbUser?.email || (fbUser?.isAnonymous ? 'Firestore (anonymous)' : 'Firestore')
+    : 'Local storage';
+
   if (!isAuthenticated) {
     return (
-      <div className="max-w-md mx-auto space-y-8 pt-12">
-        {/* Warning hazard bar */}
-        <div className="bg-neo-yellow text-black border-4 border-black p-4 text-center select-none shadow-[4px_4px_0px_0px_#000] rotate-[-1deg]">
-          <h2 className="text-sm font-black uppercase tracking-widest flex items-center justify-center gap-2">
-            <ShieldAlert size={18} className="animate-bounce" />
-            CLASSIFIED DISPATCH // ROOT ACCESS
-          </h2>
+      <article
+        data-ascii-panel="true"
+        className="w-full min-[760px]:w-[54%] min-[760px]:max-w-[540px]"
+      >
+        <div className="max-[759px]:min-h-[12vh] max-[759px]:flex max-[759px]:flex-col max-[759px]:justify-end pb-3 sm:pb-4">
+          <div className="w-fit">
+            <ScrambleHeading
+              text="Admin"
+              className="font-mono text-xl sm:text-2xl font-medium tracking-tight text-ink"
+            />
+          </div>
         </div>
 
-        <div className="te-card p-6 bg-black border-4 border-black text-neo-green font-mono shadow-[8px_8px_0px_0px_#000]">
-          <div className="flex justify-between items-center pb-3 border-b-2 border-neutral-800 mb-6 text-[10px]">
-            <span className="flex items-center gap-2">
-              <Cpu size={12} className="animate-pulse" />
-              PORT: 9283-SECURE
-            </span>
-            <span className="text-red-500 font-bold">STATE: SECURE_LOCKED</span>
-          </div>
+        <div className="space-y-5 border-t border-line pt-4">
+          <p className="font-sans text-xs sm:text-sm text-ink-muted leading-relaxed">
+            Sign in to update blog posts, photography, and skills.
+          </p>
 
-          <form onSubmit={handleLogin} className="space-y-6">
+          <form
+            onSubmit={handleLogin}
+            aria-label="Admin sign in"
+            className="space-y-4 max-w-sm"
+          >
             {loginError && (
-              <div className="p-3 border-2 border-red-500 bg-red-950/20 text-red-500 text-xs font-bold font-mono">
-                [ERR_SEC] {loginError}
+              <div
+                id="login-error"
+                role="alert"
+                className="border border-red-700/50 dark:border-red-400/50 bg-surface/90 px-3 py-2.5 font-mono text-xs text-red-700 dark:text-red-400 rounded-[2px]"
+              >
+                {loginError}
               </div>
             )}
-            
-            <div className="space-y-2">
-              <label className="text-[10px] text-neutral-400 block uppercase font-bold">Operator ID / Email</label>
-              <input 
-                type="text" 
+
+            <div className="space-y-1.5">
+              <label htmlFor="admin-username" className={LABEL_CLASS}>
+                Username or email
+              </label>
+              <input
+                ref={usernameInputRef}
+                id="admin-username"
+                name="username"
+                type="text"
                 value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                className="w-full bg-neutral-900 border-2 border-neutral-800 focus:border-neo-green p-3 font-mono text-xs font-bold text-neo-green focus:outline-none rounded"
-                placeholder="e.g. admin or operator@domain.com"
-                disabled={lockoutTime > 0}
-                required
-              />
-            </div>
-            
-            <div className="space-y-2">
-              <label className="text-[10px] text-neutral-400 block uppercase font-bold">Security Key</label>
-              <input 
-                type="password" 
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full bg-neutral-900 border-2 border-neutral-800 focus:border-neo-green p-3 font-mono text-xs font-bold text-neo-green focus:outline-none rounded"
-                placeholder="••••••••••••"
+                onChange={(e) => {
+                  setUsername(e.target.value);
+                  if (loginError) setLoginError('');
+                }}
+                autoComplete="username"
+                autoCorrect="off"
+                autoCapitalize="none"
+                spellCheck={false}
+                enterKeyHint="next"
+                aria-invalid={Boolean(loginError)}
+                aria-describedby={loginError ? 'login-error' : undefined}
+                className={INPUT_CLASS}
+                placeholder="admin or email"
                 disabled={lockoutTime > 0}
                 required
               />
             </div>
 
-            <button 
-              type="submit" 
-              className="te-button py-3 w-full bg-neo-green border-black text-black font-black uppercase text-xs hover:bg-neo-yellow hover:text-black flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-              disabled={lockoutTime > 0}
-            >
-              Authenticate {lockoutTime > 0 ? `(${lockoutTime}s)` : ''} <ArrowRight size={14} />
-            </button>
+            <div className="space-y-1.5">
+              <label htmlFor="admin-password" className={LABEL_CLASS}>
+                Password
+              </label>
+              <div className="relative flex items-center">
+                <input
+                  id="admin-password"
+                  name="password"
+                  type={showPassword ? 'text' : 'password'}
+                  value={password}
+                  onChange={(e) => {
+                    setPassword(e.target.value);
+                    if (loginError) setLoginError('');
+                  }}
+                  autoComplete="current-password"
+                  enterKeyHint="done"
+                  aria-invalid={Boolean(loginError)}
+                  aria-describedby={loginError ? 'login-error' : undefined}
+                  className={`${INPUT_CLASS} pr-11`}
+                  placeholder="Enter password"
+                  disabled={lockoutTime > 0}
+                  required
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((prev) => !prev)}
+                  aria-pressed={showPassword}
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  className="absolute right-1 min-w-[38px] min-h-[38px] inline-flex items-center justify-center text-ink-muted hover:text-ink transition-colors cursor-pointer"
+                >
+                  {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
+                </button>
+              </div>
+            </div>
+
+            <div className="pt-1">
+              <button
+                type="submit"
+                className={`${PRIMARY_BTN_CLASS} w-full sm:w-auto`}
+                disabled={lockoutTime > 0}
+              >
+                <span>Sign in {lockoutTime > 0 ? `(${lockoutTime}s)` : ''}</span>
+                <ArrowRight size={14} />
+              </button>
+            </div>
           </form>
-        </div>
 
-        {/* Console audit log */}
-        <div className="bg-neutral-900 border-2 border-neutral-800 p-4 font-mono text-[9px] text-neutral-500 max-h-36 overflow-y-auto">
-          <p className="border-b border-neutral-800 pb-1 mb-2 text-neutral-400 font-bold uppercase">Console Audit Trail:</p>
-          {sysLogs.map((log, i) => <div key={i}>{log}</div>)}
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="max-w-5xl mx-auto space-y-8">
-      {/* Redesigned Brutalist Header */}
-      <div className="te-card p-6 bg-neo-cyan text-black border-4 border-black relative shadow-[8px_8px_0px_0px_#000] rotate-[0.5deg]">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
-          <div>
-            <h1 className="text-3xl font-black uppercase tracking-tight flex items-center gap-3">
-              <Database size={28} className="animate-spin-slow" />
-              SYSTEM_CONTROL_CENTER // OPERATOR_PORT_01
-            </h1>
-            <p className="font-mono text-[10px] font-black uppercase bg-black text-neo-cyan px-2 py-0.5 mt-2 rounded border border-black inline-block">
-              SECURE_AES_256 // LOCAL_MODE_ACTIVE
-            </p>
-          </div>
-          <button 
-            onClick={handleLogout} 
-            className="te-button py-2.5 px-4 text-xs bg-black text-white border-black hover:bg-neo-pink hover:text-white transition-colors cursor-pointer flex items-center gap-2"
-          >
-            <LogOut size={14} />
-            TERMINATE SESSION
-          </button>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Left Side: System Control Console */}
-        <div className="lg:col-span-1 space-y-6">
-          <div className="te-card p-5 bg-black border-4 border-black text-neo-green font-mono shadow-[6px_6px_0px_0px_#000]">
-            <h3 className="text-[10px] font-black border-b border-neutral-800 pb-2 mb-3 uppercase tracking-wider flex items-center justify-between">
-              <span>Diagnostic Feed</span>
-              <span className="text-neo-cyan animate-pulse">LIVE</span>
-            </h3>
-            <div className="space-y-1.5 text-[9px] font-bold">
-              <div className="flex justify-between"><span className="text-neutral-500">LOCAL AUTH:</span> <span className="text-neo-green font-black">AUTHORIZED</span></div>
-              <div className="flex justify-between">
-                <span className="text-neutral-500">DATABASE AUTH:</span> 
-                {fbUser ? (
-                  <span className={fbUser.isAnonymous ? "text-neo-orange font-black" : "text-neo-green font-black"}>
-                    {fbUser.isAnonymous ? "ANONYMOUS_OK" : "CLOUD_SECURE"}
-                  </span>
-                ) : (
-                  <span className="text-red-500 font-black">UNAUTHENTICATED</span>
-                )}
-              </div>
-              {fbUser && fbUser.email && (
-                <div className="flex justify-between">
-                  <span className="text-neutral-500">CLOUD USER:</span> 
-                  <span className="text-neo-cyan font-black truncate max-w-[100px]">{fbUser.email}</span>
-                </div>
-              )}
-              <div className="flex justify-between">
-                <span className="text-neutral-500">STORAGE MODE:</span> 
-                <span className={isFirebaseConfigured() ? "text-neo-cyan font-black" : "text-neo-yellow font-black"}>
-                  {isFirebaseConfigured() ? "REMOTE_FIRESTORE" : "LOCAL_BROWSER"}
-                </span>
-              </div>
-              <div className="flex justify-between"><span className="text-neutral-500">STAGED PHOTOS:</span> <span className="text-white font-black">{pendingPhotos.length}</span></div>
-              <div className="flex justify-between"><span className="text-neutral-500">ACTIVE SKILLS:</span> <span className="text-white font-black">{skills.length}</span></div>
-            </div>
-          </div>
-
-          <div className="te-card p-5 bg-neutral-900 border-4 border-black text-neutral-400 font-mono shadow-[6px_6px_0px_0px_#000] max-h-96 overflow-y-auto">
-            <h3 className="text-[10px] font-black border-b border-neutral-800 pb-2 mb-3 uppercase text-white tracking-wider">
-              System Action Logger
-            </h3>
-            <div className="space-y-1 text-[8px]">
+          <details className="border-t border-line pt-3 max-w-sm">
+            <summary className="font-mono text-xs text-ink-muted hover:text-ink cursor-pointer select-none">
+              Session log ({sysLogs.length})
+            </summary>
+            <div className="mt-2.5 space-y-1 font-mono text-[11px] text-ink-muted max-h-32 overflow-y-auto">
               {sysLogs.map((log, i) => (
-                <div key={i} className="leading-normal">
+                <div key={i} className="leading-relaxed">
                   {log}
                 </div>
               ))}
             </div>
-          </div>
+          </details>
+        </div>
+      </article>
+    );
+  }
+
+  const activeTabId = `admin-tab-${activeTab}`;
+
+  return (
+    <article
+      data-ascii-panel="true"
+      className="w-full min-[760px]:w-[54%] min-[760px]:max-w-[640px]"
+    >
+      <div className="max-[759px]:min-h-[12vh] max-[759px]:flex max-[759px]:flex-col max-[759px]:justify-end pb-3 sm:pb-4">
+        <div className="w-fit">
+          <ScrambleHeading
+            text="Admin"
+            className="font-mono text-xl sm:text-2xl font-medium tracking-tight text-ink"
+          />
+        </div>
+      </div>
+
+      <div className="space-y-5 border-t border-line pt-3">
+        {/* Summary & sign out row — mirrors Resume top strip */}
+        <div className="flex items-baseline justify-between gap-4">
+          <p className="font-mono text-xs text-ink-muted min-w-0">
+            {storageSummary} · {allPosts.length} posts · {allPhotos.length} photos · {skills.length}{' '}
+            skills
+          </p>
+          <button
+            type="button"
+            onClick={handleLogout}
+            className="font-mono text-xs text-ink underline underline-offset-4 hover:opacity-80 min-h-[36px] inline-flex items-center shrink-0 whitespace-nowrap cursor-pointer"
+          >
+            Sign out
+          </button>
         </div>
 
-        {/* Right Side: Main Editing Canvas */}
-        <div className="lg:col-span-2 space-y-6">
-          <div className="flex gap-3 border-b-4 border-black pb-3 overflow-x-auto">
-            <button 
-              onClick={() => { setActiveTab('blog'); setPublishMessage(''); setEditingPostId(null); }}
-              className={`te-button py-2 px-5 text-xs font-black uppercase transition-all duration-100 whitespace-nowrap ${
-                activeTab === 'blog' 
-                  ? 'bg-neo-pink text-white border-black shadow-[3px_3px_0px_0px_#000] -translate-y-0.5' 
-                  : 'bg-glass border-black hover:-translate-y-0.5 hover:shadow-[3px_3px_0px_0px_#000]'
-              }`}
+        {/* Single-row accessible tablist */}
+        <div
+          role="tablist"
+          aria-label="Admin sections"
+          onKeyDown={handleTabKeyDown}
+          className="flex items-center gap-3 sm:gap-5 border-t border-b border-line overflow-x-auto flex-nowrap [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        >
+          {tabs.map((tab) => {
+            const isSelected = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                ref={(el) => {
+                  tabButtonRefs.current[tab.id] = el;
+                }}
+                type="button"
+                role="tab"
+                id={`admin-tab-${tab.id}`}
+                aria-selected={isSelected}
+                tabIndex={isSelected ? 0 : -1}
+                onClick={() => {
+                  if (tab.id === 'blog' && activeTab !== 'blog') {
+                    setEditingPostId(null);
+                  }
+                  switchTab(tab.id);
+                }}
+                className="relative py-3 font-mono text-[11px] sm:text-xs font-normal whitespace-nowrap shrink-0 cursor-pointer transition-colors text-ink-muted hover:text-ink aria-[selected=true]:text-ink aria-[selected=true]:after:content-[''] aria-[selected=true]:after:absolute aria-[selected=true]:after:inset-x-0 aria-[selected=true]:after:bottom-0 aria-[selected=true]:after:border-b-2 aria-[selected=true]:after:border-ink"
+              >
+                {tab.label}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Status feedback banner */}
+        {feedback && (
+          <div
+            role="status"
+            aria-live="polite"
+            className={`border px-3.5 py-2.5 font-mono text-xs flex items-center justify-between gap-3 rounded-[2px] bg-surface/90 ${
+              feedback.kind === 'error'
+                ? 'border-red-700/50 dark:border-red-400/50 text-red-700 dark:text-red-400'
+                : 'border-line text-ink'
+            }`}
+          >
+            <span>{feedback.text}</span>
+            <button
+              type="button"
+              onClick={() => setFeedback(null)}
+              aria-label="Dismiss message"
+              className="text-ink-muted hover:text-ink p-1 cursor-pointer shrink-0"
             >
-              {editingPostId ? 'Edit Log Entry' : 'Create Log Entry'}
-            </button>
-            <button 
-              onClick={() => { setActiveTab('photo'); setPublishMessage(''); }}
-              className={`te-button py-2 px-5 text-xs font-black uppercase transition-all duration-100 whitespace-nowrap ${
-                activeTab === 'photo' 
-                  ? 'bg-neo-pink text-white border-black shadow-[3px_3px_0px_0px_#000] -translate-y-0.5' 
-                  : 'bg-glass border-black hover:-translate-y-0.5 hover:shadow-[3px_3px_0px_0px_#000]'
-              }`}
-            >
-              Upload Photos
-            </button>
-            <button 
-              onClick={() => { setActiveTab('manage-blog'); setPublishMessage(''); }}
-              className={`te-button py-2 px-5 text-xs font-black uppercase transition-all duration-100 whitespace-nowrap ${
-                activeTab === 'manage-blog' 
-                  ? 'bg-neo-pink text-white border-black shadow-[3px_3px_0px_0px_#000] -translate-y-0.5' 
-                  : 'bg-glass border-black hover:-translate-y-0.5 hover:shadow-[3px_3px_0px_0px_#000]'
-              }`}
-            >
-              Manage Logs
-            </button>
-            <button 
-              onClick={() => { setActiveTab('manage-photo'); setPublishMessage(''); }}
-              className={`te-button py-2 px-5 text-xs font-black uppercase transition-all duration-100 whitespace-nowrap ${
-                activeTab === 'manage-photo' 
-                  ? 'bg-neo-pink text-white border-black shadow-[3px_3px_0px_0px_#000] -translate-y-0.5' 
-                  : 'bg-glass border-black hover:-translate-y-0.5 hover:shadow-[3px_3px_0px_0px_#000]'
-              }`}
-            >
-              Manage Photos
-            </button>
-            <button 
-              onClick={() => { setActiveTab('skills'); setPublishMessage(''); }}
-              className={`te-button py-2 px-5 text-xs font-black uppercase transition-all duration-100 whitespace-nowrap ${
-                activeTab === 'skills' 
-                  ? 'bg-neo-pink text-white border-black shadow-[3px_3px_0px_0px_#000] -translate-y-0.5' 
-                  : 'bg-glass border-black hover:-translate-y-0.5 hover:shadow-[3px_3px_0px_0px_#000]'
-              }`}
-            >
-              Manage Skills
+              <X size={14} />
             </button>
           </div>
+        )}
 
-          {activeTab === 'skills' ? (
-            <div className="te-card p-6 bg-glass border-4 border-black text-ink shadow-[8px_8px_0px_0px_#000] space-y-6">
-              {publishMessage && (
-                <div className={`p-4 border-3 border-black font-mono text-xs font-black rounded ${
-                  publishMessage.includes('Error') 
-                    ? 'bg-red-500 text-white shadow-[2px_2px_0px_0px_#000]' 
-                    : 'bg-neo-yellow text-black shadow-[2px_2px_0px_0px_#000]'
-                }`}>
-                  {publishMessage}
+        {/* Active tab panel */}
+        <div
+          role="tabpanel"
+          aria-labelledby={activeTabId}
+          className="space-y-5"
+        >
+          {activeTab === 'blog' && (
+            <form onSubmit={handlePublishPost} aria-label="Blog post editor" className="space-y-5">
+              {editingPostId && (
+                <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-line">
+                  <span className="font-mono text-xs text-ink-muted">
+                    Editing existing post
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingPostId(null);
+                      setTitle('');
+                      setContent('');
+                      setImageUrl('');
+                      setInlineImages([]);
+                      setIsPreview(false);
+                      addLog('Cancelled post edit.');
+                      switchTab('manage-blog');
+                    }}
+                    className={DANGER_INLINE_CLASS}
+                  >
+                    Cancel edit
+                  </button>
                 </div>
               )}
-              
-              {/* Add Skill form */}
-              <form onSubmit={handleAddSkill} className="space-y-4 border-b-2 border-dashed border-black/25 pb-6">
-                <h3 className="text-xs font-black uppercase text-neutral-400">Add New Skill Tag</h3>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div className="md:col-span-1">
-                    <label className="text-[9px] font-bold text-neutral-500 uppercase block mb-1">Skill Label</label>
-                    <input 
-                      type="text" 
-                      value={newSkillLabel}
-                      onChange={(e) => setNewSkillLabel(e.target.value)}
-                      className="w-full bg-bg border-2 border-black p-2 font-mono text-xs font-bold focus:outline-none rounded"
-                      placeholder="e.g. PyTorch"
-                      required
-                    />
-                  </div>
-                  <div className="md:col-span-1">
-                    <label className="text-[9px] font-bold text-neutral-500 uppercase block mb-1">Category</label>
-                    <select 
-                      value={newSkillCategory}
-                      onChange={(e) => setNewSkillCategory(e.target.value)}
-                      className="w-full bg-bg border-2 border-black p-2 font-mono text-xs font-bold focus:outline-none rounded cursor-pointer"
+
+              <div className="space-y-1.5">
+                <label htmlFor="post-title" className={LABEL_CLASS}>
+                  Title
+                </label>
+                <input
+                  id="post-title"
+                  name="title"
+                  type="text"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  className={INPUT_CLASS}
+                  placeholder="Notes on..."
+                  required
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label htmlFor="post-cover" className={LABEL_CLASS}>
+                  Cover image (optional)
+                </label>
+                <div className="flex flex-col sm:flex-row gap-2.5">
+                  <input
+                    id="post-cover"
+                    name="coverImage"
+                    type="url"
+                    value={imageUrl}
+                    onChange={(e) => setImageUrl(e.target.value)}
+                    className={`${INPUT_CLASS} flex-1 font-mono`}
+                    placeholder="https://... or choose a file"
+                  />
+                  <input
+                    type="file"
+                    accept="image/*"
+                    ref={fileInputRef}
+                    onChange={(e) => handleImageUpload(e, false)}
+                    className="hidden"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className={SECONDARY_BTN_CLASS}
+                  >
+                    <Camera size={14} />
+                    <span>Choose file</span>
+                  </button>
+                </div>
+                {imageUrl && (
+                  <div className="flex items-center justify-between gap-3 pt-2 border-t border-line mt-2">
+                    <div className="flex items-center gap-3 min-w-0">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={imageUrl}
+                        alt="Cover preview"
+                        className="w-12 h-9 object-cover border border-line shrink-0"
+                      />
+                      <span className="font-mono text-xs text-ink-muted truncate">
+                        {imageUrl.startsWith('data:image')
+                          ? 'Compressed cover image attached'
+                          : imageUrl}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setImageUrl('')}
+                      className={INLINE_ACTION_CLASS}
                     >
-                      <option value="Languages">Languages</option>
-                      <option value="Frameworks">Frameworks</option>
-                      <option value="AI & ML">AI & ML</option>
-                      <option value="Tools">Tools</option>
-                    </select>
-                  </div>
-                  <div className="md:col-span-1 flex items-end">
-                    <button 
-                      type="submit" 
-                      className="w-full py-2 bg-neo-green border-2 border-black text-black font-black uppercase text-xs hover:bg-neo-yellow hover:text-black flex items-center justify-center gap-1.5 cursor-pointer shadow-[2px_2px_0px_0px_#000]"
-                    >
-                      <PlusCircle size={14} /> ADD SKILL
+                      Remove
                     </button>
                   </div>
-                </div>
-              </form>
-
-              {/* Skills List by Category */}
-              <div className="space-y-6 max-h-[400px] overflow-y-auto pr-2">
-                {['Languages', 'Frameworks', 'AI & ML', 'Tools'].map((cat) => {
-                  const catSkills = skills.filter(s => s.category === cat);
-                  return (
-                    <div key={cat} className="space-y-2">
-                      <h4 className="text-[10px] font-black uppercase text-neutral-400 tracking-wider">{cat}</h4>
-                      <div className="flex flex-wrap gap-2">
-                        {catSkills.map(skill => (
-                          <div 
-                            key={skill.label} 
-                            className="te-pill py-1.5 px-3 bg-glass text-ink border-black text-[10px] flex items-center gap-2"
-                          >
-                            <span>{skill.label}</span>
-                            <button 
-                              type="button" 
-                              onClick={() => handleDeleteSkill(skill.label)}
-                              className="text-red-500 hover:text-black font-bold text-xs pl-1"
-                              title="Delete skill"
-                            >
-                              ×
-                            </button>
-                          </div>
-                        ))}
-                        {catSkills.length === 0 && (
-                          <span className="text-[10px] italic text-neutral-500 pl-1">No skills in this category.</span>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          ) : activeTab === 'manage-blog' ? (
-            <div className="te-card p-6 bg-glass border-4 border-black text-ink shadow-[8px_8px_0px_0px_#000] space-y-6">
-              <div className="border-b-2 border-dashed border-black/20 pb-4 flex items-center justify-between">
-                <div>
-                  <h3 className="text-sm font-black uppercase text-ink flex items-center gap-2">
-                    <Database size={16} className="text-neo-pink" />
-                    All Transmission Logs ({allPosts.length})
-                  </h3>
-                  <p className="text-[9px] text-neutral-500 font-mono mt-1">SELECT TRANS-LOG TO INITIATE RE-COMPILE OR DE-ORBIT ACTIONS.</p>
-                </div>
-                <button
-                  onClick={() => { setActiveTab('blog'); setPublishMessage(''); setEditingPostId(null); setTitle(''); setContent(''); setImageUrl(''); }}
-                  className="py-1.5 px-3 border-2 border-black bg-neo-yellow text-black hover:bg-black hover:text-neo-yellow text-[10px] font-black uppercase cursor-pointer rounded shadow-[2px_2px_0px_0px_#000] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none transition-all flex items-center gap-1"
-                >
-                  <Plus size={12} /> NEW TRANS-LOG
-                </button>
-              </div>
-
-              <div className="space-y-4 max-h-[500px] overflow-y-auto pr-2">
-                {allPosts.map((post) => (
-                  <div key={post.id} className="flex flex-col sm:flex-row sm:items-center justify-between p-4 border-2 border-black rounded bg-bg shadow-[3px_3px_0px_0px_#000] gap-4">
-                    <div className="min-w-0 flex-1">
-                      <h4 className="font-sans font-black text-sm uppercase truncate text-ink">{post.title}</h4>
-                      <div className="flex items-center gap-2 mt-1.5 font-mono text-[9px] text-neutral-500 uppercase">
-                        <span>ID: {post.id}</span>
-                        <span>•</span>
-                        <span>DATE: {post.createdAt ? new Date(post.createdAt).toLocaleDateString() : 'UNKNOWN'}</span>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2 shrink-0 font-mono">
-                      <button
-                        onClick={() => handleEditPost(post)}
-                        className="py-1.5 px-3 border-2 border-black bg-neo-cyan text-black hover:bg-black hover:text-neo-cyan text-[10px] font-black uppercase cursor-pointer rounded transition-colors"
-                      >
-                        EDIT
-                      </button>
-                      <button
-                        onClick={() => handleDeletePost(post.id)}
-                        className="py-1.5 px-3 border-2 border-black bg-red-500 text-white hover:bg-black hover:text-red-500 text-[10px] font-black uppercase cursor-pointer rounded transition-colors"
-                      >
-                        DELETE
-                      </button>
-                    </div>
-                  </div>
-                ))}
-                {allPosts.length === 0 && (
-                  <div className="py-8 text-center text-xs font-mono text-neutral-500 uppercase border border-dashed border-neutral-300 rounded">
-                    NO DISPATCHES LOADED IN LOCAL TELEMETRY BUFFER.
-                  </div>
-                )}
-              </div>
-            </div>
-          ) : activeTab === 'manage-photo' ? (
-            <div className="te-card p-6 bg-glass border-4 border-black text-ink shadow-[8px_8px_0px_0px_#000] space-y-6">
-              <div className="border-b-2 border-dashed border-black/20 pb-4 flex items-center justify-between">
-                <div>
-                  <h3 className="text-sm font-black uppercase text-ink flex items-center gap-2">
-                    <Camera size={16} className="text-neo-pink" />
-                    All Photographic Captures ({allPhotos.length})
-                  </h3>
-                  <p className="text-[9px] text-neutral-500 font-mono mt-1">SELECT CAPTURE TO ADJUST METADATA OR REMOVE FROM ACTIVE INDEX.</p>
-                </div>
-                <button
-                  onClick={() => { setActiveTab('photo'); setPublishMessage(''); }}
-                  className="py-1.5 px-3 border-2 border-black bg-neo-yellow text-black hover:bg-black hover:text-neo-yellow text-[10px] font-black uppercase cursor-pointer rounded shadow-[2px_2px_0px_0px_#000] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none transition-all flex items-center gap-1"
-                >
-                  <Plus size={12} /> ADD PHOTOS
-                </button>
-              </div>
-
-              <div className="space-y-4 max-h-[500px] overflow-y-auto pr-2">
-                {allPhotos.map((photo) => (
-                  <div key={photo.id} className="flex flex-col sm:flex-row sm:items-start justify-between p-4 border-2 border-black rounded bg-bg shadow-[3px_3px_0px_0px_#000] gap-4">
-                    <div className="flex gap-4 min-w-0">
-                      <div className="w-16 h-16 shrink-0 border border-black overflow-hidden bg-neutral-900 rounded relative">
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={photo.url} alt={photo.title} className="w-full h-full object-cover" />
-                      </div>
-                      <div className="min-w-0">
-                        <h4 className="font-sans font-black text-sm uppercase truncate text-ink">{photo.title}</h4>
-                        {photo.description && (
-                          <p className="text-[10px] text-neutral-500 truncate mt-1 leading-normal max-w-[280px] sm:max-w-md">{photo.description}</p>
-                        )}
-                        <div className="flex items-center gap-2 mt-2 font-mono text-[8px] text-neutral-500 uppercase">
-                          <span>ID: {photo.id}</span>
-                          <span>•</span>
-                          <span>DATE: {photo.createdAt ? new Date(photo.createdAt).toLocaleDateString() : 'UNKNOWN'}</span>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2 shrink-0 font-mono self-center">
-                      <button
-                        onClick={() => handleEditPhoto(photo)}
-                        className="py-1.5 px-3 border-2 border-black bg-neo-cyan text-black hover:bg-black hover:text-neo-cyan text-[10px] font-black uppercase cursor-pointer rounded transition-colors"
-                      >
-                        EDIT
-                      </button>
-                      <button
-                        onClick={() => handleDeletePhoto(photo.id)}
-                        className="py-1.5 px-3 border-2 border-black bg-red-500 text-white hover:bg-black hover:text-red-500 text-[10px] font-black uppercase cursor-pointer rounded transition-colors"
-                      >
-                        DELETE
-                      </button>
-                    </div>
-                  </div>
-                ))}
-                {allPhotos.length === 0 && (
-                  <div className="py-8 text-center text-xs font-mono text-neutral-500 uppercase border border-dashed border-neutral-300 rounded">
-                    NO PHOTOGRAPHIC RECORDS DETECTED IN STORAGE BUFFER.
-                  </div>
                 )}
               </div>
 
-              {/* Photo metadata editing overlay modal */}
-              {editingPhoto && (
-                <div className="fixed inset-0 z-[120] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-                  <div className="te-card p-6 bg-glass border-4 border-black text-ink shadow-[8px_8px_0px_0px_#000] w-full max-w-lg space-y-4">
-                    <div className="border-b-2 border-black pb-2 flex justify-between items-center">
-                      <h3 className="font-sans font-black text-base uppercase">Edit Capture Metadata</h3>
-                      <button 
-                        onClick={() => setEditingPhoto(null)} 
-                        className="text-red-500 font-bold hover:text-black font-mono text-sm cursor-pointer"
-                      >
-                        [CLOSE]
-                      </button>
-                    </div>
-                    <div className="w-full h-36 border border-black overflow-hidden bg-neutral-900 relative rounded">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={editingPhoto.url} alt={editingPhoto.title} className="w-full h-full object-contain" />
-                    </div>
-                    <form onSubmit={handleSavePhotoMetadata} className="space-y-4">
-                      <div className="space-y-1.5">
-                        <label className="text-[10px] font-black uppercase text-neutral-400">Capture Title</label>
-                        <input
-                          type="text"
-                          value={editPhotoTitle}
-                          onChange={(e) => setEditPhotoTitle(e.target.value)}
-                          className="w-full bg-bg border-2 border-black p-2 font-black text-xs focus:outline-none rounded"
-                          required
-                        />
-                      </div>
-                      <div className="space-y-1.5">
-                        <label className="text-[10px] font-black uppercase text-neutral-400">Context/Description</label>
-                        <textarea
-                          value={editPhotoDescription}
-                          onChange={(e) => setEditPhotoDescription(e.target.value)}
-                          rows={3}
-                          className="w-full bg-bg border-2 border-black p-2 font-mono text-[10px] focus:outline-none resize-y rounded"
-                          placeholder="Provide details about this capture..."
-                        />
-                      </div>
-                      <div className="pt-2 flex justify-end gap-2.5 font-mono">
-                        <button
-                          type="button"
-                          onClick={() => setEditingPhoto(null)}
-                          className="py-2 px-4 border-2 border-black bg-white text-black hover:bg-black hover:text-white text-xs font-black uppercase cursor-pointer rounded transition-colors"
-                        >
-                          CANCEL
-                        </button>
-                        <button
-                          type="submit"
-                          className="py-2 px-4 border-2 border-black bg-neo-green text-black hover:bg-black hover:text-neo-green text-xs font-black uppercase cursor-pointer rounded transition-colors shadow-[2px_2px_0px_0px_#000]"
-                        >
-                          COMMIT METADATA
-                        </button>
-                      </div>
-                    </form>
-                  </div>
-                </div>
-              )}
-            </div>
-          ) : (
-            <motion.form 
-              key={activeTab}
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              onSubmit={handlePublish} 
-              className="te-card p-6 bg-glass border-4 border-black text-ink shadow-[8px_8px_0px_0px_#000] space-y-6"
-            >
-              {publishMessage && (
-                <div className={`p-4 border-3 border-black font-mono text-xs font-black rounded ${
-                  publishMessage.includes('Error') 
-                    ? 'bg-red-500 text-white shadow-[2px_2px_0px_0px_#000]' 
-                    : 'bg-neo-yellow text-black shadow-[2px_2px_0px_0px_#000]'
-                }`}>
-                  {publishMessage}
-                </div>
-              )}
-
-              {activeTab === 'blog' ? (
-                <>
-                  <div className="space-y-1.5">
-                    <div className="flex justify-between items-center">
-                      <label className="text-[10px] font-black uppercase text-neutral-400">Dispatch Title</label>
-                      {editingPostId && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setEditingPostId(null);
-                            setTitle('');
-                            setContent('');
-                            setImageUrl('');
-                            setInlineImages([]);
-                            addLog('DISCARDED EDIT OPERATION.');
-                            setActiveTab('manage-blog');
-                          }}
-                          className="py-1 px-2.5 border border-black bg-red-500 hover:bg-black text-white hover:text-red-500 rounded text-[9px] uppercase font-mono font-black cursor-pointer shadow-[1px_1px_0px_0px_#000]"
-                        >
-                          CANCEL EDIT
-                        </button>
-                      )}
-                    </div>
-                    <input 
-                      type="text" 
-                      value={title}
-                      onChange={(e) => setTitle(e.target.value)}
-                      className="w-full bg-bg border-3 border-black p-3.5 font-sans font-black text-base focus:outline-none focus:bg-neo-yellow/10 transition-colors rounded-lg shadow-[2px_2px_0px_0px_#000]"
-                      placeholder="Enter dispatch title..."
-                      required
-                    />
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] font-black uppercase text-neutral-400">Cover Image Asset</label>
-                    <div className="flex gap-3">
-                      <input 
-                        type="url" 
-                        value={imageUrl}
-                        onChange={(e) => setImageUrl(e.target.value)}
-                        className="flex-1 bg-bg border-3 border-black p-3 font-mono text-xs focus:outline-none rounded-lg shadow-[2px_2px_0px_0px_#000]"
-                        placeholder="https://... or select file to upload"
-                      />
-                      <input 
-                        type="file"
-                        accept="image/*"
-                        ref={fileInputRef}
-                        onChange={(e) => handleImageUpload(e, false)}
-                        className="hidden"
-                      />
-                      <button 
-                        type="button"
-                        onClick={() => fileInputRef.current?.click()}
-                        className="te-button py-2.5 px-4 bg-neo-yellow border-black text-black font-black text-xs hover:bg-black hover:text-white flex items-center gap-2 whitespace-nowrap cursor-pointer shadow-[2px_2px_0px_0px_#000]"
-                      >
-                        <Camera size={14} />
-                        CHOOSE
-                      </button>
-                    </div>
-                    {imageUrl && imageUrl.startsWith('data:image') && (
-                      <div className="text-[9px] font-mono text-neo-pink font-bold pl-1 uppercase">
-                        ✓ Asset compressed and loaded successfully.
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="space-y-2.5">
-                    <div className="flex items-center justify-between">
-                      <label className="text-[10px] font-black uppercase text-neutral-400 flex items-center gap-2">
-                        <span>Log Body (Markdown)</span>
-                      </label>
-                      <div className="flex bg-black/5 dark:bg-white/5 rounded p-0.5 border border-black/25">
-                        <button
-                          type="button"
-                          onClick={() => setIsPreview(false)}
-                          className={`px-3 py-1 rounded text-[10px] font-mono font-bold flex items-center gap-1 transition-colors ${!isPreview ? 'bg-black text-white dark:bg-white dark:text-black' : 'text-neutral-500 hover:text-black'}`}
-                        >
-                          <Edit2 size={10} /> EDIT
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setIsPreview(true)}
-                          className={`px-3 py-1 rounded text-[10px] font-mono font-bold flex items-center gap-1 transition-colors ${isPreview ? 'bg-black text-white dark:bg-white dark:text-black' : 'text-neutral-500 hover:text-black'}`}
-                        >
-                          <Eye size={10} /> PREVIEW
-                        </button>
-                      </div>
-                    </div>
-
+              <div className="space-y-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <label htmlFor="post-body" className={LABEL_CLASS}>
+                    Body (Markdown)
+                  </label>
+                  <div className="flex items-center gap-3">
                     {!isPreview && (
-                      <div className="flex gap-2">
+                      <>
                         <input
                           type="file"
                           accept="image/*"
@@ -1048,148 +1159,615 @@ export default function Admin() {
                         <button
                           type="button"
                           onClick={() => inlineImageRef.current?.click()}
-                          className="te-button py-1.5 px-3 bg-white border-2 border-black text-black font-black text-[10px] hover:bg-neo-cyan flex items-center gap-1.5 cursor-pointer"
+                          className={INLINE_ACTION_CLASS}
                         >
-                          <ImagePlus size={12} />
-                          Insert inline photo
+                          <ImagePlus size={13} className="mr-1" />
+                          Insert photo
                         </button>
-                      </div>
+                      </>
                     )}
-                    
-                    {/* Inline image thumbnails */}
-                    {!isPreview && inlineImages.length > 0 && (
-                      <div className="flex flex-wrap gap-2.5 p-3 border-2 border-black rounded bg-black/5 dark:bg-white/5">
-                        {inlineImages.map(img => (
-                          <div key={img.id} className="relative group">
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img src={img.url} alt={img.name} className="w-16 h-16 object-cover rounded border-2 border-black" />
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setInlineImages(prev => prev.filter(i => i.id !== img.id));
-                                addLog(`DISCARDED INLINE IMAGE: ${img.name}`);
-                              }}
-                              className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-red-500 border border-black text-white rounded-full text-[10px] flex items-center justify-center font-bold"
-                            >
-                              ×
-                            </button>
-                            <p className="text-[8px] font-mono text-neutral-500 truncate w-16 mt-0.5 text-center">inline:{img.id}</p>
-                          </div>
-                        ))}
-                      </div>
-                    )}
+                    <div className="inline-flex border border-line rounded-[2px] overflow-hidden">
+                      <button
+                        type="button"
+                        aria-pressed={!isPreview}
+                        onClick={() => setIsPreview(false)}
+                        className={`px-2.5 py-1 font-mono text-xs transition-colors cursor-pointer ${
+                          !isPreview
+                            ? 'bg-ink text-bg'
+                            : 'bg-surface/85 text-ink-muted hover:text-ink'
+                        }`}
+                      >
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        aria-pressed={isPreview}
+                        onClick={() => setIsPreview(true)}
+                        className={`px-2.5 py-1 font-mono text-xs transition-colors cursor-pointer ${
+                          isPreview
+                            ? 'bg-ink text-bg'
+                            : 'bg-surface/85 text-ink-muted hover:text-ink'
+                        }`}
+                      >
+                        Preview
+                      </button>
+                    </div>
+                  </div>
+                </div>
 
-                    {isPreview ? (
-                      <div className="w-full min-h-[300px] bg-bg border-3 border-black p-4 font-sans prose prose-neutral max-w-none prose-headings:font-sans prose-headings:font-black prose-headings:uppercase prose-a:text-neo-pink dark:prose-invert rounded-lg shadow-[2px_2px_0px_0px_#000]">
-                        {content ? renderPreviewContent(content) : <span className="text-neutral-500 italic text-xs">Awaiting input...</span>}
+                {!isPreview && inlineImages.length > 0 && (
+                  <div className="flex flex-wrap gap-3 p-3 border border-line bg-surface/80 rounded-[2px]">
+                    {inlineImages.map((img) => (
+                      <div key={img.id} className="relative group">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={img.url}
+                          alt={img.name}
+                          className="w-16 h-16 object-cover border border-line"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setInlineImages((prev) => prev.filter((i) => i.id !== img.id));
+                            addLog(`Removed inline image "${img.name}".`);
+                          }}
+                          aria-label={`Remove inline image ${img.name}`}
+                          className="absolute -top-2 -right-2 w-5 h-5 bg-bg border border-line text-ink hover:border-ink rounded-full text-xs flex items-center justify-center cursor-pointer"
+                        >
+                          ×
+                        </button>
+                        <p className="font-mono text-[11px] text-ink-muted truncate w-16 mt-1 text-center">
+                          inline:{img.id}
+                        </p>
                       </div>
+                    ))}
+                  </div>
+                )}
+
+                {isPreview ? (
+                  <div className="w-full min-h-[220px] bg-surface/90 border border-line p-4 sm:p-5 rounded-[2px] prose prose-sm prose-neutral max-w-none font-sans prose-headings:font-medium prose-headings:text-ink prose-p:text-ink/90 prose-p:leading-relaxed prose-li:text-ink/90 prose-code:font-mono prose-code:text-xs dark:prose-invert">
+                    {content ? (
+                      renderPreviewContent(content)
                     ) : (
-                      <textarea 
-                        ref={textareaRef}
-                        value={content}
-                        onChange={(e) => setContent(e.target.value)}
-                        rows={12}
-                        className="w-full bg-bg border-3 border-black p-4 font-mono text-xs font-bold focus:outline-none focus:bg-neo-yellow/10 transition-colors resize-y rounded-lg shadow-[2px_2px_0px_0px_#000]"
-                        placeholder="Write your markdown document..."
-                        required
-                      />
+                      <p className="text-ink-muted italic text-sm">Nothing to preview yet.</p>
                     )}
                   </div>
-                </>
-              ) : (
-                <>
-                  <div className="space-y-4">
-                    <div className="flex items-center justify-between">
-                      <label className="text-[10px] font-black uppercase text-neutral-400">Photographic Assets</label>
-                      <div className="flex gap-4">
-                        <input 
-                          type="file"
-                          accept="image/*"
-                          multiple
-                          ref={photoInputRef}
-                          onChange={(e) => handleImageUpload(e, true)}
-                          className="hidden"
-                        />
-                        <button 
+                ) : (
+                  <textarea
+                    ref={textareaRef}
+                    id="post-body"
+                    name="content"
+                    value={content}
+                    onChange={(e) => setContent(e.target.value)}
+                    rows={9}
+                    className={`${INPUT_CLASS} font-mono text-xs sm:text-sm leading-relaxed min-h-[220px] resize-y`}
+                    placeholder="Write in Markdown..."
+                    required
+                  />
+                )}
+              </div>
+
+              <div className="pt-2 flex justify-end">
+                <button
+                  type="submit"
+                  disabled={isPublishing}
+                  className={PRIMARY_BTN_CLASS}
+                >
+                  {isPublishing
+                    ? 'Saving...'
+                    : editingPostId
+                    ? 'Save changes'
+                    : 'Publish post'}
+                </button>
+              </div>
+            </form>
+          )}
+
+          {activeTab === 'manage-blog' && (
+            <div className="space-y-3">
+              <div className="flex flex-wrap items-baseline justify-between gap-3">
+                <p className="font-sans text-xs sm:text-sm text-ink-muted">
+                  Published notes on the blog feed.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingPostId(null);
+                    setTitle('');
+                    setContent('');
+                    setImageUrl('');
+                    setInlineImages([]);
+                    setIsPreview(false);
+                    switchTab('blog');
+                  }}
+                  className="font-mono text-xs text-ink underline underline-offset-4 hover:opacity-80 inline-flex items-center gap-1 cursor-pointer min-h-[36px]"
+                >
+                  <Plus size={13} />
+                  <span>New post</span>
+                </button>
+              </div>
+
+              <div className="divide-y divide-line border-t border-line">
+                {allPosts.length === 0 ? (
+                  <p className="font-sans text-sm text-ink-muted py-6">
+                    No blog posts published yet.
+                  </p>
+                ) : (
+                  allPosts.map((post) => (
+                    <div key={post.id} className="py-3.5 space-y-1.5">
+                      <div className="flex items-baseline justify-between gap-4">
+                        <h2 className="font-mono text-sm font-normal text-ink">
+                          {post.title}
+                        </h2>
+                        {post.createdAt && (
+                          <span className="font-mono text-xs text-ink-muted shrink-0">
+                            {new Date(post.createdAt).toLocaleDateString('en-US', {
+                              year: 'numeric',
+                              month: 'short',
+                              day: '2-digit',
+                            })}
+                          </span>
+                        )}
+                      </div>
+                      <p className="font-sans text-xs sm:text-sm text-ink-muted leading-relaxed line-clamp-2">
+                        {summarizePostContent(post.content)}
+                      </p>
+                      <div className="flex items-center gap-4 pt-0.5">
+                        <button
                           type="button"
-                          onClick={() => photoInputRef.current?.click()}
-                          className="te-button py-2 px-4 bg-neo-yellow border-black text-black font-black text-xs hover:bg-black hover:text-white flex items-center gap-2 whitespace-nowrap cursor-pointer shadow-[2px_2px_0px_0px_#000]"
+                          onClick={() => handleEditPost(post)}
+                          className={INLINE_ACTION_CLASS}
                         >
-                          <Camera size={14} />
-                          SELECT FILE(S)
+                          Edit
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setPendingDelete({ kind: 'post', id: post.id, title: post.title })
+                          }
+                          className={DANGER_INLINE_CLASS}
+                        >
+                          Delete
                         </button>
                       </div>
                     </div>
+                  ))
+                )}
+              </div>
+            </div>
+          )}
 
-                    {pendingPhotos.length === 0 ? (
-                      <div className="py-12 text-center text-xs font-mono border-3 border-dashed border-black/40 rounded-lg">
-                        No captures selected. Staging system ready.
-                      </div>
-                    ) : (
-                      <div className="space-y-4 mt-6">
-                        {pendingPhotos.map((photo, index) => (
-                          <div key={photo.id} className="flex flex-col sm:flex-row gap-4 p-4 border-3 border-black rounded bg-bg shadow-[3px_3px_0px_0px_#000]">
-                            <div className="w-full sm:w-28 h-28 shrink-0 rounded border-2 border-black overflow-hidden bg-neutral-900 relative">
-                              {/* eslint-disable-next-line @next/next/no-img-element */}
-                              <img src={photo.url} alt="preview" className="w-full h-full object-cover" />
-                            </div>
-                            <div className="flex-1 space-y-3">
-                              <input 
-                                type="text" 
-                                value={photo.title}
-                                onChange={(e) => {
-                                  const newPhotos = [...pendingPhotos];
-                                  newPhotos[index].title = e.target.value;
-                                  setPendingPhotos(newPhotos);
-                                }}
-                                className="w-full bg-bg border-2 border-black p-2 font-black text-xs focus:outline-none rounded"
-                                placeholder="Photo Title"
-                                required
-                              />
-                              <textarea 
-                                value={photo.description}
-                                onChange={(e) => {
-                                  const newPhotos = [...pendingPhotos];
-                                  newPhotos[index].description = e.target.value;
-                                  setPendingPhotos(newPhotos);
-                                }}
-                                rows={2}
-                                className="w-full bg-bg border-2 border-black p-2 font-mono text-[10px] focus:outline-none resize-y rounded"
-                                placeholder="Description / Captured Context (Optional)"
-                              />
-                            </div>
-                            <button 
-                              type="button"
-                              onClick={() => {
-                                setPendingPhotos(prev => prev.filter(p => p.id !== photo.id));
-                                addLog(`STAGING DISCARDED FOR: ${photo.title}`);
-                              }}
-                              className="p-2 h-fit border-2 border-black bg-red-500 hover:bg-black text-white rounded cursor-pointer self-end sm:self-start shadow-[1px_1px_0px_0px_#000]"
-                            >
-                              <Trash2 size={16} />
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </>
-              )}
-
-              <div className="pt-4 border-t-2 border-dashed border-black/20 flex justify-end">
-                <button 
-                  type="submit" 
-                  disabled={isPublishing}
-                  className="te-button py-3 px-6 bg-neo-green border-black text-black font-black uppercase text-xs hover:bg-neo-yellow hover:text-black flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer shadow-[3px_3px_0px_0px_#000]"
+          {activeTab === 'photo' && (
+            <form onSubmit={handlePublishPhotos} aria-label="Photo uploader" className="space-y-5">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <p className="font-sans text-xs sm:text-sm text-ink-muted">
+                  Stage photographs with titles and captions before publishing.
+                </p>
+                <input
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  ref={photoInputRef}
+                  onChange={(e) => handleImageUpload(e, true)}
+                  className="hidden"
+                />
+                <button
+                  ref={selectPhotosButtonRef}
+                  type="button"
+                  onClick={() => photoInputRef.current?.click()}
+                  className={SECONDARY_BTN_CLASS}
                 >
-                  <Send size={14} />
-                  {isPublishing ? 'SYNCHRONIZING...' : (editingPostId ? 'UPDATE TRANS-LOG' : (activeTab === 'blog' ? 'COMMIT DISPATCH' : 'COMMIT CAPTURES'))}
+                  <Camera size={14} />
+                  <span>Select files</span>
                 </button>
               </div>
-            </motion.form>
+
+              <div
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setIsDraggingPhotos(true);
+                }}
+                onDragLeave={() => setIsDraggingPhotos(false)}
+                onDrop={async (e) => {
+                  e.preventDefault();
+                  setIsDraggingPhotos(false);
+                  const dropped = Array.from(e.dataTransfer.files || []);
+                  if (dropped.length) await stagePhotoFiles(dropped);
+                }}
+                className={`border border-dashed transition-colors rounded-[2px] ${
+                  isDraggingPhotos ? 'border-ink bg-surface/90' : 'border-line'
+                }`}
+              >
+                {pendingPhotos.length === 0 ? (
+                  <div className="py-10 px-4 text-center space-y-1">
+                    <p className="font-mono text-xs text-ink">
+                      Drop images here or choose files above.
+                    </p>
+                    <p className="font-sans text-xs text-ink-muted">
+                      Images are automatically resized and compressed before saving.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="divide-y divide-line">
+                    {pendingPhotos.map((photo, index) => (
+                      <div
+                        key={photo.id}
+                        className="p-4 flex flex-col sm:flex-row gap-4 items-start"
+                      >
+                        <div className="w-full sm:w-24 h-24 shrink-0 border border-line overflow-hidden bg-surface">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={photo.url}
+                            alt={photo.title || 'Staged photograph preview'}
+                            className="w-full h-full object-cover"
+                          />
+                        </div>
+                        <div className="flex-1 w-full space-y-2.5">
+                          <div className="space-y-1">
+                            <label
+                              htmlFor={`staged-title-${photo.id}`}
+                              className={LABEL_CLASS}
+                            >
+                              Title
+                            </label>
+                            <input
+                              id={`staged-title-${photo.id}`}
+                              type="text"
+                              value={photo.title}
+                              onChange={(e) => {
+                                const next = [...pendingPhotos];
+                                next[index] = { ...next[index], title: e.target.value };
+                                setPendingPhotos(next);
+                              }}
+                              className={INPUT_CLASS}
+                              placeholder="Photograph title"
+                              required
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <label
+                              htmlFor={`staged-desc-${photo.id}`}
+                              className={LABEL_CLASS}
+                            >
+                              Caption (optional)
+                            </label>
+                            <textarea
+                              id={`staged-desc-${photo.id}`}
+                              value={photo.description}
+                              onChange={(e) => {
+                                const next = [...pendingPhotos];
+                                next[index] = { ...next[index], description: e.target.value };
+                                setPendingPhotos(next);
+                              }}
+                              rows={2}
+                              className={`${INPUT_CLASS} font-sans resize-y`}
+                              placeholder="Location, camera notes, or context..."
+                            />
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setPendingPhotos((prev) => prev.filter((p) => p.id !== photo.id));
+                            addLog(`Removed staged photo "${photo.title}".`);
+                          }}
+                          aria-label={`Remove ${photo.title || 'staged photo'}`}
+                          className="text-ink-muted hover:text-red-700 dark:hover:text-red-400 p-2 min-w-[36px] min-h-[36px] inline-flex items-center justify-center self-end sm:self-start cursor-pointer transition-colors"
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="pt-1 flex justify-end">
+                <button
+                  type="submit"
+                  disabled={isPublishing}
+                  className={PRIMARY_BTN_CLASS}
+                >
+                  {isPublishing ? 'Uploading...' : 'Publish photos'}
+                </button>
+              </div>
+            </form>
+          )}
+
+          {activeTab === 'manage-photo' && (
+            <div className="space-y-3">
+              <div className="flex flex-wrap items-baseline justify-between gap-3">
+                <p className="font-sans text-xs sm:text-sm text-ink-muted">
+                  Archived photographs shown in the photography gallery.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => switchTab('photo')}
+                  className="font-mono text-xs text-ink underline underline-offset-4 hover:opacity-80 inline-flex items-center gap-1 cursor-pointer min-h-[36px]"
+                >
+                  <Plus size={13} />
+                  <span>Upload photos</span>
+                </button>
+              </div>
+
+              <div className="divide-y divide-line border-t border-line">
+                {allPhotos.length === 0 ? (
+                  <p className="font-sans text-sm text-ink-muted py-6">
+                    No photographs archived yet.
+                  </p>
+                ) : (
+                  allPhotos.map((photo) => (
+                    <div
+                      key={photo.id}
+                      className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+                    >
+                      <div className="flex items-start gap-3.5 min-w-0 flex-1">
+                        <div className="w-14 h-14 shrink-0 border border-line overflow-hidden bg-surface">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={photo.url}
+                            alt={photo.title}
+                            className="w-full h-full object-cover"
+                          />
+                        </div>
+                        <div className="min-w-0 space-y-0.5">
+                          <h2 className="font-mono text-sm font-normal text-ink truncate">
+                            {photo.title}
+                          </h2>
+                          {photo.description && (
+                            <p className="font-sans text-xs sm:text-sm text-ink-muted truncate">
+                              {photo.description}
+                            </p>
+                          )}
+                          {photo.createdAt && (
+                            <p className="font-mono text-xs text-ink-muted">
+                              {new Date(photo.createdAt).toLocaleDateString('en-US', {
+                                year: 'numeric',
+                                month: 'short',
+                                day: '2-digit',
+                              })}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-4 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => handleEditPhoto(photo)}
+                          className={INLINE_ACTION_CLASS}
+                        >
+                          Edit
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setPendingDelete({ kind: 'photo', id: photo.id, title: photo.title })
+                          }
+                          className={DANGER_INLINE_CLASS}
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'skills' && (
+            <div className="space-y-6">
+              <form
+                onSubmit={handleAddSkill}
+                aria-label="Add skill"
+                className="flex flex-wrap items-end gap-3"
+              >
+                <div className="flex-1 min-w-[200px] space-y-1.5">
+                  <label htmlFor="skill-label" className={LABEL_CLASS}>
+                    Skill
+                  </label>
+                  <input
+                    id="skill-label"
+                    name="skillLabel"
+                    type="text"
+                    value={newSkillLabel}
+                    onChange={(e) => setNewSkillLabel(e.target.value)}
+                    className={INPUT_CLASS}
+                    placeholder="e.g. Stan"
+                    required
+                  />
+                </div>
+                <div className="flex-1 min-w-[200px] space-y-1.5">
+                  <label htmlFor="skill-category" className={LABEL_CLASS}>
+                    Category
+                  </label>
+                  <select
+                    id="skill-category"
+                    name="skillCategory"
+                    value={newSkillCategory}
+                    onChange={(e) => setNewSkillCategory(e.target.value)}
+                    className={`${INPUT_CLASS} cursor-pointer`}
+                  >
+                    {skillCategories.map((cat) => (
+                      <option key={cat} value={cat}>
+                        {cat}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="shrink-0">
+                  <button type="submit" className={PRIMARY_BTN_CLASS}>
+                    Add skill
+                  </button>
+                </div>
+              </form>
+
+              <div className="divide-y divide-line border-t border-line">
+                {skillCategories.map((cat) => {
+                  const catSkills = skills.filter((s) => s.category === cat);
+                  return (
+                    <section key={cat} className="py-3.5 space-y-2.5">
+                      <h2 className="font-mono text-xs text-ink-muted">{cat}</h2>
+                      <div className="flex flex-wrap gap-2">
+                        {catSkills.map((skill) => (
+                          <span
+                            key={skill.label}
+                            className="inline-flex items-center gap-1.5 border border-line bg-surface/85 px-2.5 py-1 font-mono text-xs text-ink rounded-[2px]"
+                          >
+                            <span>{skill.label}</span>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteSkill(skill.label)}
+                              aria-label={`Remove ${skill.label}`}
+                              className="text-ink-muted hover:text-red-700 dark:hover:text-red-400 pl-0.5 cursor-pointer transition-colors"
+                            >
+                              ×
+                            </button>
+                          </span>
+                        ))}
+                        {catSkills.length === 0 && (
+                          <span className="font-sans text-xs text-ink-muted">
+                            No skills in this category.
+                          </span>
+                        )}
+                      </div>
+                    </section>
+                  );
+                })}
+              </div>
+            </div>
           )}
         </div>
+
+        {/* Collapsible diagnostics & activity log */}
+        <details className="border-t border-line pt-3">
+          <summary className="font-mono text-xs text-ink-muted hover:text-ink cursor-pointer select-none">
+            Diagnostics & activity log ({sysLogs.length})
+          </summary>
+          <div className="mt-3 space-y-3 font-mono text-xs">
+            <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-[11px] border-b border-line pb-3">
+              <dt className="text-ink-muted">Storage</dt>
+              <dd className="text-ink text-right">
+                {isFirebaseConfigured() ? 'Remote Firestore' : 'Local browser'}
+              </dd>
+              <dt className="text-ink-muted">Database auth</dt>
+              <dd className="text-ink text-right">
+                {fbUser
+                  ? fbUser.isAnonymous
+                    ? 'Anonymous session'
+                    : fbUser.email || 'Signed in'
+                  : 'Local only'}
+              </dd>
+              <dt className="text-ink-muted">Staged photos</dt>
+              <dd className="text-ink text-right">{pendingPhotos.length}</dd>
+            </dl>
+            <div className="space-y-1 text-[11px] text-ink-muted max-h-40 overflow-y-auto">
+              {sysLogs.map((log, i) => (
+                <div key={i} className="leading-relaxed">
+                  {log}
+                </div>
+              ))}
+            </div>
+          </div>
+        </details>
       </div>
-    </div>
+
+      {/* Edit photo metadata modal */}
+      <ModalDialog
+        open={Boolean(editingPhoto)}
+        onClose={() => setEditingPhoto(null)}
+        titleId="edit-photo-dialog-title"
+        title="Edit photograph"
+      >
+        {editingPhoto && (
+          <div className="space-y-4">
+            <div className="w-full h-40 border border-line overflow-hidden bg-surface flex items-center justify-center">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={editingPhoto.url}
+                alt={editingPhoto.title}
+                className="w-full h-full object-contain"
+              />
+            </div>
+            <form onSubmit={handleSavePhotoMetadata} className="space-y-4">
+              <div className="space-y-1.5">
+                <label htmlFor="edit-photo-title" className={LABEL_CLASS}>
+                  Title
+                </label>
+                <input
+                  id="edit-photo-title"
+                  type="text"
+                  value={editPhotoTitle}
+                  onChange={(e) => setEditPhotoTitle(e.target.value)}
+                  className={INPUT_CLASS}
+                  autoFocus
+                  required
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label htmlFor="edit-photo-desc" className={LABEL_CLASS}>
+                  Description
+                </label>
+                <textarea
+                  id="edit-photo-desc"
+                  value={editPhotoDescription}
+                  onChange={(e) => setEditPhotoDescription(e.target.value)}
+                  rows={3}
+                  className={`${INPUT_CLASS} resize-y`}
+                  placeholder="Optional caption or notes..."
+                />
+              </div>
+              <div className="pt-2 flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setEditingPhoto(null)}
+                  className={SECONDARY_BTN_CLASS}
+                >
+                  Cancel
+                </button>
+                <button type="submit" className={PRIMARY_BTN_CLASS}>
+                  Save changes
+                </button>
+              </div>
+            </form>
+          </div>
+        )}
+      </ModalDialog>
+
+      {/* Delete confirmation modal */}
+      <ModalDialog
+        open={Boolean(pendingDelete)}
+        onClose={() => setPendingDelete(null)}
+        titleId="confirm-delete-title"
+        title={`Delete ${pendingDelete?.kind === 'post' ? 'post' : 'photograph'}`}
+        maxWidthClass="max-w-md"
+      >
+        {pendingDelete && (
+          <div className="space-y-5">
+            <p className="font-sans text-sm text-ink leading-relaxed">
+              Delete <span className="font-mono">{pendingDelete.title}</span>? This cannot be
+              undone.
+            </p>
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                autoFocus
+                onClick={() => setPendingDelete(null)}
+                className={SECONDARY_BTN_CLASS}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDelete}
+                className="font-mono text-xs px-4 py-2.5 min-h-[44px] bg-red-700 text-white dark:bg-red-500/90 dark:text-bg border border-red-700 dark:border-red-400 hover:opacity-90 transition-opacity cursor-pointer rounded-[2px]"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        )}
+      </ModalDialog>
+    </article>
   );
 }

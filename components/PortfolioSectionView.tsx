@@ -21,6 +21,7 @@ import { ALL_PAGES } from '@/lib/navigation';
 import { ScrambleHeading } from '@/components/ScrambleHeading';
 import { PostDetailsModal } from '@/components/PostDetailsModal';
 import { PhotoLightbox } from '@/components/PhotoLightbox';
+import { PhotographyGallery } from '@/components/PhotographyGallery';
 
 function summarizePostContent(raw: string): string {
   const firstParagraph = raw
@@ -28,6 +29,12 @@ function summarizePostContent(raw: string): string {
     .split(/\n\s*\n/)[0]
     ?.trim();
   return firstParagraph || raw.replace(/[#*`]/g, '').slice(0, 180);
+}
+
+function getPhotoTimestamp(photo: Photo): number {
+  if (!photo.createdAt) return Number.NEGATIVE_INFINITY;
+  const ms = Date.parse(photo.createdAt);
+  return Number.isNaN(ms) ? Number.NEGATIVE_INFINITY : ms;
 }
 
 export function PortfolioSectionView({ section }: { section: BeachSectionId }) {
@@ -111,6 +118,15 @@ export function PortfolioSectionView({ section }: { section: BeachSectionId }) {
     }
     return Array.from(groups.entries());
   }, [skills]);
+
+  const sortedPhotos = useMemo(() => {
+    return [...photos].sort((a, b) => {
+      const ta = getPhotoTimestamp(a);
+      const tb = getPhotoTimestamp(b);
+      if (tb !== ta) return tb > ta ? 1 : -1;
+      return 0;
+    });
+  }, [photos]);
 
   if (resolvedSection === 'home') {
     return (
@@ -197,41 +213,10 @@ export function PortfolioSectionView({ section }: { section: BeachSectionId }) {
 
         {/* PHOTOGRAPHY */}
         {resolvedSection === 'photography' && (
-          <div className="divide-y divide-line border-t border-line">
-            {photos.length === 0 ? (
-              <p className="font-sans text-sm text-ink-muted py-6">
-                No photographs archived yet.
-              </p>
-            ) : (
-              photos.map((photo) => (
-                <button
-                  key={photo.id}
-                  type="button"
-                  onClick={() => setSelectedPhoto(photo)}
-                  className="w-full text-left py-3.5 group cursor-pointer space-y-1"
-                >
-                  <div className="flex items-baseline justify-between gap-4">
-                    <h2 className="font-mono text-sm font-normal text-ink group-hover:underline underline-offset-4">
-                      {photo.title}
-                    </h2>
-                    <span className="font-mono text-xs text-ink-muted shrink-0">
-                      {photo.createdAt
-                        ? new Date(photo.createdAt).toLocaleDateString('en-US', {
-                            year: 'numeric',
-                            month: 'short',
-                          })
-                        : ''}
-                    </span>
-                  </div>
-                  {photo.description && (
-                    <p className="font-sans text-sm text-ink-muted leading-relaxed">
-                      {photo.description}
-                    </p>
-                  )}
-                </button>
-              ))
-            )}
-          </div>
+          <PhotographyGallery
+            photos={sortedPhotos}
+            onSelectPhoto={setSelectedPhoto}
+          />
         )}
 
         {/* BLOG */}
@@ -383,7 +368,7 @@ export function PortfolioSectionView({ section }: { section: BeachSectionId }) {
       <PostDetailsModal post={selectedPost} onClose={() => setSelectedPost(null)} />
       <PhotoLightbox
         photo={selectedPhoto}
-        photos={photos}
+        photos={sortedPhotos}
         onClose={() => setSelectedPhoto(null)}
         onNavigate={setSelectedPhoto}
       />

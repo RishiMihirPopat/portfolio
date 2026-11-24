@@ -162,11 +162,13 @@ export const fetchAllPhotos = async (): Promise<Photo[]> => {
         id: d.id,
         url: data.url,
         title: data.title,
-        description: data.description || undefined,
+        description: data.description || '',
         createdAt:
           data.createdAt instanceof Timestamp
             ? data.createdAt.toDate().toISOString()
             : data.createdAt,
+        width: typeof data.width === 'number' && data.width > 0 ? data.width : undefined,
+        height: typeof data.height === 'number' && data.height > 0 ? data.height : undefined,
       };
     });
   } catch (error) {

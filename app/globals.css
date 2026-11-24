@@ -25,6 +25,7 @@
 @layer base {
   :root,
   .dark {
+    color-scheme: dark;
     --bg: #0b0e12;
     --surface: rgba(11, 14, 18, 0.90);
     --ink: #eef2f6;
@@ -34,6 +35,7 @@
   }
 
   .light {
+    color-scheme: light;
     --bg: #e6ebe8;
     --surface: rgba(244, 242, 236, 0.94);
     --ink: #101419;
@@ -234,7 +236,84 @@
   }
 }
 
-/* Compatibility classes for /admin and modals */
+/* Modal dialog scroll containment and backdrop */
+dialog:modal {
+  overscroll-behavior: contain;
+}
+
+dialog::backdrop {
+  overflow: hidden;
+  overscroll-behavior: contain;
+  background: rgba(0, 0, 0, 0.58);
+  backdrop-filter: blur(2px);
+}
+
+/* Scoped top-layer entry/exit transitions for PhotoLightbox */
+.photo-lightbox-dialog {
+  opacity: 0;
+  transition-property: opacity, transform, display, overlay;
+  transition-duration: 0.22s;
+  transition-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+  transition-behavior: allow-discrete;
+}
+
+.photo-lightbox-dialog[open]:where(:not([data-closing])) {
+  opacity: 1;
+}
+
+@starting-style {
+  .photo-lightbox-dialog[open]:where(:not([data-closing])) {
+    opacity: 0;
+  }
+}
+
+.photo-lightbox-dialog::backdrop {
+  overflow: hidden;
+  overscroll-behavior: contain;
+  background-color: transparent;
+  backdrop-filter: blur(0px);
+  transition-property: background-color, backdrop-filter, display, overlay;
+  transition-duration: 0.22s;
+  transition-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+  transition-behavior: allow-discrete;
+}
+
+.photo-lightbox-dialog[open]:where(:not([data-closing]))::backdrop {
+  background-color: rgba(6, 9, 13, 0.80);
+  backdrop-filter: blur(4px);
+}
+
+@starting-style {
+  .photo-lightbox-dialog[open]:where(:not([data-closing]))::backdrop {
+    background-color: transparent;
+    backdrop-filter: blur(0px);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .photo-lightbox-dialog {
+    transform: scale(0.96);
+  }
+
+  .photo-lightbox-dialog[open]:where(:not([data-closing])) {
+    transform: scale(1);
+  }
+
+  @starting-style {
+    .photo-lightbox-dialog[open]:where(:not([data-closing])) {
+      transform: scale(0.96);
+    }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .photo-lightbox-dialog,
+  .photo-lightbox-dialog::backdrop {
+    transition-duration: 0.1s;
+  }
+}
+
+/* Compatibility classes for legacy widgets */
 .te-card {
   background-color: var(--surface);
   border: 1px solid var(--line);
