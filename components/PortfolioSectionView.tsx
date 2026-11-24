@@ -138,7 +138,7 @@ export function PortfolioSectionView({ section }: { section: BeachSectionId }) {
           text="Rishi Mihir Popat"
           className="font-mono text-2xl sm:text-3xl font-medium tracking-tight text-ink"
         />
-        <p className="font-sans text-sm sm:text-base text-ink-nav leading-relaxed">
+        <p className="section-content-reveal font-sans text-sm sm:text-base text-ink-nav leading-relaxed">
           MSc Data Science at Manipal Academy of Higher Education — statistical modeling, Bayesian computation, and deep learning.
         </p>
       </div>
@@ -161,7 +161,7 @@ export function PortfolioSectionView({ section }: { section: BeachSectionId }) {
       </div>
 
       {/* Content column */}
-      <div className="w-full space-y-4 sm:space-y-5">
+      <div className="section-content-reveal w-full space-y-4 sm:space-y-5">
         {/* PROJECTS */}
         {resolvedSection === 'projects' && (
           <div className="divide-y divide-line border-t border-line">
@@ -182,7 +182,7 @@ export function PortfolioSectionView({ section }: { section: BeachSectionId }) {
                   href={repo.html_url || '#'}
                   target={isExternal ? '_blank' : undefined}
                   rel={isExternal ? 'noopener noreferrer' : undefined}
-                  className="block py-3.5 sm:py-4 group space-y-1.5 cursor-pointer"
+                  className="block py-3.5 sm:py-4 group space-y-1.5 cursor-pointer transition-opacity duration-150 active:opacity-75"
                 >
                   <div className="flex items-baseline justify-between gap-3">
                     <h2 className="font-mono text-sm sm:text-base font-normal text-ink group-hover:underline underline-offset-4">
@@ -191,7 +191,7 @@ export function PortfolioSectionView({ section }: { section: BeachSectionId }) {
                     {isExternal && (
                       <span
                         aria-hidden="true"
-                        className="font-mono text-xs text-ink-nav group-hover:text-ink transition-colors shrink-0"
+                        className="font-mono text-xs text-ink-nav group-hover:text-ink motion-safe:group-hover:translate-x-0.5 motion-safe:group-hover:-translate-y-0.5 transition-[color,transform] duration-150 shrink-0"
                       >
                         ↗
                       </span>
@@ -232,7 +232,7 @@ export function PortfolioSectionView({ section }: { section: BeachSectionId }) {
                   key={post.id}
                   type="button"
                   onClick={() => setSelectedPost(post)}
-                  className="w-full text-left py-4 group cursor-pointer space-y-1"
+                  className="w-full text-left py-4 group cursor-pointer space-y-1 transition-opacity duration-150 active:opacity-75"
                 >
                   <div className="flex items-baseline justify-between gap-4">
                     <h2 className="font-mono text-sm sm:text-base font-normal text-ink group-hover:underline underline-offset-4">

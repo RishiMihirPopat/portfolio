@@ -3,6 +3,22 @@
 import { useEffect, useRef } from 'react';
 import { usePathname } from 'next/navigation';
 import { useTheme } from 'next-themes';
+import { beachScene, type BeachSceneParams } from './ascii/beachScene';
+import { cityScene } from './ascii/cityScene';
+import { cozyRoomScene } from './ascii/cozyRoomScene';
+import {
+  ASCII_SCENE_CHANGE_EVENT,
+  ASCII_SCENE_STORAGE_KEY,
+  AsciiScene,
+  AsciiSceneId,
+  DEFAULT_ASCII_RAMP,
+  DEFAULT_ASCII_SCENE,
+  MAX_SCENE_TIERS,
+  SceneCellBuffers,
+  SceneFrameContext,
+  SceneViewport,
+  SceneWashTheme,
+} from './ascii/types';
 
 export type BeachSectionId =
   | 'home'
@@ -14,37 +30,33 @@ export type BeachSectionId =
   | 'academics'
   | 'skills';
 
-export interface SceneParams {
-  shoreAngle: number;
-  tidePosition: number;
-  swellSpeed: number;
-  foamDensity: number;
-  waveHeight: number;
-  waveFreq: number;
-  brightness: number;
-  shallowsSpread: number;
-}
-
-// Constant baseline scene parameters
-const CONSTANT_SCENE: SceneParams = {
-  shoreAngle: 0.05,
-  tidePosition: 0.64,
-  swellSpeed: 0.88,
-  foamDensity: 1.0,
-  waveHeight: 1.05,
-  waveFreq: 1.0,
-  brightness: 1.0,
-  shallowsSpread: 0.42,
-};
+export type SceneParams = BeachSceneParams;
 
 export const WASH_DURATION_MS = 560;
 export const FADE_DURATION_MS = 460;
+export const SCENE_SWITCH_DURATION_MS = 520;
 
-// 12-step brightness ramp driven by per-cell luminance
-const RAMP = ' .,:;-=+*#%@';
-const RAMP_MAX = RAMP.length - 1; // 11
+const SCENE_REGISTRY: Record<AsciiSceneId, AsciiScene> = {
+  beach: beachScene,
+  city: cityScene,
+  room: cozyRoomScene,
+};
 
-// Precomputed 512-entry permutation table for fast 2D Value Noise & FBM
+function isValidSceneId(value: string | null | undefined): value is AsciiSceneId {
+  return value === 'beach' || value === 'city' || value === 'room';
+}
+
+function readPersistedScene(): AsciiSceneId {
+  if (typeof window === 'undefined') return DEFAULT_ASCII_SCENE;
+  try {
+    const stored = window.localStorage.getItem(ASCII_SCENE_STORAGE_KEY);
+    return isValidSceneId(stored) ? stored : DEFAULT_ASCII_SCENE;
+  } catch {
+    return DEFAULT_ASCII_SCENE;
+  }
+}
+
+// Fast permutation table for organic panel feathering & wash mist
 const PERM = new Uint8Array(512);
 const VALS = new Float32Array(256);
 (() => {
@@ -90,24 +102,6 @@ function valueNoise2D(x: number, y: number): number {
   return x1 + v * (x2 - x1);
 }
 
-function fbm(x: number, y: number, octaves: number): number {
-  let value = 0;
-  let amp = 0.5;
-  let norm = 0;
-  let px = x;
-  let py = y;
-  for (let i = 0; i < octaves; i++) {
-    value += amp * valueNoise2D(px, py);
-    norm += amp;
-    const nx = (px * 0.8 - py * 0.6) * 2.03 + 1.7;
-    const ny = (px * 0.6 + py * 0.8) * 2.03 + 9.2;
-    px = nx;
-    py = ny;
-    amp *= 0.5;
-  }
-  return value / norm;
-}
-
 function fastHash(c: number, r: number): number {
   let n = (Math.imul(c, 374761393) + Math.imul(r, 668265263)) ^ 0x5bf03635;
   n = Math.imul(n ^ (n >>> 13), 1274126177);
@@ -144,25 +138,63 @@ function sdRoundedBox(
   return outDist + inDist - radius;
 }
 
-const NUM_TIERS = 8;
+function createBuffers(size: number): SceneCellBuffers {
+  return {
+    lumas: new Float32Array(size),
+    tiers: new Uint8Array(size),
+    charCodes: new Uint16Array(size),
+  };
+}
+
+function clearBuffers(buf: SceneCellBuffers): void {
+  buf.lumas.fill(0);
+  buf.tiers.fill(0);
+  buf.charCodes.fill(0);
+}
+
+const DEFAULT_CREST_CHARS = '*#%@';
+const DEFAULT_WAKE_CHARS = '.:;-~=+*';
+const SWITCH_SHIMMER_CHARS = '~-=+*#%';
+
+function defaultWashTheme(isLight: boolean): SceneWashTheme {
+  if (isLight) {
+    return {
+      troughColor: 'hsla(210, 32%, 22%, 0.78)',
+      wakeColor: 'hsla(205, 28%, 34%, 0.68)',
+      crestColor: 'hsla(42, 45%, 96%, 0.96)',
+    };
+  }
+  return {
+    troughColor: 'hsla(212, 36%, 44%, 0.52)',
+    wakeColor: 'hsla(204, 34%, 76%, 0.78)',
+    crestColor: 'hsla(46, 36%, 95%, 0.96)',
+  };
+}
 
 export function AsciiBeachCanvas() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const pathname = usePathname();
   const { resolvedTheme } = useTheme();
+  const resolvedThemeRef = useRef<string | undefined>(resolvedTheme);
+
   const isHomeRef = useRef<boolean>(true);
   const lastPathRef = useRef<string | null>(null);
   const reducedMotionRef = useRef<boolean>(false);
+
   const washStartRef = useRef<number>(-1);
   const lastWashTriggerRef = useRef<number>(-9999);
   const isWashingOrSwappingRef = useRef<boolean>(false);
   const fadeStartRef = useRef<number>(-1);
 
+  const activeSceneIdRef = useRef<AsciiSceneId>(DEFAULT_ASCII_SCENE);
+  const prevSceneIdRef = useRef<AsciiSceneId | null>(null);
+  const sceneSwitchStartRef = useRef<number>(-1);
+  const drawNowRef = useRef<((now: number) => void) | null>(null);
+
   useEffect(() => {
     const clean = (pathname || '/').replace(/\/+$/, '') || '/';
     isHomeRef.current = clean === '/';
 
-    // If route changed (e.g. browser back/forward or programmatic navigation):
     if (lastPathRef.current !== null && lastPathRef.current !== clean) {
       const now = performance.now();
       if (now - lastWashTriggerRef.current > WASH_DURATION_MS + 600) {
@@ -173,7 +205,6 @@ export function AsciiBeachCanvas() {
           fadeStartRef.current = -1;
         }
       } else {
-        // Navigation already completed wash: fade in the new box
         isWashingOrSwappingRef.current = false;
         fadeStartRef.current = now;
       }
@@ -182,6 +213,28 @@ export function AsciiBeachCanvas() {
   }, [pathname]);
 
   useEffect(() => {
+    activeSceneIdRef.current = readPersistedScene();
+
+    const applySceneChange = (nextId: AsciiSceneId) => {
+      if (nextId === activeSceneIdRef.current) return;
+      if (!reducedMotionRef.current) {
+        prevSceneIdRef.current = activeSceneIdRef.current;
+        sceneSwitchStartRef.current = performance.now();
+      } else {
+        prevSceneIdRef.current = null;
+        sceneSwitchStartRef.current = -1;
+      }
+      activeSceneIdRef.current = nextId;
+      try {
+        window.localStorage.setItem(ASCII_SCENE_STORAGE_KEY, nextId);
+      } catch {
+        // Ignore storage errors
+      }
+      if (reducedMotionRef.current && drawNowRef.current) {
+        drawNowRef.current(performance.now());
+      }
+    };
+
     const onWaveWash = () => {
       if (!reducedMotionRef.current) {
         const now = performance.now();
@@ -191,17 +244,45 @@ export function AsciiBeachCanvas() {
         fadeStartRef.current = -1;
       }
     };
+
     const onPageFadeIn = () => {
       isWashingOrSwappingRef.current = false;
       fadeStartRef.current = performance.now();
     };
+
+    const onSceneChange = (e: Event) => {
+      const custom = e as CustomEvent<{ scene?: string } | string>;
+      const candidate =
+        typeof custom.detail === 'string' ? custom.detail : custom.detail?.scene;
+      if (isValidSceneId(candidate)) {
+        applySceneChange(candidate);
+      }
+    };
+
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === ASCII_SCENE_STORAGE_KEY && isValidSceneId(e.newValue)) {
+        applySceneChange(e.newValue);
+      }
+    };
+
     window.addEventListener('ascii-wave-wash', onWaveWash);
     window.addEventListener('ascii-page-fade-in', onPageFadeIn);
+    window.addEventListener(ASCII_SCENE_CHANGE_EVENT, onSceneChange);
+    window.addEventListener('storage', onStorage);
     return () => {
       window.removeEventListener('ascii-wave-wash', onWaveWash);
       window.removeEventListener('ascii-page-fade-in', onPageFadeIn);
+      window.removeEventListener(ASCII_SCENE_CHANGE_EVENT, onSceneChange);
+      window.removeEventListener('storage', onStorage);
     };
   }, []);
+
+  useEffect(() => {
+    resolvedThemeRef.current = resolvedTheme;
+    if (reducedMotionRef.current && drawNowRef.current) {
+      drawNowRef.current(performance.now());
+    }
+  }, [resolvedTheme]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -215,6 +296,7 @@ export function AsciiBeachCanvas() {
     let rafId = 0;
     let isTabHidden = document.hidden;
     let lastFrameTime = 0;
+    let prevDrawTime = performance.now();
 
     let fpsFrameCount = 0;
     let fpsWindowStart = performance.now();
@@ -232,19 +314,30 @@ export function AsciiBeachCanvas() {
     let rows = 106;
     let resolvedFontStr = '8px Consolas, "Courier New", monospace';
 
-    let wetSandBuffer = new Float32Array(cols * rows);
-    let baseShoreCol = new Float32Array(cols);
-    let peakRunupCol = new Float32Array(cols);
-    let highTideCol = new Float32Array(cols);
+    let targetPointerX = 0;
+    let targetPointerY = 0;
+    let pointerX = 0;
+    let pointerY = 0;
+
+    let currBuffers = createBuffers(cols * rows);
+    let prevBuffers: SceneCellBuffers | null = null;
     let washCrestCol = new Float32Array(cols);
-    let uColTable = new Float32Array(cols);
     let bayArchTable = new Float32Array(cols);
-    let rowCharIdx = new Uint8Array(cols);
-    let rowTierIdx = new Uint8Array(cols);
+    let rowOutChar = new Uint16Array(cols);
+    let rowOutTier = new Uint8Array(cols);
+
+    // Up to MAX_SCENE_TIERS (12) + 3 wash overlay tiers
+    const MAX_BATCH_TIERS = MAX_SCENE_TIERS + 3;
+    const firstCol = new Int32Array(MAX_BATCH_TIERS);
+    const lastCol = new Int32Array(MAX_BATCH_TIERS);
 
     let panelRect = { left: -9999, top: -9999, right: -9999, bottom: -9999, valid: false };
     let headerRect = { left: -9999, top: -9999, right: -9999, bottom: -9999, valid: false };
     let footerRects: { left: number; top: number; right: number; bottom: number }[] = [];
+
+    const getIsLight = () =>
+      document.documentElement.classList.contains('light') ||
+      resolvedThemeRef.current === 'light';
 
     const measurePanel = () => {
       const el = document.querySelector('[data-ascii-panel="true"]');
@@ -285,6 +378,28 @@ export function AsciiBeachCanvas() {
       footerRects = nextFooters;
     };
 
+    const buildViewport = (): SceneViewport => ({
+      width,
+      height,
+      cols,
+      rows,
+      cellW,
+      cellH,
+      isPhone: width < 760,
+      isLight: getIsLight(),
+    });
+
+    const notifyScenesResize = () => {
+      const vp = buildViewport();
+      const seen = new Set<AsciiScene>();
+      (Object.values(SCENE_REGISTRY) as AsciiScene[]).forEach((scene) => {
+        if (!seen.has(scene)) {
+          seen.add(scene);
+          scene.onResize?.(vp);
+        }
+      });
+    };
+
     const setupGrid = (force = false) => {
       const nextW = window.innerWidth;
       const nextH = Math.max(window.innerHeight, document.documentElement.clientHeight || 0);
@@ -305,7 +420,6 @@ export function AsciiBeachCanvas() {
       lastSetupHeight = height;
 
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
-
       const isPhone = width < 760;
       fontSize = isPhone ? 9 : 8;
       cellH = isPhone ? 9.5 : 8.5;
@@ -343,172 +457,93 @@ export function AsciiBeachCanvas() {
       cols = Math.max(50, Math.ceil(width / cellW) + 2);
       rows = Math.max(40, Math.ceil(height / cellH) + 1);
 
-      wetSandBuffer = new Float32Array(cols * rows);
-      baseShoreCol = new Float32Array(cols);
-      peakRunupCol = new Float32Array(cols);
-      highTideCol = new Float32Array(cols);
+      currBuffers = createBuffers(cols * rows);
+      if (prevBuffers) {
+        prevBuffers = createBuffers(cols * rows);
+      }
       washCrestCol = new Float32Array(cols);
-      uColTable = new Float32Array(cols);
       bayArchTable = new Float32Array(cols);
-      rowCharIdx = new Uint8Array(cols);
-      rowTierIdx = new Uint8Array(cols);
-
-      const initSwash = Math.max(8, Math.floor(rows * 0.12));
+      rowOutChar = new Uint16Array(cols);
+      rowOutTier = new Uint8Array(cols);
 
       for (let c = 0; c < cols; c++) {
         const uCol = c / cols;
-        uColTable[c] = uCol;
-        const arch =
+        bayArchTable[c] =
           Math.sin(uCol * Math.PI) * 0.045 +
           Math.sin(uCol * Math.PI * 3.2 + 0.4) * 0.024 +
-          Math.cos(uCol * Math.PI * 6.4 - 0.7) * 0.010;
-        bayArchTable[c] = arch;
-
-        const baseTide = isPhone ? 0.56 : 0.64;
-        const initShore = Math.floor(rows * (baseTide + arch + (uCol - 0.5) * 0.05));
-        const maxReach = Math.floor(initShore + initSwash);
-        for (let r = initShore; r <= Math.min(rows - 1, maxReach); r++) {
-          const frac = 1.0 - (r - initShore) / Math.max(1, maxReach - initShore);
-          wetSandBuffer[r * cols + c] = 0.20 + 0.65 * frac;
-        }
+          Math.cos(uCol * Math.PI * 6.4 - 0.7) * 0.01;
       }
 
+      notifyScenesResize();
       measurePanel();
     };
 
-    const firstCol = new Int32Array(NUM_TIERS);
-    const lastCol = new Int32Array(NUM_TIERS);
+    const resolveCellFromBuffers = (
+      buffers: SceneCellBuffers,
+      cellIdx: number,
+      c: number,
+      r: number,
+      panelAtten: number,
+      ramp: string,
+      paletteLen: number,
+      washActive: boolean
+    ): { charCode: number; tier: number } => {
+      if (panelAtten <= 0.01) {
+        return { charCode: 0, tier: 0 };
+      }
 
-    const drawScene = (now: number) => {
-      const t = reducedMotionRef.current ? 12.5 : now * 0.001;
-      const P = CONSTANT_SCENE;
+      const customCode = buffers.charCodes[cellIdx];
+      const rawTier = buffers.tiers[cellIdx];
+      const tier = rawTier < paletteLen ? rawTier : paletteLen - 1;
 
-      const isLight =
-        document.documentElement.classList.contains('light') || resolvedTheme === 'light';
-      const isHome = isHomeRef.current;
-      const isPhone = width < 760;
-
-      // Evaluate Single Big Wave Wash state (sweeps once across the screen)
-      let washActive = false;
-      let washProgress = 0;
-
-      if (washStartRef.current >= 0) {
-        const elapsed = now - washStartRef.current;
-        if (elapsed >= 0 && elapsed <= WASH_DURATION_MS) {
-          washActive = true;
-          // Steady progression across the screen so the wave sweeps down at constant physical swell speed
-          washProgress = Math.min(1.0, elapsed / WASH_DURATION_MS);
-        } else if (elapsed > WASH_DURATION_MS) {
-          washActive = false;
-          washStartRef.current = -1;
+      if (customCode > 0) {
+        if (customCode === 32) {
+          return { charCode: 0, tier: 0 };
         }
-      }
-
-      // Check whether new page is currently fading in
-      let isFadingIn = false;
-      let fadeFactor = 1.0;
-      if (fadeStartRef.current >= 0) {
-        const fadeElapsed = now - fadeStartRef.current;
-        if (fadeElapsed >= 0 && fadeElapsed <= FADE_DURATION_MS) {
-          isFadingIn = true;
-          const fp = fadeElapsed / FADE_DURATION_MS;
-          fadeFactor = fp * fp * (3 - 2 * fp); // smoothstep
-        } else {
-          fadeStartRef.current = -1;
+        if (panelAtten < 0.28) {
+          return { charCode: 0, tier: 0 };
         }
-      }
-
-      ctx.clearRect(0, 0, width, height);
-
-      const rowScale = rows / 64;
-      const invRowScale = 1 / rowScale;
-      const invColScale = 180 / cols;
-
-      const swashZoneRows = Math.max(8, Math.floor(rows * 0.125));
-      const swashScale = swashZoneRows * Math.min(1.35, P.waveHeight);
-      const effectiveTide = isPhone ? P.tidePosition * 0.80 : P.tidePosition;
-
-      const panelTopRow = panelRect.valid
-        ? Math.max(4, Math.floor(panelRect.top / cellH) - 3)
-        : Math.floor(rows * 0.08);
-      const panelBottomRow = panelRect.valid
-        ? Math.min(rows - 3, Math.ceil(panelRect.bottom / cellH) + 6)
-        : Math.floor(rows * 0.88);
-      const washSpanRows = Math.max(28, panelBottomRow - panelTopRow + 12);
-
-      for (let c = 0; c < cols; c++) {
-        const uCol = uColTable[c];
-        const shoreRatio =
-          effectiveTide +
-          bayArchTable[c] +
-          (uCol - 0.5) * P.shoreAngle +
-          (valueNoise2D(uCol * 5.0 + t * 0.04, t * 0.08) - 0.5) * 0.025;
-
-        const bRow = Math.max(
-          Math.floor(rows * 0.26),
-          Math.min(rows - Math.floor(13 * rowScale), rows * shoreRatio)
-        );
-        baseShoreCol[c] = bRow;
-
-        const tongue1 = 0.5 + 0.5 * Math.sin(t * (1.15 * P.waveFreq) - uCol * Math.PI * 2.6);
-        const tongue2 =
-          0.5 + 0.5 * Math.sin(t * (0.85 * P.waveFreq) + uCol * Math.PI * 3.8 + 1.4);
-        const combinedSurge = 0.65 * Math.pow(tongue1, 1.35) + 0.35 * Math.pow(tongue2, 1.5);
-
-        peakRunupCol[c] = bRow + combinedSurge * swashScale;
-        highTideCol[c] = bRow + swashScale * 0.98;
-
-        if (washActive) {
-          // Organic bay curve + scalloped cusps along the washing wave front
-          const cuspOffset =
-            (bayArchTable[c] * 12.0 +
-              Math.sin(uCol * Math.PI * 3.5 + t * 2.2) * 2.4 +
-              Math.cos(uCol * Math.PI * 6.0 - t * 1.8) * 1.2) *
-            rowScale;
-
-          // Viewport-anchored wave travel from right below the header down through the content into the sand
-          const startR = 2 * rowScale + cuspOffset;
-          const endR = (rows + 6 * rowScale) + cuspOffset;
-
-          washCrestCol[c] = startR + (endR - startR) * washProgress;
+        if (panelAtten < 0.92 && fastHash(c, r) > panelAtten) {
+          return { charCode: 0, tier: 0 };
         }
+        return { charCode: customCode, tier };
       }
 
-      const meanShoreY = Math.min(
-        0.88,
-        Math.max(
-          0.32,
-          ((rows * effectiveTide + swashZoneRows * 0.4) * cellH) / Math.max(1, height)
-        )
-      );
-
-      // Top-down aerial coastal wash
-      const bgGrad = ctx.createLinearGradient(
-        width * (0.5 + P.shoreAngle * 0.8),
-        0,
-        width * (0.5 - P.shoreAngle * 0.8),
-        height
-      );
-      if (isLight) {
-        bgGrad.addColorStop(0.0, 'hsla(198, 42%, 66%, 0.88)');
-        bgGrad.addColorStop(Math.max(0.15, meanShoreY * 0.48), 'hsla(188, 38%, 71%, 0.88)');
-        bgGrad.addColorStop(Math.max(0.28, meanShoreY - 0.05), 'hsla(180, 34%, 75%, 0.88)');
-        bgGrad.addColorStop(meanShoreY, 'hsla(165, 22%, 74%, 0.86)');
-        bgGrad.addColorStop(Math.min(1, meanShoreY + 0.08), 'hsla(32, 30%, 70%, 0.88)');
-        bgGrad.addColorStop(Math.min(1, meanShoreY + 0.15), 'hsla(37, 42%, 78%, 0.90)');
-        bgGrad.addColorStop(1.0, 'hsla(39, 46%, 82%, 0.92)');
-      } else {
-        bgGrad.addColorStop(0.0, 'hsla(206, 48%, 11%, 0.45)');
-        bgGrad.addColorStop(Math.max(0.15, meanShoreY * 0.48), 'hsla(194, 44%, 14%, 0.42)');
-        bgGrad.addColorStop(Math.max(0.28, meanShoreY - 0.05), 'hsla(184, 40%, 16%, 0.40)');
-        bgGrad.addColorStop(meanShoreY, 'hsla(176, 28%, 15%, 0.36)');
-        bgGrad.addColorStop(Math.min(1, meanShoreY + 0.08), 'hsla(30, 34%, 14%, 0.38)');
-        bgGrad.addColorStop(1.0, 'hsla(36, 40%, 16%, 0.42)');
+      const luma = buffers.lumas[cellIdx];
+      if (luma <= 0.0) {
+        return { charCode: 0, tier: 0 };
       }
-      ctx.fillStyle = bgGrad;
-      ctx.fillRect(0, 0, width, height);
 
-      // In Light Mode, add a soft feathered readability veil behind the active text column & header
+      const dither = luma > 0.02 && luma < 0.78 ? (fastHash(c, r) - 0.5) * 0.075 : 0.0;
+      const finalLuma = Math.max(0, Math.min(0.999, (luma + dither) * panelAtten));
+      let charIdx = Math.floor(finalLuma * ramp.length);
+
+      if (!washActive && panelAtten > 0 && panelAtten < 0.35 && charIdx > 0) {
+        charIdx = 0;
+      }
+      if (charIdx <= 0) {
+        return { charCode: 0, tier: 0 };
+      }
+      return { charCode: ramp.charCodeAt(charIdx), tier };
+    };
+
+    const drawReadabilityVeil = (
+      scene: AsciiScene,
+      isLight: boolean,
+      washActive: boolean,
+      washProgress: number,
+      isFadingIn: boolean,
+      fadeFactor: number
+    ) => {
+      const veil = scene.getVeilStyle?.(isLight);
+
+      let veilAlpha = 1.0;
+      if (isWashingOrSwappingRef.current) {
+        veilAlpha = washActive ? Math.max(0, 1.0 - washProgress * 1.6) : 0.0;
+      } else if (isFadingIn) {
+        veilAlpha = fadeFactor;
+      }
+
       if (isLight) {
         if (headerRect.valid) {
           const hGrad = ctx.createLinearGradient(0, 0, 0, headerRect.bottom + 40);
@@ -516,12 +551,6 @@ export function AsciiBeachCanvas() {
           hGrad.addColorStop(1, 'hsla(195, 25%, 94%, 0.0)');
           ctx.fillStyle = hGrad;
           ctx.fillRect(0, 0, width, headerRect.bottom + 40);
-        }
-        let veilAlpha = 1.0;
-        if (isWashingOrSwappingRef.current) {
-          veilAlpha = washActive ? Math.max(0, 1.0 - washProgress * 1.6) : 0.0;
-        } else if (isFadingIn) {
-          veilAlpha = fadeFactor;
         }
 
         if (panelRect.valid && veilAlpha > 0.01) {
@@ -532,61 +561,243 @@ export function AsciiBeachCanvas() {
           ctx.save();
           ctx.translate(cx, cy);
           ctx.scale(1, ry / rx);
-          const veil = ctx.createRadialGradient(0, 0, rx * 0.15, 0, 0, rx);
-          veil.addColorStop(0, `hsla(42, 30%, 96%, ${(0.64 * veilAlpha).toFixed(3)})`);
-          veil.addColorStop(0.65, `hsla(42, 28%, 95%, ${(0.36 * veilAlpha).toFixed(3)})`);
-          veil.addColorStop(1, 'hsla(42, 28%, 95%, 0.0)');
-          ctx.fillStyle = veil;
+          const grad = ctx.createRadialGradient(0, 0, rx * 0.15, 0, 0, rx);
+          const centerColor = veil?.lightCenterRgba ?? 'hsla(42, 30%, 96%, 0.64)';
+          const midColor = veil?.lightMidRgba ?? 'hsla(42, 28%, 95%, 0.36)';
+          ctx.globalAlpha = veilAlpha;
+          grad.addColorStop(0, centerColor);
+          grad.addColorStop(0.65, midColor);
+          grad.addColorStop(1, 'hsla(42, 28%, 95%, 0.0)');
+          ctx.fillStyle = grad;
           ctx.beginPath();
           ctx.arc(0, 0, rx, 0, Math.PI * 2);
           ctx.fill();
           ctx.restore();
         }
+      } else if (veil?.darkCenterRgba && panelRect.valid && veilAlpha > 0.01) {
+        const cx = (panelRect.left + panelRect.right) * 0.5;
+        const cy = (panelRect.top + panelRect.bottom) * 0.5;
+        const rx = Math.max(240, (panelRect.right - panelRect.left) * 0.8 + 80);
+        const ry = Math.max(160, (panelRect.bottom - panelRect.top) * 0.7 + 80);
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.scale(1, ry / rx);
+        ctx.globalAlpha = veilAlpha;
+        const grad = ctx.createRadialGradient(0, 0, rx * 0.12, 0, 0, rx);
+        grad.addColorStop(0, veil.darkCenterRgba);
+        grad.addColorStop(0.65, veil.darkMidRgba ?? 'rgba(11, 14, 18, 0.22)');
+        grad.addColorStop(1, 'rgba(11, 14, 18, 0.0)');
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(0, 0, rx, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+    };
+
+    const drawScene = (now: number) => {
+      const dt = reducedMotionRef.current
+        ? 0
+        : Math.min(0.1, Math.max(0, (now - prevDrawTime) * 0.001));
+      prevDrawTime = now;
+
+      const t = reducedMotionRef.current ? 12.5 : now * 0.001;
+      const isLight = getIsLight();
+      const isHome = isHomeRef.current;
+      const isPhone = width < 760;
+
+      if (reducedMotionRef.current) {
+        pointerX = 0;
+        pointerY = 0;
+      } else {
+        const lerp = Math.min(1, dt * 5.5);
+        pointerX += (targetPointerX - pointerX) * lerp;
+        pointerY += (targetPointerY - pointerY) * lerp;
       }
 
-      // 8 Top-Down Coastal Color Tiers
-      const tiers = isLight
-        ? [
-            'hsla(202, 46%, 34%, 0.44)', // 0: deep ocean caustics & flowing swell drift
-            'hsla(194, 48%, 30%, 0.56)', // 1: mid-ocean swell
-            'hsla(186, 48%, 28%, 0.54)', // 2: turquoise shallows ripples
-            'hsla(192, 54%, 20%, 0.78)', // 3: deep wave-front shadow under breaking crest
-            'hsla(180, 40%, 94%, 0.78)', // 4: lacy cellular foam wake & spray
-            'hsla(48,  65%, 99%, 0.98)', // 5: crisp bright white breaking surf & swash lip (#%@)
-            'hsla(28,  46%, 26%, 0.74)', // 6: dark damp umber wet-sand band & tide line
-            'hsla(34,  48%, 36%, 0.62)', // 7: warm golden-ochre dry sand grain
-          ]
-        : [
-            'hsla(204, 48%, 48%, 0.38)', // 0: deep ocean swells & caustics
-            'hsla(194, 46%, 58%, 0.52)', // 1: mid-ocean swell face
-            'hsla(184, 45%, 64%, 0.58)', // 2: turquoise shallows
-            'hsla(192, 42%, 38%, 0.46)', // 3: wave trough shadow
-            'hsla(178, 42%, 80%, 0.78)', // 4: lacy cellular foam wake & spray
-            'hsla(46,  38%, 95%, 0.97)', // 5: bright ivory breaking surf & swash lip (#%@)
-            'hsla(28,  40%, 44%, 0.58)', // 6: dark damp umber wet-sand band & tide line
-            'hsla(38,  50%, 72%, 0.70)', // 7: warm golden-ochre dry sand grain
-          ];
+      // Evaluate route transition wash state
+      let washActive = false;
+      let washProgress = 0;
+      if (washStartRef.current >= 0) {
+        const elapsed = now - washStartRef.current;
+        if (elapsed >= 0 && elapsed <= WASH_DURATION_MS) {
+          washActive = true;
+          washProgress = Math.min(1.0, elapsed / WASH_DURATION_MS);
+        } else if (elapsed > WASH_DURATION_MS) {
+          washActive = false;
+          washStartRef.current = -1;
+        }
+      }
+
+      // Evaluate page fade-in state
+      let isFadingIn = false;
+      let fadeFactor = 1.0;
+      let attenFadeFactor = 1.0;
+      if (fadeStartRef.current >= 0) {
+        const fadeElapsed = now - fadeStartRef.current;
+        if (fadeElapsed >= 0 && fadeElapsed <= FADE_DURATION_MS) {
+          isFadingIn = true;
+          const fp = fadeElapsed / FADE_DURATION_MS;
+          fadeFactor = fp * fp * (3 - 2 * fp);
+          // Ease-out attenuation slightly ahead of text fade so mobile content stays crisp
+          const ap = Math.min(1.0, fadeElapsed / (isPhone ? 280 : 340));
+          attenFadeFactor = 1.0 - Math.pow(1.0 - ap, 2.2);
+        } else {
+          fadeStartRef.current = -1;
+        }
+      }
+
+      if (isFadingIn || washActive) {
+        measurePanel();
+      }
+
+      // Evaluate scene switch transition state
+      let sceneSwitchActive = false;
+      let sceneSwitchProgress = 1.0;
+      if (sceneSwitchStartRef.current >= 0 && prevSceneIdRef.current) {
+        const switchElapsed = now - sceneSwitchStartRef.current;
+        if (switchElapsed >= 0 && switchElapsed <= SCENE_SWITCH_DURATION_MS) {
+          sceneSwitchActive = true;
+          sceneSwitchProgress = easeInOutCubic(switchElapsed / SCENE_SWITCH_DURATION_MS);
+        } else {
+          sceneSwitchStartRef.current = -1;
+          prevSceneIdRef.current = null;
+        }
+      }
+
+      const rowScale = rows / 64;
+      const invRowScale = 1 / rowScale;
+      const invColScale = 180 / cols;
+
+      if (washActive) {
+        const headerBottomRow = headerRect.valid
+          ? Math.max(1.5, headerRect.bottom / cellH)
+          : 2 * rowScale;
+        const panelTopRow = panelRect.valid
+          ? Math.max(headerBottomRow, Math.floor(panelRect.top / cellH) - 2)
+          : headerBottomRow;
+        const panelBottomRow = panelRect.valid
+          ? Math.min(rows + 4 * rowScale, Math.ceil(panelRect.bottom / cellH) + 6)
+          : rows + 4 * rowScale;
+        const washSpanRows = Math.max(
+          rows + 4 * rowScale - headerBottomRow,
+          panelBottomRow - panelTopRow + 10 * rowScale
+        );
+
+        for (let c = 0; c < cols; c++) {
+          const uCol = c / cols;
+          const cuspOffset =
+            (bayArchTable[c] * (isPhone ? 7.5 : 12.0) +
+              Math.sin(uCol * Math.PI * 3.5 + t * 2.2) * (isPhone ? 1.8 : 2.4) +
+              Math.cos(uCol * Math.PI * 6.0 - t * 1.8) * (isPhone ? 0.9 : 1.2)) *
+            rowScale;
+          const startR = headerBottomRow + cuspOffset;
+          const endR = headerBottomRow + washSpanRows + cuspOffset;
+          washCrestCol[c] = startR + (endR - startR) * washProgress;
+        }
+      }
+
+      const activeScene = SCENE_REGISTRY[activeSceneIdRef.current] ?? beachScene;
+      const prevScene =
+        sceneSwitchActive && prevSceneIdRef.current
+          ? SCENE_REGISTRY[prevSceneIdRef.current] ?? beachScene
+          : null;
+
+      const frame: SceneFrameContext = {
+        width,
+        height,
+        cols,
+        rows,
+        cellW,
+        cellH,
+        isPhone,
+        isLight,
+        t,
+        dt,
+        pointerX,
+        pointerY,
+        reducedMotion: reducedMotionRef.current,
+        isHome,
+        washActive,
+        washProgress,
+        washCrestRows: washActive ? washCrestCol : null,
+      };
+
+      ctx.clearRect(0, 0, width, height);
+
+      // Draw backdrop (with smooth crossfade during scene switching)
+      if (prevScene && sceneSwitchActive) {
+        ctx.save();
+        ctx.globalAlpha = 1 - sceneSwitchProgress;
+        prevScene.renderBackdrop(ctx, frame);
+        ctx.globalAlpha = sceneSwitchProgress;
+        activeScene.renderBackdrop(ctx, frame);
+        ctx.restore();
+      } else {
+        activeScene.renderBackdrop(ctx, frame);
+      }
+
+      drawReadabilityVeil(
+        activeScene,
+        isLight,
+        washActive,
+        washProgress,
+        isFadingIn,
+        fadeFactor
+      );
+
+      // Evaluate scene cells
+      clearBuffers(currBuffers);
+      activeScene.renderCells(frame, currBuffers);
+
+      if (prevScene && sceneSwitchActive) {
+        if (!prevBuffers || prevBuffers.lumas.length !== cols * rows) {
+          prevBuffers = createBuffers(cols * rows);
+        } else {
+          clearBuffers(prevBuffers);
+        }
+        prevScene.renderCells(frame, prevBuffers);
+      }
+
+      const activePalette = activeScene.getPalette(isLight);
+      const activePaletteLen = Math.min(MAX_SCENE_TIERS, activePalette.length);
+      const activeRamp = activeScene.ramp ?? DEFAULT_ASCII_RAMP;
+      const washTheme = activeScene.getWashTheme?.(isLight) ?? defaultWashTheme(isLight);
+      const crestChars = washTheme.crestChars ?? DEFAULT_CREST_CHARS;
+      const wakeChars = washTheme.wakeChars ?? DEFAULT_WAKE_CHARS;
+
+      const prevPalette = prevScene ? prevScene.getPalette(isLight) : null;
+      const prevPaletteLen = prevPalette
+        ? Math.min(MAX_SCENE_TIERS, prevPalette.length)
+        : 0;
+      const prevRamp = prevScene?.ramp ?? DEFAULT_ASCII_RAMP;
+
+      const washTroughTier = activePaletteLen;
+      const washWakeTier = activePaletteLen + 1;
+      const washCrestTier = activePaletteLen + 2;
+      const totalCurrTiers = washActive ? activePaletteLen + 3 : activePaletteLen;
 
       ctx.font = resolvedFontStr;
 
       const falloffRadius = isPhone ? 65 : 115;
-      const headerFalloff = 28;
+      const headerFalloff = washActive ? 6 : 28;
       const footerFalloff = 12;
       const tInt4 = Math.floor(t * 4);
-      const tInt2 = Math.floor(t * 2);
+      const washEdgeFade = washActive
+        ? smoothstep(0.0, 0.06, washProgress) * (1.0 - smoothstep(0.9, 1.0, washProgress))
+        : 0;
+      const washWakeBack = isPhone ? -8.5 : -7.0;
+      const washFrontAhead = isPhone ? 3.8 : 3.2;
 
       for (let r = 0; r < rows; r++) {
-        for (let b = 0; b < NUM_TIERS; b++) {
+        for (let b = 0; b < totalCurrTiers; b++) {
           firstCol[b] = -1;
           lastCol[b] = -1;
         }
 
         const py = (r + 0.5) * cellH;
         const rNorm = r * invRowScale;
-        const rowWobble =
-          ((valueNoise2D(rNorm * 0.42 + t * 0.24, t * 0.18) - 0.5) * 2.2 +
-            Math.sin(rNorm * 0.9 + t * 0.6) * 0.65) *
-          rowScale;
+        const rowBase = r * cols;
 
         const checkHeader =
           headerRect.valid &&
@@ -602,13 +813,22 @@ export function AsciiBeachCanvas() {
           py >= panelRect.top - falloffRadius - 24 &&
           py <= panelRect.bottom + falloffRadius + 24;
 
+        const sweepCol = sceneSwitchActive
+          ? -6 +
+            (cols + 12) * sceneSwitchProgress +
+            Math.sin(rNorm * 0.45 + t * 3.2) * (isPhone ? 2.2 : 4.2)
+          : cols + 100;
+        const switchCrestHalf = isPhone ? 2.4 : 3.6;
+
+        let hasPrevInRow = false;
+        let hasShimmerInRow = false;
+
         for (let c = 0; c < cols; c++) {
           const px = (c + 0.5) * cellW;
           const cNorm = c * invColScale;
 
           let panelAtten = 1.0;
 
-          // Header band stays readable at all times
           if (checkHeader) {
             const hd = sdRoundedBox(
               px,
@@ -625,7 +845,6 @@ export function AsciiBeachCanvas() {
             }
           }
 
-          // Footer pills: completely clear sand characters underneath without leaving stray dots
           if (checkFooter) {
             for (let fi = 0; fi < footerRects.length; fi++) {
               const fr = footerRects[fi];
@@ -645,7 +864,6 @@ export function AsciiBeachCanvas() {
             }
           }
 
-          // Main content column attenuation with wide organic wave-aligned feathering (no hard box outline)
           let rawPanelAtten = 1.0;
           if (checkPanel && px <= panelRect.right + falloffRadius + 48) {
             const rawDist = sdRoundedBox(
@@ -675,331 +893,246 @@ export function AsciiBeachCanvas() {
                 if (d <= 0) {
                   rawPanelAtten = 0.0;
                 } else if (d < falloffRadius) {
-                  const f = smoothstep(0, falloffRadius, d);
-                  rawPanelAtten = Math.min(rawPanelAtten, f);
+                  rawPanelAtten = Math.min(rawPanelAtten, smoothstep(0, falloffRadius, d));
                 }
               }
             }
           }
 
-          // Wash away the background blur box along with the contents when the wave washes over
           let boxAtten = rawPanelAtten;
           if (isWashingOrSwappingRef.current) {
             if (washActive) {
               const crestR = washCrestCol[c];
               const distToWave = (r - crestR) * invRowScale;
               if (distToWave <= 0) {
-                // Wave crest has swept past row r: background blur box is washed away!
                 boxAtten = 1.0;
               } else if (distToWave <= 1.4) {
-                // Wave lip is breaking over row r: wipe the background blur box away in lockstep with the wave
                 const wipeFrac = distToWave / 1.4;
                 boxAtten = 1.0 - wipeFrac * (1.0 - rawPanelAtten);
               } else {
-                // Ahead of the wave: background blur box remains visible until wave crest arrives
                 boxAtten = rawPanelAtten;
               }
             } else {
-              // Wave wash completed, routes swapping: box remains completely washed away
               boxAtten = 1.0;
             }
           } else if (isFadingIn) {
-            // Calm fade-in: new background blur box gently fades in alongside the new page contents
-            boxAtten = 1.0 - fadeFactor * (1.0 - rawPanelAtten);
+            boxAtten = 1.0 - attenFadeFactor * (1.0 - rawPanelAtten);
           }
 
           panelAtten = Math.min(panelAtten, boxAtten);
 
-          // ==================================================================
-          // SINGLE BIG WAVE WASH OVERRIDE (During page transitions)
-          // ==================================================================
+          // Route transition wave wash overlay
           let washOverlayLuma = 0.0;
           let washOverlayTier = -1;
+          let washOverlayCharCode = 0;
 
           if (washActive && !checkHeader) {
             const crestR = washCrestCol[c];
-            // dist < 0 is behind/above the crest (trailing wake foam)
-            // dist > 0 is ahead/below the crest (rising face of the wave)
             const dist = (r - crestR) * invRowScale;
 
-            if (dist >= -7.0 && dist <= 3.2) {
-              const edgeFade =
-                smoothstep(0.0, 0.08, washProgress) *
-                (1.0 - smoothstep(0.88, 1.0, washProgress));
-
+            if (dist >= washWakeBack && dist <= washFrontAhead) {
               if (dist > 1.2) {
-                // Rising swell / front trough immediately in front of the advancing wave lip
-                const s = (3.2 - dist) / 2.0;
-                washOverlayLuma = 0.42 * s * edgeFade;
-                washOverlayTier = 3;
+                const s = (washFrontAhead - dist) / (washFrontAhead - 1.2);
+                washOverlayLuma = 0.45 * s * washEdgeFade;
+                washOverlayTier = washTroughTier;
+                const charIdx = Math.min(
+                  activeRamp.length - 1,
+                  Math.max(1, Math.floor(washOverlayLuma * activeRamp.length))
+                );
+                washOverlayCharCode = activeRamp.charCodeAt(charIdx);
               } else if (dist >= -2.2) {
-                // The roaring, foaming wave crest lip itself (* # % @)
                 const crestCore = 1.0 - Math.abs(dist) / 2.2;
                 const froth = valueNoise2D(cNorm * 0.18 + t * 0.5, rNorm * 0.35 - t * 0.6);
                 washOverlayLuma = Math.min(
                   0.99,
-                  (0.86 + 0.13 * crestCore + froth * 0.06) * edgeFade
+                  (0.86 + 0.13 * crestCore + froth * 0.06) * washEdgeFade
                 );
-                washOverlayTier = 5;
+                washOverlayTier = washCrestTier;
+                const ci = Math.min(
+                  crestChars.length - 1,
+                  Math.floor((crestCore * 0.7 + froth * 0.35) * crestChars.length)
+                );
+                washOverlayCharCode = crestChars.charCodeAt(Math.max(0, ci));
               } else {
-                // Trailing frothy wake left behind in the wave's path
-                const wakeDist = (-dist - 2.2) / 4.8; // 0 at crest back, 1 at wake end
+                const wakeDist = (-dist - 2.2) / Math.max(1, -washWakeBack - 2.2);
                 const wakeDecay = 1.0 - wakeDist;
                 const lace = valueNoise2D(cNorm * 0.22 + t * 0.3, rNorm * 0.32);
                 const h = fastHash(c + tInt4, r);
 
-                if (lace * wakeDecay > 0.30) {
-                  washOverlayLuma = (0.52 + 0.38 * wakeDecay * lace) * edgeFade;
-                  washOverlayTier = washOverlayLuma > 0.72 ? 5 : 4;
-                } else if (h < 0.65 && wakeDecay > 0.35) {
-                  washOverlayLuma = (0.34 + 0.24 * wakeDecay) * edgeFade;
-                  washOverlayTier = 3;
+                if (lace * wakeDecay > 0.28) {
+                  washOverlayLuma = (0.52 + 0.38 * wakeDecay * lace) * washEdgeFade;
+                  washOverlayTier = washOverlayLuma > 0.72 ? washCrestTier : washWakeTier;
+                  const wi = Math.min(
+                    wakeChars.length - 1,
+                    Math.floor(washOverlayLuma * wakeChars.length)
+                  );
+                  washOverlayCharCode = wakeChars.charCodeAt(Math.max(0, wi));
+                } else if (h < 0.65 && wakeDecay > 0.32) {
+                  washOverlayLuma = (0.34 + 0.24 * wakeDecay) * washEdgeFade;
+                  washOverlayTier = washTroughTier;
+                  const wi = Math.min(
+                    wakeChars.length - 1,
+                    Math.floor(washOverlayLuma * wakeChars.length)
+                  );
+                  washOverlayCharCode = wakeChars.charCodeAt(Math.max(0, wi));
                 }
-              }
-
-              if (r >= baseShoreCol[c] && dist >= -3.5 && dist <= 1.5) {
-                wetSandBuffer[r * cols + c] = Math.max(
-                  wetSandBuffer[r * cols + c],
-                  0.85 * edgeFade
-                );
               }
             }
           }
 
-          if (panelAtten <= 0.01) {
-            rowCharIdx[c] = 0;
+          const cellIdx = rowBase + c;
+          const isTransitionWave = washOverlayTier >= 0 && washOverlayLuma > 0.05;
+
+          if (isTransitionWave && washOverlayCharCode > 0) {
+            rowOutChar[c] = washOverlayCharCode;
+            rowOutTier[c] = washOverlayTier;
+            if (firstCol[washOverlayTier] === -1) firstCol[washOverlayTier] = c;
+            lastCol[washOverlayTier] = c;
             continue;
           }
 
-          let luma = 0.0;
-          let tierIdx = 0;
-
-          const shoreRow = baseShoreCol[c];
-
-          // ==================================================================
-          // TOP-DOWN OCEAN & SURF ZONE (r < shoreRow)
-          // ==================================================================
-          if (r < shoreRow) {
-            const uWater = Math.max(0, Math.min(1, r / Math.max(1, shoreRow)));
-            const uCol = uColTable[c];
-
-            const shoalCoord = Math.pow(uWater, 0.78) * 28.0 * P.waveFreq;
-
-            const refractNoise =
-              fbm(uCol * 2.8 - t * 0.06, uWater * 2.4 - t * 0.14, 2) - 0.5;
-            const lateralBend =
-              Math.sin(uCol * Math.PI * 2.0 + uWater * 2.2) * 1.1 +
-              Math.cos(uCol * Math.PI * 4.5 - uWater * 1.6 + t * 0.3) * 0.55 +
-              refractNoise * 3.4;
-
-            const wavePhase =
-              shoalCoord -
-              t * (2.15 * P.waveFreq * P.swellSpeed) +
-              lateralBend;
-
-            const s1 = Math.sin(wavePhase);
-            const s2 = 0.38 * Math.sin(wavePhase * 2.0 - 0.85);
-            const waveHeightNorm = (s1 + s2) / 1.38;
-
-            const baseCrestEnvelope =
-              0.48 +
-              0.52 *
-                valueNoise2D(
-                  cNorm * 0.038 + uWater * 2.4 + t * 0.12,
-                  uWater * 4.2 - t * 0.18
+          if (sceneSwitchActive && prevBuffers && prevScene) {
+            const distToSweep = c - sweepCol;
+            if (Math.abs(distToSweep) <= switchCrestHalf) {
+              if (panelAtten > 0.18 && fastHash(c + tInt4, r) < 0.85 * panelAtten) {
+                const si = Math.floor(
+                  (1 - Math.abs(distToSweep) / switchCrestHalf) * SWITCH_SHIMMER_CHARS.length
                 );
-            // Suppress ambient breaking swells completely while the big transition wave washes over,
-            // guaranteeing strictly ONE single wave on screen during page transitions.
-            const crestEnvelope = washActive ? 0.0 : baseCrestEnvelope;
-
-            const wrapped =
-              (((wavePhase - Math.PI * 0.42) % (Math.PI * 2)) + Math.PI * 3) %
-                (Math.PI * 2) -
-              Math.PI;
-
-            const shoalIntensity = smoothstep(0.04, 0.82, uWater);
-            const crestHalfWidth =
-              (0.24 + 0.44 * shoalIntensity) *
-              Math.min(1.35, P.waveHeight) *
-              crestEnvelope;
-
-            if (
-              Math.abs(wrapped) < crestHalfWidth &&
-              uWater > 0.05 &&
-              crestEnvelope > 0.40
-            ) {
-              const crestCore = 1.0 - Math.abs(wrapped) / crestHalfWidth;
-              const foamPatch = valueNoise2D(
-                cNorm * 0.15 + t * 0.3,
-                rNorm * 0.28 - t * 0.35
+                rowOutChar[c] = SWITCH_SHIMMER_CHARS.charCodeAt(
+                  Math.max(0, Math.min(SWITCH_SHIMMER_CHARS.length - 1, si))
+                );
+                rowOutTier[c] = 254;
+                hasShimmerInRow = true;
+              } else {
+                rowOutChar[c] = 0;
+              }
+              continue;
+            } else if (distToSweep > switchCrestHalf) {
+              const resolvedPrev = resolveCellFromBuffers(
+                prevBuffers,
+                cellIdx,
+                c,
+                r,
+                panelAtten,
+                prevRamp,
+                prevPaletteLen,
+                washActive
               );
-              if (crestCore + foamPatch * 0.35 > 0.32) {
-                luma = Math.min(0.99, (0.78 + 0.21 * crestCore) * P.brightness);
-                tierIdx = 5;
-              } else {
-                luma = (0.58 + 0.18 * crestCore) * P.brightness;
-                tierIdx = 4;
+              rowOutChar[c] = resolvedPrev.charCode;
+              if (resolvedPrev.charCode > 0) {
+                rowOutTier[c] = 128 + resolvedPrev.tier;
+                hasPrevInRow = true;
               }
-            } else if (
-              wrapped < -crestHalfWidth &&
-              wrapped > -crestHalfWidth * (2.6 + 2.2 * shoalIntensity) &&
-              uWater > 0.12 &&
-              crestEnvelope > 0.40
-            ) {
-              const wakeSpan = crestHalfWidth * (1.6 + 2.2 * shoalIntensity);
-              const wakeDecay = 1.0 - (-wrapped - crestHalfWidth) / Math.max(0.01, wakeSpan);
-              const cellWeb = valueNoise2D(cNorm * 0.22 + t * 0.2, rNorm * 0.32 - t * 0.3);
-              const sprayHash = fastHash(c + tInt4, r);
-
-              if (cellWeb > 0.56 - wakeDecay * 0.28 && sprayHash < wakeDecay * 0.78 * P.foamDensity) {
-                luma = (0.32 + 0.46 * wakeDecay * cellWeb) * P.brightness;
-                tierIdx = 4;
-              } else {
-                luma = (0.20 + 0.16 * shoalIntensity) * P.brightness;
-                tierIdx = uWater > 0.45 ? 2 : 1;
-              }
-            } else if (
-              wrapped > crestHalfWidth &&
-              wrapped < crestHalfWidth * 2.2 &&
-              uWater > 0.12 &&
-              crestEnvelope > 0.42
-            ) {
-              const shadowFactor = 1.0 - (wrapped - crestHalfWidth) / (crestHalfWidth * 1.2);
-              luma = (0.30 + 0.36 * shadowFactor * shoalIntensity) * P.brightness;
-              tierIdx = 3;
-            } else {
-              const swellFactor = (waveHeightNorm + 1.0) * 0.5;
-              const caustic = valueNoise2D(cNorm * 0.14 + t * 0.25, rNorm * 0.22 - t * 0.2);
-              const upperFlow = fbm(cNorm * 0.045 - t * 0.08, rNorm * 0.16 + t * 0.05, 3);
-
-              if (swellFactor > 0.46) {
-                luma =
-                  (0.25 + (swellFactor - 0.46) * 0.62 * (0.45 + 0.55 * shoalIntensity)) *
-                  P.brightness;
-                tierIdx = uWater > 0.52 ? 2 : uWater > 0.24 ? 1 : 0;
-              } else if (upperFlow > 0.52 && uWater < 0.42) {
-                luma = (0.20 + (upperFlow - 0.52) * 0.75) * P.brightness;
-                tierIdx = upperFlow > 0.66 ? 1 : 0;
-              } else if (caustic > 0.64) {
-                luma = (0.18 + (caustic - 0.64) * 0.55) * P.brightness;
-                tierIdx = uWater > 0.50 ? 2 : 0;
-              } else {
-                const glint = fastHash(c + tInt2, r);
-                luma = glint > 0.87 ? 0.20 : 0.0;
-                tierIdx = uWater > 0.50 ? 2 : 0;
-              }
-            }
-          }
-          // ==================================================================
-          // TOP-DOWN SHORE (Scalloped Swash + Glistening Wet Sand) & DRY SAND
-          // ==================================================================
-          else {
-            const cellIdx = r * cols + c;
-            const runupRow = peakRunupCol[c] + rowWobble;
-            const distFromRunup = (r - runupRow) * invRowScale;
-            const highTideRow = highTideCol[c] + rowWobble * 0.85;
-
-            if (distFromRunup <= 0) {
-              wetSandBuffer[cellIdx] = 1.0;
-
-              if (distFromRunup > -1.8) {
-                const lipCore = 1.0 - Math.abs(distFromRunup) / 1.8;
-                luma = washActive ? 0.0 : Math.min(0.99, 0.78 + 0.21 * lipCore);
-                tierIdx = washActive ? 0 : 5;
-              } else if (distFromRunup > -4.5) {
-                const h = fastHash(c + tInt4, r);
-                const lace = valueNoise2D(cNorm * 0.2 + t * 0.25, rNorm * 0.35);
-                luma = h > 0.36 && lace > 0.38 ? 0.36 + 0.38 * h : 0.0;
-                tierIdx = luma > 0.46 ? 4 : 2;
-              } else {
-                const filmNoise = valueNoise2D(cNorm * 0.12 + t * 0.3, rNorm * 0.35);
-                luma = filmNoise > 0.44 ? 0.28 + 0.14 * filmNoise : 0.0;
-                tierIdx = 2;
-              }
-            } else {
-              const prevWet = wetSandBuffer[cellIdx];
-              const nextWet = prevWet * 0.986;
-              wetSandBuffer[cellIdx] = nextWet;
-
-              const distToHighTide = (r - highTideRow) * invRowScale;
-
-              if (distToHighTide <= 1.8 || nextWet > 0.12) {
-                const isDarkWetEdge =
-                  Math.abs(distToHighTide) < 1.7 || (nextWet > 0.14 && nextWet < 0.45);
-                if (isDarkWetEdge) {
-                  luma = 0.54 + 0.18 * valueNoise2D(cNorm * 0.15, rNorm * 0.3);
-                } else {
-                  luma = 0.30 + 0.20 * nextWet;
-                }
-                tierIdx = 6;
-              } else {
-                const h = fastHash(c, r);
-                const windRipple =
-                  Math.sin(
-                    (r - highTideRow) * invRowScale * 1.35 +
-                      Math.sin(cNorm * 0.06) * 1.5
-                  ) * 0.08;
-                const grainNoise =
-                  valueNoise2D(cNorm * 0.05, r * invRowScale * 0.18) + windRipple;
-
-                if (h > 0.987) {
-                  luma = 0.62 + (h - 0.987) * 15.0;
-                  tierIdx = 7;
-                } else if (h > 0.66 - grainNoise * 0.16) {
-                  luma = 0.15 + (h - 0.52) * 0.82;
-                  tierIdx = 7;
-                } else {
-                  luma = 0.0;
-                }
-              }
+              continue;
             }
           }
 
-          // Blend in the Big Wave Wash crest & foam blanket when active
-          const isTransitionWave = washOverlayTier >= 0 && washOverlayLuma > 0.05;
-          if (isTransitionWave && washOverlayLuma > luma * 0.75) {
-            luma = Math.max(luma, washOverlayLuma);
-            tierIdx = washOverlayTier;
-          }
-
-          const dither =
-            luma > 0.02 && luma < 0.78 ? (fastHash(c, r) - 0.5) * 0.075 : 0.0;
-          const atten = isTransitionWave ? 1.0 : panelAtten;
-          const finalLuma = Math.max(0, Math.min(0.999, (luma + dither) * atten));
-          let charIdx = Math.floor(finalLuma * (RAMP_MAX + 1));
-
-          if (!washActive && panelAtten > 0 && panelAtten < 0.35 && charIdx > 0) {
-            charIdx = 0;
-          }
-
-          rowCharIdx[c] = charIdx;
-          if (charIdx > 0) {
-            rowTierIdx[c] = tierIdx;
-            if (firstCol[tierIdx] === -1) firstCol[tierIdx] = c;
-            lastCol[tierIdx] = c;
+          const resolved = resolveCellFromBuffers(
+            currBuffers,
+            cellIdx,
+            c,
+            r,
+            panelAtten,
+            activeRamp,
+            activePaletteLen,
+            washActive
+          );
+          rowOutChar[c] = resolved.charCode;
+          if (resolved.charCode > 0) {
+            rowOutTier[c] = resolved.tier;
+            if (firstCol[resolved.tier] === -1) firstCol[resolved.tier] = c;
+            lastCol[resolved.tier] = c;
           }
         }
 
         const yPos = r * cellH;
-        for (let b = 0; b < NUM_TIERS; b++) {
+
+        // Draw active scene tiers + wash overlay tiers
+        for (let b = 0; b < totalCurrTiers; b++) {
           const startC = firstCol[b];
           if (startC === -1) continue;
           const endC = lastCol[b];
           let str = '';
           for (let c = startC; c <= endC; c++) {
-            str += rowCharIdx[c] > 0 && rowTierIdx[c] === b ? RAMP[rowCharIdx[c]] : ' ';
+            str +=
+              rowOutChar[c] > 0 && rowOutTier[c] === b
+                ? String.fromCharCode(rowOutChar[c])
+                : ' ';
           }
-          ctx.fillStyle = tiers[b];
+          if (b < activePaletteLen) {
+            ctx.fillStyle = activePalette[b];
+          } else if (b === washTroughTier) {
+            ctx.fillStyle = washTheme.troughColor;
+          } else if (b === washWakeTier) {
+            ctx.fillStyle = washTheme.wakeColor;
+          } else {
+            ctx.fillStyle = washTheme.crestColor;
+          }
           ctx.fillText(str, startC * cellW, yPos);
+        }
+
+        // Draw receding previous scene tiers during scene switch sweep
+        if (hasPrevInRow && prevPalette) {
+          for (let b = 0; b < prevPaletteLen; b++) {
+            const targetTier = 128 + b;
+            let startC = -1;
+            let endC = -1;
+            for (let c = 0; c < cols; c++) {
+              if (rowOutChar[c] > 0 && rowOutTier[c] === targetTier) {
+                if (startC === -1) startC = c;
+                endC = c;
+              }
+            }
+            if (startC === -1) continue;
+            let str = '';
+            for (let c = startC; c <= endC; c++) {
+              str +=
+                rowOutChar[c] > 0 && rowOutTier[c] === targetTier
+                  ? String.fromCharCode(rowOutChar[c])
+                  : ' ';
+            }
+            ctx.fillStyle = prevPalette[b];
+            ctx.fillText(str, startC * cellW, yPos);
+          }
+        }
+
+        // Draw shimmering sweep frontier during scene switch
+        if (hasShimmerInRow) {
+          let startC = -1;
+          let endC = -1;
+          for (let c = 0; c < cols; c++) {
+            if (rowOutChar[c] > 0 && rowOutTier[c] === 254) {
+              if (startC === -1) startC = c;
+              endC = c;
+            }
+          }
+          if (startC !== -1) {
+            let str = '';
+            for (let c = startC; c <= endC; c++) {
+              str +=
+                rowOutChar[c] > 0 && rowOutTier[c] === 254
+                  ? String.fromCharCode(rowOutChar[c])
+                  : ' ';
+            }
+            ctx.fillStyle = isLight ? washTheme.troughColor : washTheme.crestColor;
+            ctx.fillText(str, startC * cellW, yPos);
+          }
         }
       }
     };
+
+    drawNowRef.current = drawScene;
 
     const renderLoop = (now: number) => {
       if (isTabHidden || reducedMotionRef.current) return;
       rafId = requestAnimationFrame(renderLoop);
 
-      const frameInterval = width < 760 ? 1000 / 24 : 1000 / 32;
+      const isTransitioning =
+        washStartRef.current >= 0 ||
+        sceneSwitchStartRef.current >= 0 ||
+        fadeStartRef.current >= 0;
+      const targetFps = isTransitioning ? 45 : width < 760 ? 24 : 32;
+      const frameInterval = 1000 / targetFps;
       if (now - lastFrameTime < frameInterval) return;
       lastFrameTime = now;
 
@@ -1044,6 +1177,16 @@ export function AsciiBeachCanvas() {
     const mutationObserver = new MutationObserver(() => observeCurrentPanel());
     mutationObserver.observe(document.body, { childList: true, subtree: true });
 
+    const onPointerMove = (e: PointerEvent) => {
+      if (e.pointerType && e.pointerType !== 'mouse') return;
+      targetPointerX = Math.max(-1, Math.min(1, (e.clientX / Math.max(1, width) - 0.5) * 2));
+      targetPointerY = Math.max(-1, Math.min(1, (e.clientY / Math.max(1, height) - 0.5) * 2));
+    };
+    const onPointerLeave = () => {
+      targetPointerX = 0;
+      targetPointerY = 0;
+    };
+
     const onResize = () => {
       setupGrid(false);
       if (reducedMotionRef.current) drawScene(performance.now());
@@ -1056,6 +1199,7 @@ export function AsciiBeachCanvas() {
       isTabHidden = document.hidden;
       if (!isTabHidden && !reducedMotionRef.current) {
         lastFrameTime = performance.now();
+        prevDrawTime = lastFrameTime;
         rafId = requestAnimationFrame(renderLoop);
       }
     };
@@ -1066,10 +1210,14 @@ export function AsciiBeachCanvas() {
         drawScene(performance.now());
       } else if (!isTabHidden) {
         lastFrameTime = performance.now();
+        prevDrawTime = lastFrameTime;
         rafId = requestAnimationFrame(renderLoop);
       }
     };
 
+    window.addEventListener('pointermove', onPointerMove, { passive: true });
+    document.addEventListener('mouseleave', onPointerLeave);
+    window.addEventListener('blur', onPointerLeave);
     window.addEventListener('resize', onResize, { passive: true });
     window.addEventListener('scroll', onScroll, { passive: true });
     document.addEventListener('visibilitychange', onVisibilityChange);
@@ -1080,15 +1228,19 @@ export function AsciiBeachCanvas() {
     }
 
     return () => {
+      drawNowRef.current = null;
       cancelAnimationFrame(rafId);
       resizeObserver.disconnect();
       mutationObserver.disconnect();
+      window.removeEventListener('pointermove', onPointerMove);
+      document.removeEventListener('mouseleave', onPointerLeave);
+      window.removeEventListener('blur', onPointerLeave);
       window.removeEventListener('resize', onResize);
       window.removeEventListener('scroll', onScroll);
       document.removeEventListener('visibilitychange', onVisibilityChange);
       motionQuery.removeEventListener('change', onMotionChange);
     };
-  }, [resolvedTheme]);
+  }, []);
 
   return (
     <canvas

@@ -71,7 +71,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           enableSystem={false}
           themes={['dark', 'light']}
         >
-          {/* Full-viewport procedural ASCII beach background persisted across routes */}
+          {/* Full-viewport procedural ASCII scene background (beach / city / room) persisted across routes */}
           <AsciiBeachCanvas />
 
           {/* Foreground persistent navigation shell & content */}

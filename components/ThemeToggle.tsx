@@ -4,13 +4,17 @@ import * as React from 'react';
 import { Moon, Sun } from 'lucide-react';
 import { useTheme } from 'next-themes';
 
+function subscribeEmpty(): () => void {
+  return () => {};
+}
+
 export function ThemeToggle() {
   const { resolvedTheme, setTheme } = useTheme();
-  const [mounted, setMounted] = React.useState(false);
-
-  React.useEffect(() => {
-    setMounted(true);
-  }, []);
+  const mounted = React.useSyncExternalStore(
+    subscribeEmpty,
+    () => true,
+    () => false
+  );
 
   if (!mounted) {
     return <span className="inline-flex w-11 h-11 min-w-[44px] min-h-[44px] shrink-0" />;
