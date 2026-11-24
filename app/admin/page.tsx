@@ -1,11 +1,17 @@
 'use client';
 
-import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import {
-  ArrowRight,
+  useState,
+  useRef,
+  useEffect,
+  useMemo,
+  useCallback,
+  useSyncExternalStore,
+} from 'react';
+import Link from 'next/link';
+import {
+  AlertCircle,
   Camera,
-  Eye,
-  EyeOff,
   ImagePlus,
   Plus,
   Trash2,
@@ -27,13 +33,16 @@ import {
   updatePhoto,
 } from '@/lib/storage';
 import { Skill, Post, Photo } from '@/lib/data';
-import { getFirebaseAuth, isFirebaseConfigured } from '@/lib/firebase';
+import { isFirebaseConfigured } from '@/lib/firebase';
+import {
+  AdminSessionUser,
+  formatFirebaseAuthError,
+  isLocalDevHost,
+  signInAdminWithGoogle,
+  signOutAdmin,
+  subscribeAdminAuth,
+} from '@/lib/admin-auth';
 import { ScrambleHeading } from '@/components/ScrambleHeading';
-
-const SECURE_PASS_HASHES = [
-  'b75b9de0c93a0a38f32a76f26487e416d8a39a2f7c00e6a1005a305e55ff16bd', // slayr2026
-  '8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918', // admin
-];
 
 const DEFAULT_SKILL_CATEGORIES = [
   'Languages & Stats',
@@ -42,11 +51,10 @@ const DEFAULT_SKILL_CATEGORIES = [
 ];
 
 type AdminTab = 'blog' | 'manage-blog' | 'photo' | 'manage-photo' | 'skills';
+type AuthStatus = 'checking' | 'signed-out' | 'authenticated';
 
-interface AuthUserSummary {
-  isAnonymous?: boolean;
-  email?: string | null;
-}
+const subscribeNoop = () => () => {};
+const getServerFalse = () => false;
 
 interface PendingDeleteTarget {
   kind: 'post' | 'photo';
@@ -75,16 +83,44 @@ interface PendingPhoto {
 }
 
 const INPUT_CLASS =
-  'w-full bg-surface/90 border border-line px-3 py-2.5 min-h-[44px] text-base sm:text-sm text-ink placeholder:text-ink-muted/70 focus:border-ink focus:outline-none transition-colors rounded-[2px]';
+  'w-full bg-surface/90 border border-line px-3 py-2.5 min-h-[44px] text-base sm:text-sm text-ink placeholder:text-ink-muted/70 focus:border-ink transition-colors rounded-[2px]';
 const LABEL_CLASS = 'block font-mono text-xs text-ink-muted';
 const PRIMARY_BTN_CLASS =
-  'font-mono text-xs px-4 py-2.5 min-h-[44px] bg-ink text-bg border border-ink hover:opacity-85 transition-opacity cursor-pointer inline-flex items-center justify-center gap-2 whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed rounded-[2px]';
+  'font-mono text-xs px-4 py-2.5 min-h-[44px] bg-ink text-bg border border-ink hover:opacity-85 motion-safe:active:scale-[0.99] transition-[opacity,transform,box-shadow] duration-150 ease-out cursor-pointer inline-flex items-center justify-center gap-2 whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100 rounded-[2px]';
 const SECONDARY_BTN_CLASS =
-  'font-mono text-xs px-3.5 py-2 min-h-[44px] bg-surface/85 text-ink border border-line hover:border-ink transition-colors cursor-pointer inline-flex items-center justify-center gap-1.5 whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed rounded-[2px]';
+  'font-mono text-xs px-3.5 py-2 min-h-[44px] bg-surface/85 text-ink border border-line hover:border-ink motion-safe:active:scale-[0.99] transition-[border-color,transform] duration-150 ease-out cursor-pointer inline-flex items-center justify-center gap-1.5 whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100 rounded-[2px]';
 const INLINE_ACTION_CLASS =
   'font-mono text-xs text-ink-nav hover:text-ink underline underline-offset-4 cursor-pointer min-h-[36px] inline-flex items-center';
 const DANGER_INLINE_CLASS =
-  'font-mono text-xs text-red-700 dark:text-red-400 hover:underline underline-offset-4 cursor-pointer min-h-[36px] inline-flex items-center';
+  'font-mono text-xs text-red-400 [.light_&]:text-red-700 hover:underline underline-offset-4 cursor-pointer min-h-[36px] inline-flex items-center';
+
+function GoogleMark() {
+  return (
+    <svg
+      aria-hidden="true"
+      focusable="false"
+      viewBox="0 0 24 24"
+      className="w-4 h-4 shrink-0"
+    >
+      <path
+        fill="#4285F4"
+        d="M23.745 12.27c0-.79-.07-1.54-.19-2.27h-11.3v4.51h6.47c-.29 1.48-1.14 2.73-2.4 3.58v3h3.86c2.26-2.09 3.56-5.17 3.56-8.82z"
+      />
+      <path
+        fill="#34A853"
+        d="M12.255 24c3.24 0 5.95-1.08 7.93-2.91l-3.86-3c-1.08.72-2.45 1.16-4.07 1.16-3.13 0-5.78-2.11-6.73-4.96h-3.98v3.09C3.515 21.3 7.565 24 12.255 24z"
+      />
+      <path
+        fill="#FBBC05"
+        d="M5.525 14.29c-.25-.72-.38-1.49-.38-2.29s.14-1.57.38-2.29V6.62h-3.98a11.86 11.86 0 0 0 0 10.76l3.98-3.09z"
+      />
+      <path
+        fill="#EA4335"
+        d="M12.255 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C18.205 1.19 15.495 0 12.255 0c-4.69 0-8.74 2.7-10.71 6.62l3.98 3.09c.95-2.85 3.6-4.96 6.73-4.96z"
+      />
+    </svg>
+  );
+}
 
 function summarizePostContent(raw: string): string {
   const firstParagraph = raw
@@ -195,14 +231,23 @@ function ModalDialog({
 }
 
 export default function Admin() {
-  // Security in-memory states (no persistent localStorage or cookies saved for auth)
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
-  const [username, setUsername] = useState('');
+  const firebaseConfigured = isFirebaseConfigured();
+  const canUseLocalPreview = useSyncExternalStore(
+    subscribeNoop,
+    isLocalDevHost,
+    getServerFalse
+  );
+
+  // Google OAuth session state (restricted to the authorized owner account)
+  const [authStatus, setAuthStatus] = useState<AuthStatus>(() =>
+    firebaseConfigured ? 'checking' : 'signed-out'
+  );
+  const [adminUser, setAdminUser] = useState<AdminSessionUser | null>(null);
+  const [isLocalDevSession, setIsLocalDevSession] = useState(false);
+  const [isSigningIn, setIsSigningIn] = useState(false);
   const [loginError, setLoginError] = useState('');
-  const [loginAttempts, setLoginAttempts] = useState(0);
-  const [lockoutTime, setLockoutTime] = useState(0);
+
+  const isAuthenticated = authStatus === 'authenticated';
 
   // Tab state
   const [activeTab, setActiveTab] = useState<AdminTab>('blog');
@@ -215,7 +260,6 @@ export default function Admin() {
   const [editPhotoTitle, setEditPhotoTitle] = useState('');
   const [editPhotoDescription, setEditPhotoDescription] = useState('');
   const [pendingDelete, setPendingDelete] = useState<PendingDeleteTarget | null>(null);
-  const [fbUser, setFbUser] = useState<AuthUserSummary | null>(null);
 
   // Skills state
   const [skills, setSkills] = useState<Skill[]>([]);
@@ -236,9 +280,10 @@ export default function Admin() {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const photoInputRef = useRef<HTMLInputElement>(null);
   const selectPhotosButtonRef = useRef<HTMLButtonElement>(null);
-  const usernameInputRef = useRef<HTMLInputElement>(null);
   const tabButtonRefs = useRef<Partial<Record<AdminTab, HTMLButtonElement | null>>>({});
   const redirectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastAuthenticatedUidRef = useRef<string | null>(null);
+  const isLocalDevSessionRef = useRef(false);
 
   // Inline images state
   const [inlineImages, setInlineImages] = useState<{ id: number; name: string; url: string }[]>([]);
@@ -250,7 +295,7 @@ export default function Admin() {
   // Diagnostic action log
   const [sysLogs, setSysLogs] = useState<string[]>([
     'Session initialized.',
-    'Waiting for sign-in.',
+    'Waiting for Google sign-in.',
   ]);
 
   const addLog = useCallback((msg: string) => {
@@ -268,126 +313,92 @@ export default function Admin() {
     return () => clearRedirectTimer();
   }, [clearRedirectTimer]);
 
-  // Listen to Firebase Auth state changes
+  // Subscribe to Firebase Google Auth state changes
   useEffect(() => {
-    if (!isFirebaseConfigured()) return;
-    const auth = getFirebaseAuth();
-    if (!auth) return;
-
-    let unsubscribe: (() => void) | undefined;
-    import('firebase/auth').then(({ onAuthStateChanged }) => {
-      unsubscribe = onAuthStateChanged(auth, (user) => {
-        setFbUser(user ? { isAnonymous: user.isAnonymous, email: user.email } : null);
-      });
+    return subscribeAdminAuth({
+      onAuthorized: (user) => {
+        isLocalDevSessionRef.current = false;
+        setAdminUser(user);
+        setIsLocalDevSession(false);
+        setLoginError('');
+        setAuthStatus('authenticated');
+        if (lastAuthenticatedUidRef.current !== user.uid) {
+          lastAuthenticatedUidRef.current = user.uid;
+          addLog(`Signed in with Google as ${user.email}.`);
+        }
+      },
+      onSignedOut: () => {
+        lastAuthenticatedUidRef.current = null;
+        setAdminUser(null);
+        setAuthStatus((prev) => (isLocalDevSessionRef.current ? prev : 'signed-out'));
+      },
+      onUnauthorized: (email) => {
+        lastAuthenticatedUidRef.current = null;
+        isLocalDevSessionRef.current = false;
+        setAdminUser(null);
+        setIsLocalDevSession(false);
+        setAuthStatus('signed-out');
+        setLoginError(
+          `Access denied for ${email}. Only the site owner's Google account is authorized.`
+        );
+        addLog(`Rejected unauthorized account (${email}).`);
+      },
     });
+  }, [addLog]);
 
-    return () => {
-      unsubscribe?.();
-    };
-  }, []);
-
-  // Lockout countdown timer
-  useEffect(() => {
-    if (lockoutTime <= 0) return;
-    const timer = setInterval(() => {
-      setLockoutTime((prev) => Math.max(0, prev - 1));
-    }, 1000);
-    return () => clearInterval(timer);
-  }, [lockoutTime]);
-
-  const hashPassword = async (rawPassword: string): Promise<string> => {
-    const encoder = new TextEncoder();
-    const data = encoder.encode(rawPassword);
-    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-    const hashArray = Array.from(new Uint8Array(hashBuffer));
-    return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
-  };
-
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (lockoutTime > 0) return;
-
+  const handleGoogleSignIn = async () => {
+    if (isSigningIn || !firebaseConfigured) return;
     setLoginError('');
-    addLog(`Authentication requested for "${username}".`);
+    setIsSigningIn(true);
+    addLog('Google sign-in requested.');
 
     try {
-      // 1. Email + Firebase Auth path
-      if (username.includes('@') && isFirebaseConfigured()) {
-        const authInstance = getFirebaseAuth();
-        if (authInstance) {
-          addLog('Signing in via Firebase Auth...');
-          const { signInWithEmailAndPassword } = await import('firebase/auth');
-          await signInWithEmailAndPassword(authInstance, username, password);
-          setIsAuthenticated(true);
-          setPassword('');
-          addLog('Firebase sign-in succeeded.');
-          return;
-        }
-      }
-
-      // 2. Local passcode verification fallback
-      const hashedInput = await hashPassword(password);
-
-      if (username === 'admin' && SECURE_PASS_HASHES.includes(hashedInput)) {
-        if (isFirebaseConfigured()) {
-          const authInstance = getFirebaseAuth();
-          if (authInstance) {
-            try {
-              const { signInAnonymously } = await import('firebase/auth');
-              await signInAnonymously(authInstance);
-              addLog('Anonymous Firebase session established.');
-            } catch {
-              addLog('Anonymous Firebase session declined; cloud writes may be restricted.');
-            }
-          }
-        }
-        setIsAuthenticated(true);
-        setPassword('');
-        addLog('Local session authenticated.');
-      } else {
-        const nextAttempts = loginAttempts + 1;
-        setLoginAttempts(nextAttempts);
-        addLog(`Sign-in rejected (${nextAttempts}/3).`);
-
-        if (nextAttempts >= 3) {
-          setLockoutTime(30);
-          setLoginAttempts(0);
-          setLoginError('Too many failed attempts. Please wait 30 seconds before trying again.');
-          addLog('Temporary 30s sign-in cooldown active.');
-        } else {
-          setLoginError('Invalid username or password.');
-        }
-        usernameInputRef.current?.focus();
+      const user = await signInAdminWithGoogle();
+      isLocalDevSessionRef.current = false;
+      setAdminUser(user);
+      setIsLocalDevSession(false);
+      setAuthStatus('authenticated');
+      if (lastAuthenticatedUidRef.current !== user.uid) {
+        lastAuthenticatedUidRef.current = user.uid;
+        addLog(`Signed in with Google as ${user.email}.`);
       }
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Sign-in verification failed.';
-      console.error(err);
+      const message = formatFirebaseAuthError(err);
+      lastAuthenticatedUidRef.current = null;
+      setAdminUser(null);
+      setAuthStatus('signed-out');
       setLoginError(message);
       addLog(`Sign-in error: ${message}`);
-      usernameInputRef.current?.focus();
+    } finally {
+      setIsSigningIn(false);
     }
+  };
+
+  const handleEnterLocalPreview = () => {
+    if (firebaseConfigured || !isLocalDevHost()) return;
+    setLoginError('');
+    setAdminUser(null);
+    isLocalDevSessionRef.current = true;
+    setIsLocalDevSession(true);
+    setAuthStatus('authenticated');
+    addLog('Opened local browser preview session.');
   };
 
   const handleLogout = async () => {
     clearRedirectTimer();
-    if (isFirebaseConfigured()) {
-      const authInstance = getFirebaseAuth();
-      if (authInstance) {
-        try {
-          const { signOut } = await import('firebase/auth');
-          await signOut(authInstance);
-          addLog('Firebase session closed.');
-        } catch (err) {
-          console.error('Signout error', err);
-        }
-      }
+    try {
+      await signOutAdmin();
+    } catch (err) {
+      console.error('Sign out error', err);
     }
-    setIsAuthenticated(false);
-    setUsername('');
-    setPassword('');
-    setShowPassword(false);
+    lastAuthenticatedUidRef.current = null;
+    isLocalDevSessionRef.current = false;
+    setAdminUser(null);
+    setIsLocalDevSession(false);
+    setAuthStatus('signed-out');
+    setLoginError('');
     setFeedback(null);
-    setSysLogs(['Signed out.', 'Waiting for sign-in.']);
+    setSysLogs(['Signed out.', 'Waiting for Google sign-in.']);
   };
 
   const loadPostsAndPhotos = useCallback(async () => {
@@ -817,17 +828,23 @@ export default function Admin() {
     }
   };
 
-  const storageSummary = isFirebaseConfigured()
-    ? fbUser?.email || (fbUser?.isAnonymous ? 'Firestore (anonymous)' : 'Firestore')
-    : 'Local storage';
+  const sessionIdentity = adminUser?.email || (isLocalDevSession ? 'Local browser preview' : 'Signed in');
+  const authStatusLabel =
+    authStatus === 'checking'
+      ? 'Checking session'
+      : firebaseConfigured
+      ? 'Google OAuth'
+      : canUseLocalPreview
+      ? 'Local preview'
+      : 'Auth unavailable';
 
   if (!isAuthenticated) {
     return (
       <article
         data-ascii-panel="true"
-        className="w-full min-[760px]:w-[54%] min-[760px]:max-w-[540px]"
+        className="w-full min-[760px]:w-1/2 min-[760px]:max-w-[50%]"
       >
-        <div className="max-[759px]:min-h-[12vh] max-[759px]:flex max-[759px]:flex-col max-[759px]:justify-end pb-3 sm:pb-4">
+        <div className="max-[759px]:min-h-[17vh] max-[759px]:flex max-[759px]:flex-col max-[759px]:justify-end pb-3 sm:pb-4">
           <div className="w-fit">
             <ScrambleHeading
               text="Admin"
@@ -836,113 +853,99 @@ export default function Admin() {
           </div>
         </div>
 
-        <div className="space-y-5 border-t border-line pt-4">
-          <p className="font-sans text-xs sm:text-sm text-ink-muted leading-relaxed">
-            Sign in to update blog posts, photography, and skills.
-          </p>
+        <div className="w-full space-y-5">
+          {/* Quiet summary strip — mirrors Photography and Resume */}
+          <div className="border-t border-line pt-3 flex items-baseline justify-between gap-4">
+            <p className="font-sans text-xs sm:text-sm text-ink-muted [text-wrap:pretty]">
+              Publishing console for blog, photography, and skills.
+            </p>
+            <span className="font-mono text-xs text-ink-muted shrink-0">
+              {authStatusLabel}
+            </span>
+          </div>
 
-          <form
-            onSubmit={handleLogin}
-            aria-label="Admin sign in"
-            className="space-y-4 max-w-sm"
-          >
-            {loginError && (
+          {/* Editorial sign-in card */}
+          <div className="border border-line bg-surface/65 rounded-[2px] p-5 sm:p-6 space-y-5 max-w-md">
+            {authStatus === 'checking' ? (
               <div
-                id="login-error"
-                role="alert"
-                className="border border-red-700/50 dark:border-red-400/50 bg-surface/90 px-3 py-2.5 font-mono text-xs text-red-700 dark:text-red-400 rounded-[2px]"
+                role="status"
+                aria-live="polite"
+                className="py-4 flex items-center gap-3 font-mono text-xs text-ink-muted"
               >
-                {loginError}
+                <span
+                  aria-hidden="true"
+                  className="inline-block w-2 h-2 rounded-full bg-ink-muted/70 motion-safe:animate-pulse shrink-0"
+                />
+                <span>Checking existing session…</span>
+              </div>
+            ) : (
+              <div className="space-y-5">
+                <div className="space-y-1.5">
+                  <h2 className="font-mono text-sm font-normal text-ink [text-wrap:balance]">
+                    Sign in
+                  </h2>
+                  <p className="font-sans text-xs sm:text-sm text-ink-muted leading-relaxed [text-wrap:pretty]">
+                    Use your authorized Google account to manage blog posts, photography, and
+                    skills.
+                  </p>
+                </div>
+
+                {loginError && (
+                  <div
+                    id="admin-signin-error"
+                    role="alert"
+                    className="border border-red-400/50 [.light_&]:border-red-700/50 bg-surface/90 px-3.5 py-2.5 flex items-start gap-2.5 rounded-[2px] text-red-400 [.light_&]:text-red-700"
+                  >
+                    <AlertCircle size={15} aria-hidden="true" className="shrink-0 mt-0.5" />
+                    <p className="font-mono text-xs leading-relaxed break-words">{loginError}</p>
+                  </div>
+                )}
+
+                <div className="space-y-3">
+                  <button
+                    type="button"
+                    onClick={handleGoogleSignIn}
+                    disabled={isSigningIn || !firebaseConfigured}
+                    aria-busy={isSigningIn}
+                    aria-describedby={loginError ? 'admin-signin-error' : undefined}
+                    className="w-full min-h-[44px] px-4 py-2.5 bg-ink text-bg border border-ink font-mono text-xs font-medium inline-flex items-center justify-center gap-2.5 rounded-[2px] cursor-pointer transition-[opacity,transform,box-shadow] duration-150 ease-out hover:opacity-90 hover:shadow-sm motion-safe:active:scale-[0.99] focus-visible:outline-2 focus-visible:outline-ink focus-visible:outline-offset-[3px] disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100"
+                  >
+                    <GoogleMark />
+                    <span>{isSigningIn ? 'Signing in…' : 'Continue with Google'}</span>
+                  </button>
+
+                  {!firebaseConfigured && (
+                    <div className="space-y-3 border-t border-line pt-4">
+                      <p className="font-sans text-xs text-ink-muted leading-relaxed [text-wrap:pretty]">
+                        Firebase Authentication environment variables are not configured in this
+                        build, so Google sign-in is unavailable.
+                      </p>
+                      {canUseLocalPreview && (
+                        <button
+                          type="button"
+                          onClick={handleEnterLocalPreview}
+                          className={`${SECONDARY_BTN_CLASS} w-full`}
+                        >
+                          Open local browser preview
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
             )}
 
-            <div className="space-y-1.5">
-              <label htmlFor="admin-username" className={LABEL_CLASS}>
-                Username or email
-              </label>
-              <input
-                ref={usernameInputRef}
-                id="admin-username"
-                name="username"
-                type="text"
-                value={username}
-                onChange={(e) => {
-                  setUsername(e.target.value);
-                  if (loginError) setLoginError('');
-                }}
-                autoComplete="username"
-                autoCorrect="off"
-                autoCapitalize="none"
-                spellCheck={false}
-                enterKeyHint="next"
-                aria-invalid={Boolean(loginError)}
-                aria-describedby={loginError ? 'login-error' : undefined}
-                className={INPUT_CLASS}
-                placeholder="admin or email"
-                disabled={lockoutTime > 0}
-                required
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <label htmlFor="admin-password" className={LABEL_CLASS}>
-                Password
-              </label>
-              <div className="relative flex items-center">
-                <input
-                  id="admin-password"
-                  name="password"
-                  type={showPassword ? 'text' : 'password'}
-                  value={password}
-                  onChange={(e) => {
-                    setPassword(e.target.value);
-                    if (loginError) setLoginError('');
-                  }}
-                  autoComplete="current-password"
-                  enterKeyHint="done"
-                  aria-invalid={Boolean(loginError)}
-                  aria-describedby={loginError ? 'login-error' : undefined}
-                  className={`${INPUT_CLASS} pr-11`}
-                  placeholder="Enter password"
-                  disabled={lockoutTime > 0}
-                  required
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword((prev) => !prev)}
-                  aria-pressed={showPassword}
-                  aria-label={showPassword ? 'Hide password' : 'Show password'}
-                  className="absolute right-1 min-w-[38px] min-h-[38px] inline-flex items-center justify-center text-ink-muted hover:text-ink transition-colors cursor-pointer"
-                >
-                  {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
-                </button>
-              </div>
-            </div>
-
-            <div className="pt-1">
-              <button
-                type="submit"
-                className={`${PRIMARY_BTN_CLASS} w-full sm:w-auto`}
-                disabled={lockoutTime > 0}
+            <div className="border-t border-line pt-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 font-mono text-xs text-ink-muted">
+              <Link
+                href="/"
+                className="min-h-[44px] inline-flex items-center gap-1.5 text-ink-nav hover:text-ink hover:underline underline-offset-4 transition-colors"
               >
-                <span>Sign in {lockoutTime > 0 ? `(${lockoutTime}s)` : ''}</span>
-                <ArrowRight size={14} />
-              </button>
+                <span aria-hidden="true">←</span>
+                <span>Return to portfolio</span>
+              </Link>
+              <span className="shrink-0">Authorized owner only</span>
             </div>
-          </form>
-
-          <details className="border-t border-line pt-3 max-w-sm">
-            <summary className="font-mono text-xs text-ink-muted hover:text-ink cursor-pointer select-none">
-              Session log ({sysLogs.length})
-            </summary>
-            <div className="mt-2.5 space-y-1 font-mono text-[11px] text-ink-muted max-h-32 overflow-y-auto">
-              {sysLogs.map((log, i) => (
-                <div key={i} className="leading-relaxed">
-                  {log}
-                </div>
-              ))}
-            </div>
-          </details>
+          </div>
         </div>
       </article>
     );
@@ -953,9 +956,9 @@ export default function Admin() {
   return (
     <article
       data-ascii-panel="true"
-      className="w-full min-[760px]:w-[54%] min-[760px]:max-w-[640px]"
+      className="w-full min-[760px]:w-1/2 min-[760px]:max-w-[50%]"
     >
-      <div className="max-[759px]:min-h-[12vh] max-[759px]:flex max-[759px]:flex-col max-[759px]:justify-end pb-3 sm:pb-4">
+      <div className="max-[759px]:min-h-[17vh] max-[759px]:flex max-[759px]:flex-col max-[759px]:justify-end pb-3 sm:pb-4">
         <div className="w-fit">
           <ScrambleHeading
             text="Admin"
@@ -966,15 +969,15 @@ export default function Admin() {
 
       <div className="space-y-5 border-t border-line pt-3">
         {/* Summary & sign out row — mirrors Resume top strip */}
-        <div className="flex items-baseline justify-between gap-4">
-          <p className="font-mono text-xs text-ink-muted min-w-0">
-            {storageSummary} · {allPosts.length} posts · {allPhotos.length} photos · {skills.length}{' '}
+        <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+          <p className="font-mono text-xs text-ink-muted min-w-0 break-words">
+            {sessionIdentity} · {allPosts.length} posts · {allPhotos.length} photos · {skills.length}{' '}
             skills
           </p>
           <button
             type="button"
             onClick={handleLogout}
-            className="font-mono text-xs text-ink underline underline-offset-4 hover:opacity-80 min-h-[36px] inline-flex items-center shrink-0 whitespace-nowrap cursor-pointer"
+            className="font-mono text-xs text-ink underline underline-offset-4 hover:opacity-80 min-h-[44px] inline-flex items-center shrink-0 whitespace-nowrap cursor-pointer"
           >
             Sign out
           </button>
@@ -1017,22 +1020,27 @@ export default function Admin() {
         {/* Status feedback banner */}
         {feedback && (
           <div
-            role="status"
-            aria-live="polite"
+            role={feedback.kind === 'error' ? 'alert' : 'status'}
+            aria-live={feedback.kind === 'error' ? 'assertive' : 'polite'}
             className={`border px-3.5 py-2.5 font-mono text-xs flex items-center justify-between gap-3 rounded-[2px] bg-surface/90 ${
               feedback.kind === 'error'
-                ? 'border-red-700/50 dark:border-red-400/50 text-red-700 dark:text-red-400'
+                ? 'border-red-400/50 [.light_&]:border-red-700/50 text-red-400 [.light_&]:text-red-700'
                 : 'border-line text-ink'
             }`}
           >
-            <span>{feedback.text}</span>
+            <span className="inline-flex items-center gap-2 min-w-0">
+              {feedback.kind === 'error' && (
+                <AlertCircle size={14} aria-hidden="true" className="shrink-0" />
+              )}
+              <span className="break-words">{feedback.text}</span>
+            </span>
             <button
               type="button"
               onClick={() => setFeedback(null)}
               aria-label="Dismiss message"
               className="text-ink-muted hover:text-ink p-1 cursor-pointer shrink-0"
             >
-              <X size={14} />
+              <X size={14} aria-hidden="true" />
             </button>
           </div>
         )}
@@ -1452,9 +1460,9 @@ export default function Admin() {
                             addLog(`Removed staged photo "${photo.title}".`);
                           }}
                           aria-label={`Remove ${photo.title || 'staged photo'}`}
-                          className="text-ink-muted hover:text-red-700 dark:hover:text-red-400 p-2 min-w-[36px] min-h-[36px] inline-flex items-center justify-center self-end sm:self-start cursor-pointer transition-colors"
+                          className="text-ink-muted hover:text-red-400 [.light_&]:hover:text-red-700 p-2 min-w-[36px] min-h-[36px] inline-flex items-center justify-center self-end sm:self-start cursor-pointer transition-colors"
                         >
-                          <Trash2 size={15} />
+                          <Trash2 size={15} aria-hidden="true" />
                         </button>
                       </div>
                     ))}
@@ -1619,7 +1627,7 @@ export default function Admin() {
                               type="button"
                               onClick={() => handleDeleteSkill(skill.label)}
                               aria-label={`Remove ${skill.label}`}
-                              className="text-ink-muted hover:text-red-700 dark:hover:text-red-400 pl-0.5 cursor-pointer transition-colors"
+                              className="text-ink-muted hover:text-red-400 [.light_&]:hover:text-red-700 pl-0.5 cursor-pointer transition-colors"
                             >
                               ×
                             </button>
@@ -1648,15 +1656,19 @@ export default function Admin() {
             <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-[11px] border-b border-line pb-3">
               <dt className="text-ink-muted">Storage</dt>
               <dd className="text-ink text-right">
-                {isFirebaseConfigured() ? 'Remote Firestore' : 'Local browser'}
+                {firebaseConfigured ? 'Remote Firestore' : 'Local browser'}
               </dd>
-              <dt className="text-ink-muted">Database auth</dt>
+              <dt className="text-ink-muted">Authentication</dt>
               <dd className="text-ink text-right">
-                {fbUser
-                  ? fbUser.isAnonymous
-                    ? 'Anonymous session'
-                    : fbUser.email || 'Signed in'
-                  : 'Local only'}
+                {adminUser
+                  ? 'Google OAuth'
+                  : isLocalDevSession
+                  ? 'Local browser preview'
+                  : 'Signed out'}
+              </dd>
+              <dt className="text-ink-muted">Account</dt>
+              <dd className="text-ink text-right break-all">
+                {adminUser?.email || 'Local browser preview'}
               </dd>
               <dt className="text-ink-muted">Staged photos</dt>
               <dd className="text-ink text-right">{pendingPhotos.length}</dd>
@@ -1760,7 +1772,7 @@ export default function Admin() {
               <button
                 type="button"
                 onClick={handleConfirmDelete}
-                className="font-mono text-xs px-4 py-2.5 min-h-[44px] bg-red-700 text-white dark:bg-red-500/90 dark:text-bg border border-red-700 dark:border-red-400 hover:opacity-90 transition-opacity cursor-pointer rounded-[2px]"
+                className="font-mono text-xs px-4 py-2.5 min-h-[44px] bg-red-500/90 text-bg border border-red-400 [.light_&]:bg-red-700 [.light_&]:text-white [.light_&]:border-red-700 hover:opacity-90 motion-safe:active:scale-[0.99] transition-[opacity,transform] cursor-pointer rounded-[2px]"
               >
                 Delete
               </button>
