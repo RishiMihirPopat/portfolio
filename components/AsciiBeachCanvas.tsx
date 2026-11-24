@@ -33,6 +33,7 @@ export type BeachSectionId =
 export type SceneParams = BeachSceneParams;
 
 export const WASH_DURATION_MS = 560;
+export const NON_BEACH_FADE_OUT_MS = 260;
 export const FADE_DURATION_MS = 460;
 export const SCENE_SWITCH_DURATION_MS = 520;
 
@@ -182,6 +183,7 @@ export function AsciiBeachCanvas() {
   const reducedMotionRef = useRef<boolean>(false);
 
   const washStartRef = useRef<number>(-1);
+  const fadeOutStartRef = useRef<number>(-1);
   const lastWashTriggerRef = useRef<number>(-9999);
   const isWashingOrSwappingRef = useRef<boolean>(false);
   const fadeStartRef = useRef<number>(-1);
@@ -197,14 +199,24 @@ export function AsciiBeachCanvas() {
 
     if (lastPathRef.current !== null && lastPathRef.current !== clean) {
       const now = performance.now();
-      if (now - lastWashTriggerRef.current > WASH_DURATION_MS + 600) {
+      const isBeach = activeSceneIdRef.current === 'beach';
+      const exitDuration = isBeach ? WASH_DURATION_MS : NON_BEACH_FADE_OUT_MS;
+      if (now - lastWashTriggerRef.current > exitDuration + 600) {
         if (!reducedMotionRef.current) {
-          washStartRef.current = now;
+          if (isBeach) {
+            washStartRef.current = now;
+            fadeOutStartRef.current = -1;
+          } else {
+            fadeOutStartRef.current = now;
+            washStartRef.current = -1;
+          }
           lastWashTriggerRef.current = now;
           isWashingOrSwappingRef.current = true;
           fadeStartRef.current = -1;
         }
       } else {
+        washStartRef.current = -1;
+        fadeOutStartRef.current = -1;
         isWashingOrSwappingRef.current = false;
         fadeStartRef.current = now;
       }
@@ -238,7 +250,13 @@ export function AsciiBeachCanvas() {
     const onWaveWash = () => {
       if (!reducedMotionRef.current) {
         const now = performance.now();
-        washStartRef.current = now;
+        if (activeSceneIdRef.current === 'beach') {
+          washStartRef.current = now;
+          fadeOutStartRef.current = -1;
+        } else {
+          fadeOutStartRef.current = now;
+          washStartRef.current = -1;
+        }
         lastWashTriggerRef.current = now;
         isWashingOrSwappingRef.current = true;
         fadeStartRef.current = -1;
@@ -246,6 +264,8 @@ export function AsciiBeachCanvas() {
     };
 
     const onPageFadeIn = () => {
+      washStartRef.current = -1;
+      fadeOutStartRef.current = -1;
       isWashingOrSwappingRef.current = false;
       fadeStartRef.current = performance.now();
     };
@@ -532,6 +552,8 @@ export function AsciiBeachCanvas() {
       isLight: boolean,
       washActive: boolean,
       washProgress: number,
+      fadeOutActive: boolean,
+      fadeOutFactor: number,
       isFadingIn: boolean,
       fadeFactor: number
     ) => {
@@ -539,7 +561,13 @@ export function AsciiBeachCanvas() {
 
       let veilAlpha = 1.0;
       if (isWashingOrSwappingRef.current) {
-        veilAlpha = washActive ? Math.max(0, 1.0 - washProgress * 1.6) : 0.0;
+        if (washActive) {
+          veilAlpha = Math.max(0, 1.0 - washProgress * 1.6);
+        } else if (fadeOutActive) {
+          veilAlpha = Math.max(0, 1.0 - fadeOutFactor);
+        } else {
+          veilAlpha = 0.0;
+        }
       } else if (isFadingIn) {
         veilAlpha = fadeFactor;
       }
@@ -615,10 +643,10 @@ export function AsciiBeachCanvas() {
         pointerY += (targetPointerY - pointerY) * lerp;
       }
 
-      // Evaluate route transition wash state
+      // Evaluate route transition wash state (beach scene only)
       let washActive = false;
       let washProgress = 0;
-      if (washStartRef.current >= 0) {
+      if (washStartRef.current >= 0 && activeSceneIdRef.current === 'beach') {
         const elapsed = now - washStartRef.current;
         if (elapsed >= 0 && elapsed <= WASH_DURATION_MS) {
           washActive = true;
@@ -626,6 +654,22 @@ export function AsciiBeachCanvas() {
         } else if (elapsed > WASH_DURATION_MS) {
           washActive = false;
           washStartRef.current = -1;
+        }
+      } else {
+        washStartRef.current = -1;
+      }
+
+      // Evaluate route transition fade-out state (non-beach scenes)
+      let fadeOutActive = false;
+      let fadeOutFactor = 0.0;
+      if (fadeOutStartRef.current >= 0) {
+        const fadeOutElapsed = now - fadeOutStartRef.current;
+        if (fadeOutElapsed >= 0 && fadeOutElapsed <= NON_BEACH_FADE_OUT_MS) {
+          fadeOutActive = true;
+          const fp = fadeOutElapsed / NON_BEACH_FADE_OUT_MS;
+          fadeOutFactor = fp * fp * (3 - 2 * fp);
+        } else if (fadeOutElapsed > NON_BEACH_FADE_OUT_MS) {
+          fadeOutStartRef.current = -1;
         }
       }
 
@@ -647,18 +691,20 @@ export function AsciiBeachCanvas() {
         }
       }
 
-      if (isFadingIn || washActive) {
+      if (isFadingIn || washActive || fadeOutActive) {
         measurePanel();
       }
 
       // Evaluate scene switch transition state
       let sceneSwitchActive = false;
+      let rawSwitchProgress = 1.0;
       let sceneSwitchProgress = 1.0;
       if (sceneSwitchStartRef.current >= 0 && prevSceneIdRef.current) {
         const switchElapsed = now - sceneSwitchStartRef.current;
         if (switchElapsed >= 0 && switchElapsed <= SCENE_SWITCH_DURATION_MS) {
           sceneSwitchActive = true;
-          sceneSwitchProgress = easeInOutCubic(switchElapsed / SCENE_SWITCH_DURATION_MS);
+          rawSwitchProgress = switchElapsed / SCENE_SWITCH_DURATION_MS;
+          sceneSwitchProgress = easeInOutCubic(rawSwitchProgress);
         } else {
           sceneSwitchStartRef.current = -1;
           prevSceneIdRef.current = null;
@@ -702,6 +748,23 @@ export function AsciiBeachCanvas() {
         sceneSwitchActive && prevSceneIdRef.current
           ? SCENE_REGISTRY[prevSceneIdRef.current] ?? beachScene
           : null;
+      const isFadeSwitch =
+        Boolean(prevScene) &&
+        sceneSwitchActive &&
+        (prevSceneIdRef.current !== 'beach' || activeSceneIdRef.current !== 'beach');
+      const isSweepSwitch = Boolean(prevScene) && sceneSwitchActive && !isFadeSwitch;
+
+      let fadeSwitchAlpha = 1.0;
+      let renderTargetScene: AsciiScene = activeScene;
+      if (isFadeSwitch && prevScene) {
+        if (rawSwitchProgress < 0.48) {
+          renderTargetScene = prevScene;
+          fadeSwitchAlpha = 1.0 - easeInOutCubic(rawSwitchProgress / 0.48);
+        } else {
+          renderTargetScene = activeScene;
+          fadeSwitchAlpha = easeInOutCubic((rawSwitchProgress - 0.48) / 0.52);
+        }
+      }
 
       const frame: SceneFrameContext = {
         width,
@@ -725,8 +788,13 @@ export function AsciiBeachCanvas() {
 
       ctx.clearRect(0, 0, width, height);
 
-      // Draw backdrop (with smooth crossfade during scene switching)
-      if (prevScene && sceneSwitchActive) {
+      // Draw backdrop (clean fade-out/fade-in when non-beach scenes are involved; sweep crossfade otherwise)
+      if (isFadeSwitch) {
+        ctx.save();
+        ctx.globalAlpha = fadeSwitchAlpha;
+        renderTargetScene.renderBackdrop(ctx, frame);
+        ctx.restore();
+      } else if (prevScene && isSweepSwitch) {
         ctx.save();
         ctx.globalAlpha = 1 - sceneSwitchProgress;
         prevScene.renderBackdrop(ctx, frame);
@@ -738,19 +806,21 @@ export function AsciiBeachCanvas() {
       }
 
       drawReadabilityVeil(
-        activeScene,
+        renderTargetScene,
         isLight,
         washActive,
         washProgress,
+        fadeOutActive,
+        fadeOutFactor,
         isFadingIn,
         fadeFactor
       );
 
       // Evaluate scene cells
       clearBuffers(currBuffers);
-      activeScene.renderCells(frame, currBuffers);
+      renderTargetScene.renderCells(frame, currBuffers);
 
-      if (prevScene && sceneSwitchActive) {
+      if (prevScene && isSweepSwitch) {
         if (!prevBuffers || prevBuffers.lumas.length !== cols * rows) {
           prevBuffers = createBuffers(cols * rows);
         } else {
@@ -759,14 +829,14 @@ export function AsciiBeachCanvas() {
         prevScene.renderCells(frame, prevBuffers);
       }
 
-      const activePalette = activeScene.getPalette(isLight);
+      const activePalette = renderTargetScene.getPalette(isLight);
       const activePaletteLen = Math.min(MAX_SCENE_TIERS, activePalette.length);
-      const activeRamp = activeScene.ramp ?? DEFAULT_ASCII_RAMP;
-      const washTheme = activeScene.getWashTheme?.(isLight) ?? defaultWashTheme(isLight);
+      const activeRamp = renderTargetScene.ramp ?? DEFAULT_ASCII_RAMP;
+      const washTheme = renderTargetScene.getWashTheme?.(isLight) ?? defaultWashTheme(isLight);
       const crestChars = washTheme.crestChars ?? DEFAULT_CREST_CHARS;
       const wakeChars = washTheme.wakeChars ?? DEFAULT_WAKE_CHARS;
 
-      const prevPalette = prevScene ? prevScene.getPalette(isLight) : null;
+      const prevPalette = isSweepSwitch && prevScene ? prevScene.getPalette(isLight) : null;
       const prevPaletteLen = prevPalette
         ? Math.min(MAX_SCENE_TIERS, prevPalette.length)
         : 0;
@@ -788,6 +858,11 @@ export function AsciiBeachCanvas() {
         : 0;
       const washWakeBack = isPhone ? -8.5 : -7.0;
       const washFrontAhead = isPhone ? 3.8 : 3.2;
+
+      if (isFadeSwitch) {
+        ctx.save();
+        ctx.globalAlpha = fadeSwitchAlpha;
+      }
 
       for (let r = 0; r < rows; r++) {
         for (let b = 0; b < totalCurrTiers; b++) {
@@ -813,7 +888,7 @@ export function AsciiBeachCanvas() {
           py >= panelRect.top - falloffRadius - 24 &&
           py <= panelRect.bottom + falloffRadius + 24;
 
-        const sweepCol = sceneSwitchActive
+        const sweepCol = isSweepSwitch
           ? -6 +
             (cols + 12) * sceneSwitchProgress +
             Math.sin(rNorm * 0.45 + t * 3.2) * (isPhone ? 2.2 : 4.2)
@@ -912,6 +987,8 @@ export function AsciiBeachCanvas() {
               } else {
                 boxAtten = rawPanelAtten;
               }
+            } else if (fadeOutActive) {
+              boxAtten = rawPanelAtten + fadeOutFactor * (1.0 - rawPanelAtten);
             } else {
               boxAtten = 1.0;
             }
@@ -991,7 +1068,7 @@ export function AsciiBeachCanvas() {
             continue;
           }
 
-          if (sceneSwitchActive && prevBuffers && prevScene) {
+          if (isSweepSwitch && prevBuffers && prevScene) {
             const distToSweep = c - sweepCol;
             if (Math.abs(distToSweep) <= switchCrestHalf) {
               if (panelAtten > 0.18 && fastHash(c + tInt4, r) < 0.85 * panelAtten) {
@@ -1119,6 +1196,10 @@ export function AsciiBeachCanvas() {
           }
         }
       }
+
+      if (isFadeSwitch) {
+        ctx.restore();
+      }
     };
 
     drawNowRef.current = drawScene;
@@ -1129,6 +1210,7 @@ export function AsciiBeachCanvas() {
 
       const isTransitioning =
         washStartRef.current >= 0 ||
+        fadeOutStartRef.current >= 0 ||
         sceneSwitchStartRef.current >= 0 ||
         fadeStartRef.current >= 0;
       const targetFps = isTransitioning ? 45 : width < 760 ? 24 : 32;

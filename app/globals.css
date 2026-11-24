@@ -248,6 +248,24 @@ main[data-transition-dir='backward'] {
   }
 }
 
+@keyframes calm-fade-out {
+  0% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes calm-fade-in-pure {
+  0% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
 @keyframes section-content-reveal {
   0% {
     opacity: 0;
@@ -272,6 +290,12 @@ main[data-transition-dir='backward'] {
   }
 }
 
+.calm-fade-out {
+  animation: calm-fade-out 260ms cubic-bezier(0.4, 0, 1, 1) forwards;
+  pointer-events: none;
+  will-change: opacity;
+}
+
 .page-swapping {
   opacity: 0 !important;
   pointer-events: none;
@@ -284,6 +308,16 @@ main[data-transition-dir='backward'] {
 
 .calm-fade-in .section-content-reveal {
   animation: section-content-reveal 380ms cubic-bezier(0.16, 1, 0.3, 1) 50ms both;
+}
+
+/* Non-beach scenes ('city', 'room'): pure opacity fade-in without wave drift/blur */
+main[data-scene]:not([data-scene='beach']).calm-fade-in {
+  animation: calm-fade-in-pure 360ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  will-change: opacity;
+}
+
+main[data-scene]:not([data-scene='beach']).calm-fade-in .section-content-reveal {
+  animation: none;
 }
 
 /* Mobile menu overlay & staggered drawer item transitions */
@@ -372,6 +406,7 @@ main[data-transition-dir='backward'] {
 @media (prefers-reduced-motion: reduce) {
   .nav-underline-indicator,
   .wave-wash-away,
+  .calm-fade-out,
   .page-swapping,
   .calm-fade-in,
   .calm-fade-in .section-content-reveal {

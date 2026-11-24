@@ -1,6 +1,12 @@
 'use client';
 
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, {
+  useEffect,
+  useRef,
+  useState,
+  useCallback,
+  useSyncExternalStore,
+} from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import {
@@ -13,11 +19,55 @@ import {
 import { profileData } from '@/lib/data';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { SceneToggle } from '@/components/SceneToggle';
-import { FADE_DURATION_MS, WASH_DURATION_MS } from '@/components/AsciiBeachCanvas';
+import {
+  FADE_DURATION_MS,
+  NON_BEACH_FADE_OUT_MS,
+  WASH_DURATION_MS,
+} from '@/components/AsciiBeachCanvas';
+import {
+  ASCII_SCENE_CHANGE_EVENT,
+  ASCII_SCENE_STORAGE_KEY,
+  AsciiSceneId,
+  DEFAULT_ASCII_SCENE,
+} from '@/components/ascii/types';
 import { useIsMobile } from '@/hooks/use-mobile';
+
+const NON_BEACH_FADE_IN_MS = 360;
 
 type TransitionDir = 'forward' | 'backward' | 'none';
 type MenuVisualState = 'entering' | 'open' | 'closing';
+
+function isValidSceneId(value: string | null | undefined): value is AsciiSceneId {
+  return value === 'beach' || value === 'city' || value === 'room';
+}
+
+function subscribeAsciiScene(callback: () => void): () => void {
+  if (typeof window === 'undefined') return () => {};
+  const onSceneChange = () => callback();
+  const onStorage = (e: StorageEvent) => {
+    if (e.key === ASCII_SCENE_STORAGE_KEY) callback();
+  };
+  window.addEventListener(ASCII_SCENE_CHANGE_EVENT, onSceneChange);
+  window.addEventListener('storage', onStorage);
+  return () => {
+    window.removeEventListener(ASCII_SCENE_CHANGE_EVENT, onSceneChange);
+    window.removeEventListener('storage', onStorage);
+  };
+}
+
+function getAsciiSceneSnapshot(): AsciiSceneId {
+  if (typeof window === 'undefined') return DEFAULT_ASCII_SCENE;
+  try {
+    const stored = window.localStorage.getItem(ASCII_SCENE_STORAGE_KEY);
+    return isValidSceneId(stored) ? stored : DEFAULT_ASCII_SCENE;
+  } catch {
+    return DEFAULT_ASCII_SCENE;
+  }
+}
+
+function getAsciiSceneServerSnapshot(): AsciiSceneId {
+  return DEFAULT_ASCII_SCENE;
+}
 
 function inferRouteDirection(fromPath: string, toPath: string): TransitionDir {
   const fromIdx = ALL_PAGES.findIndex((p) => p.href === fromPath);
@@ -67,9 +117,17 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
   const normalizedPath = normalizePathname(pathname);
   const isAdminRoute = normalizedPath.startsWith('/admin');
 
+  const activeScene = useSyncExternalStore(
+    subscribeAsciiScene,
+    getAsciiSceneSnapshot,
+    getAsciiSceneServerSnapshot
+  );
+  const isBeachScene = activeScene === 'beach';
+
   const [transitionPhase, setTransitionPhase] = useState<
     'idle' | 'washing-away' | 'swapping' | 'fading-in'
   >('idle');
+  const [exitKind, setExitKind] = useState<'wave' | 'fade'>('wave');
   const [transitionDir, setTransitionDir] = useState<TransitionDir>('none');
   const targetPathRef = useRef<string | null>(null);
   const isTransitioningRef = useRef(false);
@@ -186,7 +244,12 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    const nextDir = explicitDir ?? inferRouteDirection(normalizedPath, normTarget);
+    const useWave = activeScene === 'beach';
+    const exitDuration = useWave ? WASH_DURATION_MS : NON_BEACH_FADE_OUT_MS;
+    const nextDir = useWave
+      ? (explicitDir ?? inferRouteDirection(normalizedPath, normTarget))
+      : 'none';
+    setExitKind(useWave ? 'wave' : 'fade');
     setTransitionDir(nextDir);
 
     const prefersReduced =
@@ -217,7 +280,7 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
     targetPathRef.current = normTarget;
     setTransitionPhase('washing-away');
 
-    // Restart CSS keyframe if user rapidly clicks a different destination mid-wash
+    // Restart CSS keyframe if user rapidly clicks a different destination mid-exit
     if (wasWashing && mainRef.current) {
       const anims =
         typeof mainRef.current.getAnimations === 'function'
@@ -251,12 +314,12 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
       setIndicator((prev) => ({ ...prev, visible: false }));
     }
 
-    // Trigger the single ASCII transition sweep to wash over the old content
+    // Notify ASCII canvas (ocean wave wash for beach; calm panel fade-out for city/room)
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('ascii-wave-wash'));
     }
 
-    // After WASH_DURATION_MS: sweep has washed away the old content. Swap route.
+    // After exitDuration (560ms beach wave / 260ms non-beach fade-out): swap route.
     washTimerRef.current = setTimeout(() => {
       washTimerRef.current = null;
       setTransitionPhase('swapping');
@@ -272,12 +335,14 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
         if (typeof window !== 'undefined') {
           window.dispatchEvent(new CustomEvent('ascii-page-fade-in'));
         }
+        const enterDuration =
+          getAsciiSceneSnapshot() === 'beach' ? FADE_DURATION_MS : NON_BEACH_FADE_IN_MS;
         fadeTimerRef.current = setTimeout(() => {
           fadeTimerRef.current = null;
           setTransitionPhase('idle');
-        }, FADE_DURATION_MS);
+        }, enterDuration);
       }, 1400);
-    }, WASH_DURATION_MS);
+    }, exitDuration);
   };
 
   const navigateRef = useRef(navigateWithWave);
@@ -373,9 +438,14 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
         swapSafetyTimerRef.current = null;
       }
 
+      const currentScene = getAsciiSceneSnapshot();
+      const useWave = currentScene === 'beach';
+
       if (!isTransitioningRef.current) {
         // Browser back/forward or direct programmatic route change
-        const dir = inferRouteDirection(prevPath, normalizedPath);
+        const dir = useWave
+          ? inferRouteDirection(prevPath, normalizedPath)
+          : 'none';
         requestAnimationFrame(() => setTransitionDir(dir));
       }
 
@@ -394,6 +464,7 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
       const prefersReduced =
         typeof window !== 'undefined' &&
         window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      const enterDuration = useWave ? FADE_DURATION_MS : NON_BEACH_FADE_IN_MS;
 
       const phaseRaf = requestAnimationFrame(() => {
         if (prefersReduced) {
@@ -403,7 +474,7 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
           fadeTimerRef.current = setTimeout(() => {
             fadeTimerRef.current = null;
             setTransitionPhase('idle');
-          }, FADE_DURATION_MS);
+          }, enterDuration);
         }
 
         if (menuOpenRef.current || menuRenderedRef.current) {
@@ -683,15 +754,18 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
         </div>
       )}
 
-      {/* Main Content Landmark — transition sweep washes away old content, then new content fades in calmly */}
+      {/* Main Content Landmark — ocean wave wash for beach; calm fade-out/in for city & room */}
       <main
         ref={mainRef}
         id="main-content"
         tabIndex={-1}
-        data-transition-dir={transitionDir}
+        data-scene={activeScene}
+        data-transition-dir={isBeachScene ? transitionDir : 'none'}
         className={`flex-1 flex flex-col justify-start pt-4 sm:pt-12 pb-10 w-full min-h-[calc(100lvh-140px)] focus:outline-none ${
           transitionPhase === 'washing-away'
-            ? 'wave-wash-away'
+            ? exitKind === 'wave'
+              ? 'wave-wash-away'
+              : 'calm-fade-out'
             : transitionPhase === 'swapping'
             ? 'page-swapping'
             : transitionPhase === 'fading-in'
