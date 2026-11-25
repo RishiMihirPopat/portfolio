@@ -158,6 +158,8 @@ export const fetchAllPhotos = async (): Promise<Photo[]> => {
     const snapshot = await getDocs(q);
     return snapshot.docs.map((d) => {
       const data = d.data();
+      const optStr = (v: unknown): string | undefined =>
+        typeof v === 'string' && v.trim().length > 0 ? v.trim() : undefined;
       return {
         id: d.id,
         url: data.url,
@@ -169,6 +171,14 @@ export const fetchAllPhotos = async (): Promise<Photo[]> => {
             : data.createdAt,
         width: typeof data.width === 'number' && data.width > 0 ? data.width : undefined,
         height: typeof data.height === 'number' && data.height > 0 ? data.height : undefined,
+        camera: optStr(data.camera),
+        lens: optStr(data.lens),
+        focalLength: optStr(data.focalLength),
+        aperture: optStr(data.aperture),
+        shutterSpeed: optStr(data.shutterSpeed),
+        iso: optStr(data.iso),
+        takenAt: optStr(data.takenAt),
+        location: optStr(data.location),
       };
     });
   } catch (error) {

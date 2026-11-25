@@ -126,11 +126,21 @@ function GalleryCard({
 
   const paddedIndex = String(index + 1).padStart(2, '0');
   const paddedTotal = String(total).padStart(2, '0');
-  const formattedDate = formatShortDate(photo.createdAt);
-  const fullDate = formatFullDate(photo.createdAt);
+  const dateSource = photo.takenAt || photo.createdAt;
+  const formattedDate = formatShortDate(dateSource);
+  const fullDate = formatFullDate(dateSource);
   const metaLabel = formattedDate ? `${paddedIndex} · ${formattedDate}` : paddedIndex;
   const title = photo.title || 'Untitled';
   const detailsId = `photo-details-${photo.id}`;
+  const exposureParts = [
+    photo.focalLength,
+    photo.aperture,
+    photo.shutterSpeed,
+    photo.iso,
+  ]
+    .map((v) => v?.trim())
+    .filter(Boolean);
+  const exposureSummary = exposureParts.length > 0 ? exposureParts.join(' · ') : null;
 
   const slotClass =
     viewMode === 'spread'
@@ -252,11 +262,34 @@ function GalleryCard({
                 transition={{ duration: 0.32, ease: CALM_EASE }}
                 className="overflow-hidden"
               >
-                <div className="pt-3 mt-3 border-t border-line/80 space-y-3">
+                <div className="pt-3 mt-3 border-t border-line/80 space-y-3.5">
                   {photo.description && (
                     <p className="font-sans text-xs sm:text-sm text-ink/90 leading-relaxed">
                       {photo.description}
                     </p>
+                  )}
+
+                  {(photo.camera || photo.lens || exposureSummary) && (
+                    <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2.5 font-mono text-[11px] pb-3 border-b border-line/60">
+                      {photo.camera && (
+                        <div className="space-y-0.5">
+                          <dt className="text-ink-muted/75">camera</dt>
+                          <dd className="text-ink">{photo.camera}</dd>
+                        </div>
+                      )}
+                      {photo.lens && (
+                        <div className="space-y-0.5">
+                          <dt className="text-ink-muted/75">lens</dt>
+                          <dd className="text-ink">{photo.lens}</dd>
+                        </div>
+                      )}
+                      {exposureSummary && (
+                        <div className="space-y-0.5 sm:col-span-2">
+                          <dt className="text-ink-muted/75">settings</dt>
+                          <dd className="text-ink">{exposureSummary}</dd>
+                        </div>
+                      )}
+                    </dl>
                   )}
 
                   <dl className="grid grid-cols-2 sm:flex sm:flex-wrap gap-x-6 gap-y-2 font-mono text-[11px]">
@@ -270,6 +303,12 @@ function GalleryCard({
                       <div className="space-y-0.5">
                         <dt className="text-ink-muted/75">captured</dt>
                         <dd className="text-ink">{fullDate}</dd>
+                      </div>
+                    )}
+                    {photo.location && (
+                      <div className="space-y-0.5">
+                        <dt className="text-ink-muted/75">location</dt>
+                        <dd className="text-ink">{photo.location}</dd>
                       </div>
                     )}
                     {hasDimensions && width && height && (

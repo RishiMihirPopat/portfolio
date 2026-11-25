@@ -25,6 +25,14 @@ export interface Photo {
   createdAt: string;
   width?: number;
   height?: number;
+  camera?: string;
+  lens?: string;
+  focalLength?: string;
+  aperture?: string;
+  shutterSpeed?: string;
+  iso?: string;
+  takenAt?: string;
+  location?: string;
 }
 
 export interface Post {
@@ -278,6 +286,13 @@ export const mockPhotos: Photo[] = [
     createdAt: '2026-09-14T12:00:00.000Z',
     width: 900,
     height: 600,
+    camera: 'Fujifilm X100V',
+    lens: 'Fujinon 23mm f/2',
+    focalLength: '35mm',
+    aperture: 'f/4',
+    shutterSpeed: '1/1000s',
+    iso: 'ISO 160',
+    location: 'Malpe Coast, IN',
   },
   {
     id: '2',
@@ -287,6 +302,13 @@ export const mockPhotos: Photo[] = [
     createdAt: '2026-08-29T12:00:00.000Z',
     width: 900,
     height: 600,
+    camera: 'Sony ILCE-7M4',
+    lens: 'FE 35mm f/1.8',
+    focalLength: '35mm',
+    aperture: 'f/5.6',
+    shutterSpeed: '1/500s',
+    iso: 'ISO 200',
+    location: 'Kaup, IN',
   },
   {
     id: '3',
@@ -296,6 +318,13 @@ export const mockPhotos: Photo[] = [
     createdAt: '2026-07-19T12:00:00.000Z',
     width: 600,
     height: 800,
+    camera: 'Ricoh GR IIIx',
+    lens: 'GR 26.1mm f/2.8',
+    focalLength: '40mm',
+    aperture: 'f/2.8',
+    shutterSpeed: '1/125s',
+    iso: 'ISO 800',
+    location: 'Manipal, IN',
   },
   {
     id: '4',
@@ -305,6 +334,13 @@ export const mockPhotos: Photo[] = [
     createdAt: '2026-06-04T12:00:00.000Z',
     width: 900,
     height: 600,
+    camera: 'Fujifilm X100V',
+    lens: 'Fujinon 23mm f/2',
+    focalLength: '35mm',
+    aperture: 'f/2',
+    shutterSpeed: '1/60s',
+    iso: 'ISO 1600',
+    location: 'Manipal, IN',
   },
 ];
 

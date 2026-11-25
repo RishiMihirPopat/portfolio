@@ -51,6 +51,11 @@ import {
   formatFirebaseAuthError,
   isAuthorizedAdminUser,
 } from '@/lib/adminAuth';
+import {
+  extractPhotoExif,
+  formatExposureSummary,
+  type PhotoExifMetadata,
+} from '@/lib/exif';
 import { AdminLoginView, AdminAuthStatus } from '@/components/AdminLoginView';
 import {
   ACCORDION_TRANSITION,
@@ -129,7 +134,7 @@ interface CompressedImage {
   height: number;
 }
 
-interface PendingPhoto {
+interface PendingPhoto extends PhotoExifMetadata {
   id: string;
   url: string;
   title: string;
@@ -277,6 +282,7 @@ export default function Admin() {
   const [editingPhoto, setEditingPhoto] = useState<Photo | null>(null);
   const [editPhotoTitle, setEditPhotoTitle] = useState('');
   const [editPhotoDescription, setEditPhotoDescription] = useState('');
+  const [editPhotoMeta, setEditPhotoMeta] = useState<PhotoExifMetadata>({});
   const [pendingDelete, setPendingDelete] = useState<PendingDeleteTarget | null>(null);
   const [fbUser, setFbUser] = useState<AuthUserSummary | null>(null);
 
@@ -686,6 +692,16 @@ export default function Admin() {
     setEditingPhoto(photo);
     setEditPhotoTitle(photo.title);
     setEditPhotoDescription(photo.description || '');
+    setEditPhotoMeta({
+      camera: photo.camera || '',
+      lens: photo.lens || '',
+      focalLength: photo.focalLength || '',
+      aperture: photo.aperture || '',
+      shutterSpeed: photo.shutterSpeed || '',
+      iso: photo.iso || '',
+      takenAt: photo.takenAt || '',
+      location: photo.location || '',
+    });
     addLog(`Editing metadata for "${photo.title}".`);
   };
 
@@ -697,6 +713,13 @@ export default function Admin() {
       await updatePhoto(editingPhoto.id, {
         title: editPhotoTitle,
         description: editPhotoDescription,
+        camera: editPhotoMeta.camera?.trim() || '',
+        lens: editPhotoMeta.lens?.trim() || '',
+        focalLength: editPhotoMeta.focalLength?.trim() || '',
+        aperture: editPhotoMeta.aperture?.trim() || '',
+        shutterSpeed: editPhotoMeta.shutterSpeed?.trim() || '',
+        iso: editPhotoMeta.iso?.trim() || '',
+        location: editPhotoMeta.location?.trim() || '',
       });
       addLog(`Updated photo "${editPhotoTitle}".`);
       setFeedback({ kind: 'success', text: `Updated "${editPhotoTitle}".` });
@@ -797,7 +820,10 @@ export default function Admin() {
     for (const file of imageFiles) {
       try {
         addLog(`Preparing photo: ${file.name}`);
-        const { url, width, height } = await compressImageWithDimensions(file, 1600, 0.82);
+        const [{ url, width, height }, exif] = await Promise.all([
+          compressImageWithDimensions(file, 1600, 0.82),
+          extractPhotoExif(file),
+        ]);
         setPendingPhotos((prev) => [
           ...prev,
           {
@@ -807,9 +833,17 @@ export default function Admin() {
             description: '',
             width,
             height,
+            ...exif,
           },
         ]);
-        addLog(`Staged "${file.name}".`);
+        const summary = [exif.camera, formatExposureSummary(exif)]
+          .filter(Boolean)
+          .join(' · ');
+        addLog(
+          summary
+            ? `Staged "${file.name}" (EXIF: ${summary}).`
+            : `Staged "${file.name}".`
+        );
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : 'Could not process image.';
         setFeedback({ kind: 'error', text: message });
@@ -967,6 +1001,14 @@ export default function Admin() {
           url: p.url,
           width: p.width,
           height: p.height,
+          camera: p.camera?.trim() || undefined,
+          lens: p.lens?.trim() || undefined,
+          focalLength: p.focalLength?.trim() || undefined,
+          aperture: p.aperture?.trim() || undefined,
+          shutterSpeed: p.shutterSpeed?.trim() || undefined,
+          iso: p.iso?.trim() || undefined,
+          takenAt: p.takenAt?.trim() || undefined,
+          location: p.location?.trim() || undefined,
         }))
       );
 
@@ -1769,6 +1811,43 @@ export default function Admin() {
                                               placeholder="Location, camera notes, or context..."
                                             />
                                           </div>
+                                          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 pt-1">
+                                            {(
+                                              [
+                                                ['camera', 'Camera', 'Fujifilm X100V'],
+                                                ['lens', 'Lens', '23mm f/2'],
+                                                ['location', 'Location', 'Manipal, IN'],
+                                                ['focalLength', 'Focal', '35mm'],
+                                                ['aperture', 'Aperture', 'f/2.8'],
+                                                ['shutterSpeed', 'Shutter', '1/500s'],
+                                                ['iso', 'ISO', 'ISO 400'],
+                                              ] as const
+                                            ).map(([field, label, placeholder]) => (
+                                              <div key={field} className="space-y-1">
+                                                <label
+                                                  htmlFor={`staged-${field}-${photo.id}`}
+                                                  className={LABEL_CLASS}
+                                                >
+                                                  {label}
+                                                </label>
+                                                <input
+                                                  id={`staged-${field}-${photo.id}`}
+                                                  type="text"
+                                                  value={photo[field] || ''}
+                                                  onChange={(e) => {
+                                                    const next = [...pendingPhotos];
+                                                    next[index] = {
+                                                      ...next[index],
+                                                      [field]: e.target.value,
+                                                    };
+                                                    setPendingPhotos(next);
+                                                  }}
+                                                  className={`${INPUT_CLASS} font-mono text-xs min-h-[38px] py-1.5`}
+                                                  placeholder={placeholder}
+                                                />
+                                              </div>
+                                            ))}
+                                          </div>
                                         </div>
                                         <motion.button
                                           type="button"
@@ -2092,6 +2171,38 @@ export default function Admin() {
                           className={`${INPUT_CLASS} resize-y`}
                           placeholder="Optional caption or notes..."
                         />
+                      </div>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 pt-1">
+                        {(
+                          [
+                            ['camera', 'Camera', 'Fujifilm X100V'],
+                            ['lens', 'Lens', '23mm f/2'],
+                            ['location', 'Location', 'Manipal, IN'],
+                            ['focalLength', 'Focal', '35mm'],
+                            ['aperture', 'Aperture', 'f/2.8'],
+                            ['shutterSpeed', 'Shutter', '1/500s'],
+                            ['iso', 'ISO', 'ISO 400'],
+                          ] as const
+                        ).map(([field, label, placeholder]) => (
+                          <div key={field} className="space-y-1">
+                            <label htmlFor={`edit-photo-${field}`} className={LABEL_CLASS}>
+                              {label}
+                            </label>
+                            <input
+                              id={`edit-photo-${field}`}
+                              type="text"
+                              value={editPhotoMeta[field] || ''}
+                              onChange={(e) =>
+                                setEditPhotoMeta((prev) => ({
+                                  ...prev,
+                                  [field]: e.target.value,
+                                }))
+                              }
+                              className={`${INPUT_CLASS} font-mono text-xs min-h-[38px] py-1.5`}
+                              placeholder={placeholder}
+                            />
+                          </div>
+                        ))}
                       </div>
                       <div className="pt-2 flex justify-end gap-3">
                         <motion.button
