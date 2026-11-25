@@ -179,6 +179,7 @@ export const fetchAllPhotos = async (): Promise<Photo[]> => {
         iso: optStr(data.iso),
         takenAt: optStr(data.takenAt),
         location: optStr(data.location),
+        collection: optStr(data.collection),
       };
     });
   } catch (error) {

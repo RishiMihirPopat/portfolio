@@ -9,6 +9,7 @@ export interface PhotoExifMetadata {
   iso?: string;
   takenAt?: string;
   location?: string;
+  collection?: string;
 }
 
 function cleanString(value: unknown): string | undefined {

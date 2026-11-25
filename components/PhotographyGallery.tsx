@@ -1,15 +1,14 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AnimatePresence,
   LayoutGroup,
   MotionConfig,
   motion,
   useReducedMotion,
-  useScroll,
-  useTransform,
 } from 'motion/react';
+import { ChevronLeft, ChevronRight, Search, X } from 'lucide-react';
 import { Photo } from '@/lib/data';
 
 export type GalleryPhoto = Photo & {
@@ -17,7 +16,8 @@ export type GalleryPhoto = Photo & {
   height?: number;
 };
 
-type GalleryViewMode = 'spread' | 'grid';
+type GalleryDensity = 'gallery' | 'contact';
+type GallerySort = 'newest' | 'oldest';
 
 interface PhotographyGalleryProps {
   photos: GalleryPhoto[];
@@ -26,26 +26,21 @@ interface PhotographyGalleryProps {
 
 const CALM_EASE: [number, number, number, number] = [0.16, 1, 0.3, 1];
 
-const LAYOUT_SPRING = {
+const TAB_SPRING = {
   type: 'spring' as const,
-  stiffness: 240,
-  damping: 28,
-  mass: 0.9,
+  stiffness: 380,
+  damping: 32,
 };
 
-/**
- * Editorial 12-column placement rhythm for "spread" mode.
- * Each frame occupies its own space across the full viewport with intentional
- * breathing room so the ASCII background flows naturally between individual prints.
- */
-const SPREAD_SLOTS = [
-  'md:col-span-6 lg:col-start-1 lg:col-span-5 lg:mt-2',
-  'md:col-span-5 md:col-start-8 lg:col-start-8 lg:col-span-5 lg:mt-24',
-  'md:col-span-5 md:col-start-2 lg:col-start-3 lg:col-span-4 lg:mt-10',
-  'md:col-span-6 md:col-start-7 lg:col-start-8 lg:col-span-4 lg:mt-28',
-  'md:col-span-6 md:col-start-1 lg:col-start-2 lg:col-span-5 lg:mt-8',
-  'md:col-span-5 md:col-start-8 lg:col-start-8 lg:col-span-5 lg:mt-20',
-] as const;
+const ALL_COLLECTION = '__all__';
+const UNCATEGORIZED_COLLECTION = '__uncategorized__';
+
+function getPhotoTimestamp(photo: GalleryPhoto): number {
+  const raw = photo.takenAt || photo.createdAt;
+  if (!raw) return Number.NEGATIVE_INFINITY;
+  const ms = Date.parse(raw);
+  return Number.isNaN(ms) ? Number.NEGATIVE_INFINITY : ms;
+}
 
 function formatShortDate(dateStr?: string): string {
   if (!dateStr) return '';
@@ -77,338 +72,332 @@ function formatAspectRatio(width: number, height: number): string {
   return `${(width / height).toFixed(2)}:1`;
 }
 
-interface GalleryCardProps {
+function formatFrameNumber(index: number, total: number): string {
+  const digits = total >= 100 ? 3 : 2;
+  return String(index + 1).padStart(digits, '0');
+}
+
+interface GalleryTileProps {
   photo: GalleryPhoto;
   index: number;
   total: number;
-  viewMode: GalleryViewMode;
-  isExpanded: boolean;
-  isDimmed: boolean;
-  isHovered: boolean;
-  onHoverChange: (id: string | null) => void;
-  onToggleExpand: (photo: GalleryPhoto) => void;
+  density: GalleryDensity;
+  isSelected: boolean;
+  onSelect: (photo: GalleryPhoto) => void;
 }
 
-function GalleryCard({
+function GalleryTile({
   photo,
   index,
   total,
-  viewMode,
-  isExpanded,
-  isDimmed,
-  isHovered,
-  onHoverChange,
-  onToggleExpand,
-}: GalleryCardProps) {
-  const cardRef = useRef<HTMLLIElement>(null);
-  const prefersReducedMotion = useReducedMotion();
-  const [loadedUrl, setLoadedUrl] = useState<string | null>(null);
+  density,
+  isSelected,
+  onSelect,
+}: GalleryTileProps) {
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
-
-  const { scrollYProgress } = useScroll({
-    target: cardRef,
-    offset: ['start end', 'end start'],
-  });
-
-  // Gentle alternating vertical drift in spread mode so frames feel suspended in space
-  const parallaxRange = index % 2 === 0 ? [-14, 14] : [18, -18];
-  const rawParallaxY = useTransform(scrollYProgress, [0, 1], parallaxRange);
-  const parallaxEnabled = viewMode === 'spread' && !prefersReducedMotion;
-
-  const width =
-    typeof photo.width === 'number' && photo.width > 0 ? photo.width : undefined;
-  const height =
-    typeof photo.height === 'number' && photo.height > 0 ? photo.height : undefined;
-  const hasDimensions = width !== undefined && height !== undefined;
-
-  const isLoaded = loadedUrl === photo.url;
   const isUnavailable = !photo.url || failedUrl === photo.url;
-
-  const paddedIndex = String(index + 1).padStart(2, '0');
-  const paddedTotal = String(total).padStart(2, '0');
-  const dateSource = photo.takenAt || photo.createdAt;
-  const formattedDate = formatShortDate(dateSource);
-  const fullDate = formatFullDate(dateSource);
-  const metaLabel = formattedDate ? `${paddedIndex} · ${formattedDate}` : paddedIndex;
   const title = photo.title || 'Untitled';
-  const detailsId = `photo-details-${photo.id}`;
-  const exposureParts = [
-    photo.focalLength,
-    photo.aperture,
-    photo.shutterSpeed,
-    photo.iso,
-  ]
-    .map((v) => v?.trim())
-    .filter(Boolean);
-  const exposureSummary = exposureParts.length > 0 ? exposureParts.join(' · ') : null;
-
-  const slotClass =
-    viewMode === 'spread'
-      ? SPREAD_SLOTS[index % SPREAD_SLOTS.length]
-      : 'col-span-1';
+  const frameNum = formatFrameNumber(index, total);
+  const dateLabel = formatShortDate(photo.takenAt || photo.createdAt);
+  const subline = [photo.camera, photo.collection || dateLabel]
+    .filter(Boolean)
+    .join(' · ');
 
   return (
     <motion.li
-      ref={cardRef}
-      layout="position"
-      initial={{ opacity: 0, y: 24, scale: 0.985 }}
-      whileInView={{ opacity: 1, y: 0, scale: 1 }}
-      viewport={{ once: true, amount: 0.12 }}
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
       transition={{
-        layout: LAYOUT_SPRING,
-        opacity: { duration: 0.55, ease: CALM_EASE, delay: Math.min(index * 0.06, 0.24) },
-        y: { duration: 0.65, ease: CALM_EASE, delay: Math.min(index * 0.06, 0.24) },
-        scale: { duration: 0.65, ease: CALM_EASE, delay: Math.min(index * 0.06, 0.24) },
+        duration: 0.32,
+        ease: CALM_EASE,
+        delay: Math.min((index % 24) * 0.02, 0.24),
       }}
-      style={parallaxEnabled ? { y: rawParallaxY } : undefined}
-      className={slotClass}
+      className="min-w-0"
     >
-      <motion.article
+      <button
+        type="button"
         data-ascii-panel="true"
-        layout="position"
-        animate={{
-          opacity: isDimmed ? 0.58 : 1,
-          y: (isHovered || isExpanded) && !prefersReducedMotion ? -4 : 0,
-        }}
-        whileTap={prefersReducedMotion ? undefined : { scale: 0.992 }}
-        transition={{
-          layout: LAYOUT_SPRING,
-          duration: 0.26,
-          ease: CALM_EASE,
-        }}
-        onMouseEnter={() => onHoverChange(photo.id)}
-        onMouseLeave={() => onHoverChange(null)}
-        onFocus={() => onHoverChange(photo.id)}
-        onBlur={() => onHoverChange(null)}
-        className={`group relative border bg-surface/85 backdrop-blur-[2px] transition-colors duration-300 rounded-[2px] overflow-hidden has-[button:focus-visible]:outline-2 has-[button:focus-visible]:outline-ink has-[button:focus-visible]:outline-offset-2 ${
-          isExpanded
-            ? 'border-ink/65'
+        onClick={() => onSelect(photo)}
+        aria-pressed={isSelected}
+        className={`group relative block w-full text-left border bg-surface/85 rounded-[2px] overflow-hidden transition-colors duration-200 focus-visible:outline-2 focus-visible:outline-ink focus-visible:outline-offset-2 cursor-pointer ${
+          isSelected
+            ? 'border-ink ring-1 ring-ink/50'
             : 'border-line hover:border-ink/55'
         }`}
       >
-        <div
-          className={`relative overflow-hidden bg-surface/90${
-            !hasDimensions && !isLoaded && !isUnavailable ? ' min-h-[180px]' : ''
-          }`}
-        >
+        <div className="relative aspect-[4/3] w-full overflow-hidden bg-surface/95">
           {isUnavailable ? (
-            <div
-              className="flex min-h-[180px] w-full items-center justify-center px-3 py-8 text-center font-mono text-xs text-ink-muted"
-              style={hasDimensions ? { aspectRatio: `${width} / ${height}` } : undefined}
-            >
-              [ image unavailable ]
+            <div className="flex h-full w-full items-center justify-center px-2 text-center font-mono text-[11px] text-ink-muted">
+              [ unavailable ]
             </div>
           ) : (
             /* eslint-disable-next-line @next/next/no-img-element */
             <img
               src={photo.url}
               alt={title}
-              width={hasDimensions ? width : undefined}
-              height={hasDimensions ? height : undefined}
-              style={hasDimensions ? { aspectRatio: `${width} / ${height}` } : undefined}
-              loading={index >= 2 ? 'lazy' : undefined}
-              decoding={index >= 2 ? 'async' : undefined}
+              loading={index >= 6 ? 'lazy' : undefined}
+              decoding={index >= 6 ? 'async' : undefined}
               fetchPriority={index === 0 ? 'high' : undefined}
-              onLoad={() => setLoadedUrl(photo.url)}
               onError={() => setFailedUrl(photo.url)}
-              className={`w-full block motion-safe:transition-transform motion-safe:duration-500 motion-safe:ease-[cubic-bezier(0.16,1,0.3,1)] ${
-                isExpanded
-                  ? 'motion-safe:scale-[1.015]'
-                  : 'motion-safe:group-hover:scale-[1.03]'
-              } ${
-                viewMode === 'grid' && !isExpanded
-                  ? 'aspect-[4/3] object-cover'
-                  : 'h-auto max-h-[75vh] object-cover'
-              }`}
+              className="h-full w-full object-cover block motion-safe:transition-transform motion-safe:duration-500 motion-safe:ease-[cubic-bezier(0.16,1,0.3,1)] motion-safe:group-hover:scale-[1.035]"
             />
+          )}
+
+          {density === 'contact' && (
+            <>
+              <span className="pointer-events-none absolute top-1.5 left-1.5 px-1.5 py-0.5 font-mono text-[10px] leading-none bg-bg/80 text-ink/90 rounded-[2px]">
+                {frameNum}
+              </span>
+              <span className="pointer-events-none absolute inset-x-0 bottom-0 px-2 py-1.5 bg-gradient-to-t from-bg/90 via-bg/55 to-transparent opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 transition-opacity duration-200 font-mono text-[11px] text-ink truncate">
+                {title}
+              </span>
+            </>
           )}
         </div>
 
-        <div className="border-t border-line px-3.5 py-3">
-          <div className="flex items-baseline justify-between gap-3">
-            <h2 className="font-mono text-xs sm:text-[13px] font-normal text-ink min-w-0 truncate">
-              <button
-                type="button"
-                aria-expanded={isExpanded}
-                aria-controls={detailsId}
-                onClick={() => onToggleExpand(photo)}
-                className="block w-full truncate text-left after:content-[''] after:absolute after:inset-0 focus-visible:outline-none cursor-pointer"
-              >
+        {density === 'gallery' && (
+          <div className="border-t border-line px-3 py-2.5 space-y-0.5">
+            <div className="flex items-baseline justify-between gap-2.5">
+              <span className="font-mono text-xs sm:text-[13px] text-ink truncate">
                 {title}
-                <span className="sr-only">
-                  {isExpanded ? ' — hide details' : ' — show details'}
-                </span>
-              </button>
-            </h2>
-            <div className="flex items-baseline gap-2.5 shrink-0 font-mono text-[11px] text-ink-muted">
-              <span>{metaLabel}</span>
-              <span
-                aria-hidden="true"
-                className="text-ink/70 transition-colors duration-200 group-hover:text-ink"
-              >
-                {isExpanded ? '−' : '+'}
+              </span>
+              <span className="font-mono text-[11px] text-ink-muted shrink-0">
+                {frameNum}
               </span>
             </div>
-          </div>
-
-          <AnimatePresence initial={false}>
-            {isExpanded && (
-              <motion.div
-                id={detailsId}
-                key="details"
-                initial={{ height: 0, opacity: 0 }}
-                animate={{ height: 'auto', opacity: 1 }}
-                exit={{ height: 0, opacity: 0 }}
-                transition={{ duration: 0.32, ease: CALM_EASE }}
-                className="overflow-hidden"
-              >
-                <div className="pt-3 mt-3 border-t border-line/80 space-y-3.5">
-                  {photo.description && (
-                    <p className="font-sans text-xs sm:text-sm text-ink/90 leading-relaxed">
-                      {photo.description}
-                    </p>
-                  )}
-
-                  {(photo.camera || photo.lens || exposureSummary) && (
-                    <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2.5 font-mono text-[11px] pb-3 border-b border-line/60">
-                      {photo.camera && (
-                        <div className="space-y-0.5">
-                          <dt className="text-ink-muted/75">camera</dt>
-                          <dd className="text-ink">{photo.camera}</dd>
-                        </div>
-                      )}
-                      {photo.lens && (
-                        <div className="space-y-0.5">
-                          <dt className="text-ink-muted/75">lens</dt>
-                          <dd className="text-ink">{photo.lens}</dd>
-                        </div>
-                      )}
-                      {exposureSummary && (
-                        <div className="space-y-0.5 sm:col-span-2">
-                          <dt className="text-ink-muted/75">settings</dt>
-                          <dd className="text-ink">{exposureSummary}</dd>
-                        </div>
-                      )}
-                    </dl>
-                  )}
-
-                  <dl className="grid grid-cols-2 sm:flex sm:flex-wrap gap-x-6 gap-y-2 font-mono text-[11px]">
-                    <div className="space-y-0.5">
-                      <dt className="text-ink-muted/75">frame</dt>
-                      <dd className="text-ink">
-                        {paddedIndex} / {paddedTotal}
-                      </dd>
-                    </div>
-                    {fullDate && (
-                      <div className="space-y-0.5">
-                        <dt className="text-ink-muted/75">captured</dt>
-                        <dd className="text-ink">{fullDate}</dd>
-                      </div>
-                    )}
-                    {photo.location && (
-                      <div className="space-y-0.5">
-                        <dt className="text-ink-muted/75">location</dt>
-                        <dd className="text-ink">{photo.location}</dd>
-                      </div>
-                    )}
-                    {hasDimensions && width && height && (
-                      <div className="space-y-0.5">
-                        <dt className="text-ink-muted/75">format</dt>
-                        <dd className="text-ink">
-                          {width} × {height} · {formatAspectRatio(width, height)}
-                        </dd>
-                      </div>
-                    )}
-                  </dl>
-                </div>
-              </motion.div>
+            {subline && (
+              <p className="font-mono text-[11px] text-ink-muted/85 truncate">
+                {subline}
+              </p>
             )}
-          </AnimatePresence>
-        </div>
-      </motion.article>
+          </div>
+        )}
+      </button>
     </motion.li>
   );
 }
 
 export function PhotographyGallery({ photos, onSelectPhoto }: PhotographyGalleryProps) {
-  const [viewMode, setViewMode] = useState<GalleryViewMode>('spread');
-  const [hoveredId, setHoveredId] = useState<string | null>(null);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const prefersReducedMotion = useReducedMotion();
+  const stageRef = useRef<HTMLElement>(null);
 
-  // Collapse expanded details on Escape
+  const [activeCollection, setActiveCollection] = useState<string>(ALL_COLLECTION);
+  const [density, setDensity] = useState<GalleryDensity>('gallery');
+  const [sortOrder, setSortOrder] = useState<GallerySort>('newest');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [navDirection, setNavDirection] = useState<number>(1);
+  const [visibleLimit, setVisibleLimit] = useState<number>(24);
+  const [stageFailedUrl, setStageFailedUrl] = useState<string | null>(null);
+
+  const pageSize = density === 'contact' ? 48 : 24;
+
+  // Build collection tabs with counts
+  const collections = useMemo(() => {
+    const counts = new Map<string, number>();
+    let uncategorizedCount = 0;
+
+    for (const photo of photos) {
+      const col = photo.collection?.trim();
+      if (col) {
+        counts.set(col, (counts.get(col) || 0) + 1);
+      } else {
+        uncategorizedCount += 1;
+      }
+    }
+
+    const named = Array.from(counts.entries())
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .map(([name, count]) => ({ id: name, label: name, count }));
+
+    const tabs = [{ id: ALL_COLLECTION, label: 'All', count: photos.length }, ...named];
+    if (named.length > 0 && uncategorizedCount > 0) {
+      tabs.push({
+        id: UNCATEGORIZED_COLLECTION,
+        label: 'Uncategorized',
+        count: uncategorizedCount,
+      });
+    }
+    return tabs;
+  }, [photos]);
+
+  // Ensure activeCollection stays valid if photos update
+  const resolvedCollection = useMemo(() => {
+    if (activeCollection === ALL_COLLECTION) return ALL_COLLECTION;
+    return collections.some((c) => c.id === activeCollection)
+      ? activeCollection
+      : ALL_COLLECTION;
+  }, [activeCollection, collections]);
+
+  // Filter & sort photos
+  const filteredPhotos = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+
+    const list = photos.filter((photo) => {
+      const col = photo.collection?.trim() || '';
+      if (resolvedCollection === UNCATEGORIZED_COLLECTION) {
+        if (col) return false;
+      } else if (resolvedCollection !== ALL_COLLECTION) {
+        if (col !== resolvedCollection) return false;
+      }
+
+      if (!q) return true;
+      const haystack = [
+        photo.title,
+        photo.description,
+        photo.camera,
+        photo.lens,
+        photo.location,
+        photo.collection,
+        photo.focalLength,
+        photo.aperture,
+        photo.iso,
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+      return haystack.includes(q);
+    });
+
+    list.sort((a, b) => {
+      const ta = getPhotoTimestamp(a);
+      const tb = getPhotoTimestamp(b);
+      return sortOrder === 'newest' ? tb - ta : ta - tb;
+    });
+
+    return list;
+  }, [photos, resolvedCollection, searchQuery, sortOrder]);
+
+  const visiblePhotos = useMemo(
+    () => filteredPhotos.slice(0, visibleLimit),
+    [filteredPhotos, visibleLimit]
+  );
+
+  const selectedIndex = useMemo(
+    () => (selectedId ? filteredPhotos.findIndex((p) => p.id === selectedId) : -1),
+    [filteredPhotos, selectedId]
+  );
+
+  const selectedPhoto = selectedIndex >= 0 ? filteredPhotos[selectedIndex] : null;
+
+  const handleSelectCollection = (colId: string) => {
+    setActiveCollection(colId);
+    setVisibleLimit(pageSize);
+    setSelectedId(null);
+  };
+
+  const handleChangeDensity = (next: GalleryDensity) => {
+    setDensity(next);
+    setVisibleLimit((prev) => Math.max(prev, next === 'contact' ? 48 : 24));
+  };
+
+  const handleSelectTile = useCallback(
+    (photo: GalleryPhoto) => {
+      if (selectedId === photo.id) {
+        setSelectedId(null);
+        return;
+      }
+      setNavDirection(1);
+      setSelectedId(photo.id);
+      onSelectPhoto?.(photo);
+
+      // Smoothly bring the inline inspection stage into view if user scrolled down
+      requestAnimationFrame(() => {
+        stageRef.current?.scrollIntoView({
+          behavior: prefersReducedMotion ? 'auto' : 'smooth',
+          block: 'nearest',
+        });
+      });
+    },
+    [selectedId, onSelectPhoto, prefersReducedMotion]
+  );
+
+  const handleStep = useCallback(
+    (delta: number) => {
+      if (filteredPhotos.length <= 1 || selectedIndex < 0) return;
+      const nextIdx =
+        (selectedIndex + delta + filteredPhotos.length) % filteredPhotos.length;
+      setNavDirection(delta);
+      const nextPhoto = filteredPhotos[nextIdx];
+      setSelectedId(nextPhoto.id);
+      if (nextIdx >= visibleLimit) {
+        setVisibleLimit(nextIdx + pageSize);
+      }
+    },
+    [filteredPhotos, selectedIndex, visibleLimit, pageSize]
+  );
+
+  // Keyboard navigation while inline inspection stage is open
   useEffect(() => {
-    if (!expandedId) return;
+    if (!selectedPhoto) return;
     const onKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) {
+        return;
+      }
       if (e.key === 'Escape') {
-        setExpandedId(null);
+        setSelectedId(null);
+      } else if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        handleStep(1);
+      } else if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        handleStep(-1);
       }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [expandedId]);
+  }, [selectedPhoto, handleStep]);
 
-  // Re-measure ASCII clear halos after layout/expand transitions settle
+  // Re-sync ASCII clear halos when stage opens/closes or layout changes
   useEffect(() => {
     const timer = window.setTimeout(() => {
       window.dispatchEvent(new Event('resize'));
-    }, 360);
+    }, 340);
     return () => window.clearTimeout(timer);
-  }, [viewMode, expandedId, photos.length]);
+  }, [selectedId, resolvedCollection, density, visiblePhotos.length]);
 
-  const handleToggleExpand = (photo: GalleryPhoto) => {
-    setExpandedId((prev) => (prev === photo.id ? null : photo.id));
-    onSelectPhoto?.(photo);
-  };
-
-  const countLabel = `${String(photos.length).padStart(2, '0')} ${
-    photos.length === 1 ? 'frame' : 'frames'
-  }`;
-
-  const activeFocusId = hoveredId ?? expandedId;
+  const remainingCount = Math.max(0, filteredPhotos.length - visiblePhotos.length);
 
   return (
     <MotionConfig reducedMotion="user">
-      <LayoutGroup id="photography-gallery">
-        <div className="space-y-8 sm:space-y-12 w-full">
-          {/* Top metadata & view mode bar — slim clear halo so ASCII flows below */}
+      <LayoutGroup id="photography-archive">
+        <div className="space-y-5 w-full pb-10">
+          {/* Archive Controls: Collections + Search + Density + Sort */}
           <div
             data-ascii-panel="true"
-            className="border-t border-line pt-3 flex flex-wrap items-center justify-between gap-4"
+            className="border-t border-b border-line py-3 space-y-2.5"
           >
-            <div className="flex items-baseline gap-3">
-              <p className="font-sans text-xs sm:text-sm text-ink-muted">
-                Selected frames &amp; field studies.
-              </p>
-              <span className="font-mono text-xs text-ink-muted/80 shrink-0">
-                {countLabel}
-              </span>
-            </div>
-
-            {photos.length > 1 && (
+            {/* Row 1: Collection Tabs + Frame Count */}
+            <div className="flex items-baseline justify-between gap-4">
               <div
-                role="group"
-                aria-label="Gallery layout"
-                className="inline-flex items-center gap-4 font-mono text-xs"
+                role="tablist"
+                aria-label="Photo collections"
+                className="flex items-center gap-5 overflow-x-auto pb-1 -mb-1"
               >
-                {(['spread', 'grid'] as const).map((mode) => {
-                  const isActive = viewMode === mode;
+                {collections.map((col) => {
+                  const isActive = resolvedCollection === col.id;
                   return (
                     <button
-                      key={mode}
+                      key={col.id}
                       type="button"
-                      onClick={() => setViewMode(mode)}
-                      aria-pressed={isActive}
-                      className={`relative pb-1 transition-colors duration-150 cursor-pointer ${
+                      role="tab"
+                      aria-selected={isActive}
+                      onClick={() => handleSelectCollection(col.id)}
+                      className={`relative pb-1.5 font-mono text-xs whitespace-nowrap transition-colors duration-150 cursor-pointer flex items-baseline gap-1.5 ${
                         isActive
                           ? 'text-ink'
                           : 'text-ink-muted hover:text-ink'
                       }`}
                     >
-                      {mode}
+                      <span>{col.label}</span>
+                      <span className="text-[10px] text-ink-muted/80">
+                        {String(col.count).padStart(2, '0')}
+                      </span>
                       {isActive && (
                         <motion.span
-                          layoutId="photo-view-underline"
-                          transition={LAYOUT_SPRING}
+                          layoutId="photo-collection-underline"
+                          transition={TAB_SPRING}
                           className="absolute left-0 right-0 bottom-0 h-px bg-ink"
                         />
                       )}
@@ -416,49 +405,370 @@ export function PhotographyGallery({ photos, onSelectPhoto }: PhotographyGallery
                   );
                 })}
               </div>
-            )}
+
+              <span className="hidden sm:inline font-mono text-[11px] text-ink-muted shrink-0">
+                {filteredPhotos.length === photos.length
+                  ? `${filteredPhotos.length} ${filteredPhotos.length === 1 ? 'frame' : 'frames'}`
+                  : `${filteredPhotos.length} of ${photos.length}`}
+              </span>
+            </div>
+
+            {/* Row 2: Search + Sort + Density */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2 border-t border-line/50">
+              <div className="relative flex-1 max-w-sm">
+                <Search
+                  size={13}
+                  aria-hidden="true"
+                  className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-muted/80"
+                />
+                <input
+                  type="search"
+                  value={searchQuery}
+                  onChange={(e) => {
+                    setSearchQuery(e.target.value);
+                    setVisibleLimit(pageSize);
+                  }}
+                  placeholder="Filter by title, camera, lens, location..."
+                  aria-label="Filter photographs"
+                  className="w-full bg-surface/75 border border-line pl-8 pr-7 py-1.5 font-mono text-xs text-ink placeholder:text-ink-muted/70 focus:border-ink focus:outline-none transition-colors rounded-[2px]"
+                />
+                {searchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchQuery('')}
+                    aria-label="Clear filter"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-ink-muted hover:text-ink cursor-pointer"
+                  >
+                    <X size={12} />
+                  </button>
+                )}
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between sm:justify-end gap-4 font-mono text-xs">
+                <span className="sm:hidden text-[11px] text-ink-muted">
+                  {filteredPhotos.length === photos.length
+                    ? `${filteredPhotos.length} ${filteredPhotos.length === 1 ? 'frame' : 'frames'}`
+                    : `${filteredPhotos.length} of ${photos.length}`}
+                </span>
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    setSortOrder((prev) => (prev === 'newest' ? 'oldest' : 'newest'))
+                  }
+                  className="text-ink-muted hover:text-ink transition-colors cursor-pointer"
+                  title="Toggle chronological sort"
+                >
+                  {sortOrder === 'newest' ? 'newest ↓' : 'oldest ↑'}
+                </button>
+
+                <div
+                  role="group"
+                  aria-label="Archive density"
+                  className="inline-flex items-center gap-3 border-l border-line pl-4"
+                >
+                  {(['gallery', 'contact'] as const).map((mode) => {
+                    const isActive = density === mode;
+                    return (
+                      <button
+                        key={mode}
+                        type="button"
+                        onClick={() => handleChangeDensity(mode)}
+                        aria-pressed={isActive}
+                        className={`relative pb-0.5 transition-colors duration-150 cursor-pointer ${
+                          isActive ? 'text-ink' : 'text-ink-muted hover:text-ink'
+                        }`}
+                      >
+                        {mode}
+                        {isActive && (
+                          <motion.span
+                            layoutId="photo-density-underline"
+                            transition={TAB_SPRING}
+                            className="absolute left-0 right-0 bottom-0 h-px bg-ink"
+                          />
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
           </div>
 
-          {photos.length === 0 ? (
-            <p
-              data-ascii-panel="true"
-              className="font-sans text-sm text-ink-muted py-6 w-fit"
-            >
-              No photographs archived yet.
-            </p>
-          ) : (
-            <ul
-              role="list"
-              className={
-                viewMode === 'spread'
-                  ? 'grid grid-cols-1 md:grid-cols-12 gap-y-12 md:gap-x-8 lg:gap-x-10 lg:gap-y-16 pb-12 w-full items-start'
-                  : 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 sm:gap-8 pb-8 w-full items-start'
-              }
-            >
-              {photos.map((photo, index) => {
-                const isExpanded = expandedId === photo.id;
-                const isHovered = hoveredId === photo.id;
-                const isDimmed =
-                  activeFocusId !== null &&
-                  activeFocusId !== photo.id &&
-                  !isExpanded;
+          {/* Inline Inspection Stage (Zero Modal — Full Image + Camera/EXIF Spec Sheet) */}
+          <AnimatePresence initial={false}>
+            {selectedPhoto && (
+              <motion.section
+                ref={stageRef}
+                key="inline-inspection-stage"
+                aria-label="Selected photograph details"
+                data-ascii-panel="true"
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                transition={{ duration: 0.34, ease: CALM_EASE }}
+                className="overflow-hidden"
+              >
+                <div className="border border-line bg-surface/95 backdrop-blur-sm rounded-[2px] overflow-hidden grid grid-cols-1 lg:grid-cols-12">
+                  {/* Left: Uncropped full-frame photograph */}
+                  <div className="lg:col-span-8 flex items-center justify-center p-4 sm:p-6 min-h-[280px] sm:min-h-[400px] lg:min-h-[480px] relative overflow-hidden">
+                    <AnimatePresence mode="wait" initial={false}>
+                      <motion.div
+                        key={selectedPhoto.id}
+                        initial={{
+                          opacity: 0,
+                          x: prefersReducedMotion ? 0 : navDirection * 14,
+                        }}
+                        animate={{ opacity: 1, x: 0 }}
+                        exit={{
+                          opacity: 0,
+                          x: prefersReducedMotion ? 0 : -navDirection * 14,
+                        }}
+                        transition={{ duration: 0.24, ease: CALM_EASE }}
+                        className="w-full h-full flex items-center justify-center"
+                      >
+                        {!selectedPhoto.url || stageFailedUrl === selectedPhoto.url ? (
+                          <p className="font-mono text-xs text-ink-muted py-16">
+                            [ image unavailable ]
+                          </p>
+                        ) : (
+                          /* eslint-disable-next-line @next/next/no-img-element */
+                          <img
+                            src={selectedPhoto.url}
+                            alt={selectedPhoto.title || 'Selected photograph'}
+                            onError={() => setStageFailedUrl(selectedPhoto.url)}
+                            className="max-h-[68vh] w-auto max-w-full object-contain block rounded-[1px]"
+                          />
+                        )}
+                      </motion.div>
+                    </AnimatePresence>
+                  </div>
 
-                return (
-                  <GalleryCard
+                  {/* Right: Editorial EXIF & Metadata Spec Sheet */}
+                  <div className="lg:col-span-4 border-t lg:border-t-0 lg:border-l border-line p-4 sm:p-6 flex flex-col justify-between gap-6">
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-2 font-mono text-[11px] text-ink-muted">
+                          <span>
+                            {formatFrameNumber(selectedIndex, filteredPhotos.length)} /{' '}
+                            {String(filteredPhotos.length).padStart(
+                              filteredPhotos.length >= 100 ? 3 : 2,
+                              '0'
+                            )}
+                          </span>
+                          {selectedPhoto.collection && (
+                            <>
+                              <span aria-hidden="true">·</span>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  handleSelectCollection(selectedPhoto.collection!)
+                                }
+                                className="text-ink-muted hover:text-ink underline underline-offset-4 cursor-pointer"
+                              >
+                                {selectedPhoto.collection}
+                              </button>
+                            </>
+                          )}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedId(null)}
+                          aria-label="Close photograph details"
+                          className="inline-flex items-center gap-1 font-mono text-[11px] text-ink-muted hover:text-ink transition-colors cursor-pointer"
+                        >
+                          <span>close</span>
+                          <X size={13} />
+                        </button>
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <h2 className="font-mono text-base sm:text-lg font-medium text-ink leading-snug">
+                          {selectedPhoto.title || 'Untitled'}
+                        </h2>
+                        {selectedPhoto.description && (
+                          <p className="font-sans text-xs sm:text-sm text-ink/85 leading-relaxed">
+                            {selectedPhoto.description}
+                          </p>
+                        )}
+                      </div>
+
+                      {/* Exposure Chips */}
+                      {(selectedPhoto.focalLength ||
+                        selectedPhoto.aperture ||
+                        selectedPhoto.shutterSpeed ||
+                        selectedPhoto.iso) && (
+                        <div className="flex flex-wrap gap-1.5 pt-1">
+                          {[
+                            selectedPhoto.focalLength,
+                            selectedPhoto.aperture,
+                            selectedPhoto.shutterSpeed,
+                            selectedPhoto.iso,
+                          ]
+                            .filter(Boolean)
+                            .map((val, i) => (
+                              <span
+                                key={`${val}-${i}`}
+                                className="font-mono text-[11px] text-ink border border-line bg-bg/50 px-2 py-0.5 rounded-[2px]"
+                              >
+                                {val}
+                              </span>
+                            ))}
+                        </div>
+                      )}
+
+                      {/* Structured Technical Metadata */}
+                      <dl className="divide-y divide-line/60 border-t border-b border-line/60 font-mono text-[11px]">
+                        {selectedPhoto.camera && (
+                          <div className="py-2 flex items-baseline justify-between gap-4">
+                            <dt className="text-ink-muted/80 shrink-0">camera</dt>
+                            <dd className="text-ink text-right">{selectedPhoto.camera}</dd>
+                          </div>
+                        )}
+                        {selectedPhoto.lens && (
+                          <div className="py-2 flex items-baseline justify-between gap-4">
+                            <dt className="text-ink-muted/80 shrink-0">lens</dt>
+                            <dd className="text-ink text-right">{selectedPhoto.lens}</dd>
+                          </div>
+                        )}
+                        {formatFullDate(selectedPhoto.takenAt || selectedPhoto.createdAt) && (
+                          <div className="py-2 flex items-baseline justify-between gap-4">
+                            <dt className="text-ink-muted/80 shrink-0">captured</dt>
+                            <dd className="text-ink text-right">
+                              {formatFullDate(
+                                selectedPhoto.takenAt || selectedPhoto.createdAt
+                              )}
+                            </dd>
+                          </div>
+                        )}
+                        {selectedPhoto.location && (
+                          <div className="py-2 flex items-baseline justify-between gap-4">
+                            <dt className="text-ink-muted/80 shrink-0">location</dt>
+                            <dd className="text-ink text-right">{selectedPhoto.location}</dd>
+                          </div>
+                        )}
+                        {selectedPhoto.width && selectedPhoto.height && (
+                          <div className="py-2 flex items-baseline justify-between gap-4">
+                            <dt className="text-ink-muted/80 shrink-0">format</dt>
+                            <dd className="text-ink text-right">
+                              {selectedPhoto.width} × {selectedPhoto.height} ·{' '}
+                              {formatAspectRatio(
+                                selectedPhoto.width,
+                                selectedPhoto.height
+                              )}
+                            </dd>
+                          </div>
+                        )}
+                      </dl>
+                    </div>
+
+                    {/* Prev / Next Navigation */}
+                    {filteredPhotos.length > 1 && (
+                      <div className="flex items-center justify-between gap-3 pt-2 font-mono text-xs">
+                        <button
+                          type="button"
+                          onClick={() => handleStep(-1)}
+                          className="inline-flex items-center gap-1.5 border border-line px-3 py-1.5 rounded-[2px] text-ink-muted hover:text-ink hover:border-ink/55 transition-colors cursor-pointer"
+                        >
+                          <ChevronLeft size={13} />
+                          <span>prev</span>
+                        </button>
+                        <span className="text-[11px] text-ink-muted/85 hidden sm:inline">
+                          ← / → · esc
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleStep(1)}
+                          className="inline-flex items-center gap-1.5 border border-line px-3 py-1.5 rounded-[2px] text-ink-muted hover:text-ink hover:border-ink/55 transition-colors cursor-pointer"
+                        >
+                          <span>next</span>
+                          <ChevronRight size={13} />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </motion.section>
+            )}
+          </AnimatePresence>
+
+          {/* Archive Grid */}
+          {filteredPhotos.length === 0 ? (
+            <div
+              data-ascii-panel="true"
+              className="border border-line bg-surface/80 rounded-[2px] py-12 px-6 text-center space-y-2"
+            >
+              <p className="font-mono text-xs text-ink">
+                {photos.length === 0
+                  ? 'No photographs archived yet.'
+                  : 'No frames match this filter.'}
+              </p>
+              {(searchQuery || resolvedCollection !== ALL_COLLECTION) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearchQuery('');
+                    setActiveCollection(ALL_COLLECTION);
+                  }}
+                  className="font-mono text-xs text-ink-muted hover:text-ink underline underline-offset-4 cursor-pointer"
+                >
+                  Reset filters
+                </button>
+              )}
+            </div>
+          ) : (
+            <>
+              <ul
+                role="list"
+                className={
+                  density === 'contact'
+                    ? 'grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-2.5 sm:gap-3 w-full'
+                    : 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 sm:gap-6 w-full'
+                }
+              >
+                {visiblePhotos.map((photo, index) => (
+                  <GalleryTile
                     key={photo.id}
                     photo={photo}
                     index={index}
-                    total={photos.length}
-                    viewMode={viewMode}
-                    isExpanded={isExpanded}
-                    isHovered={isHovered}
-                    isDimmed={isDimmed}
-                    onHoverChange={setHoveredId}
-                    onToggleExpand={handleToggleExpand}
+                    total={filteredPhotos.length}
+                    density={density}
+                    isSelected={selectedId === photo.id}
+                    onSelect={handleSelectTile}
                   />
-                );
-              })}
-            </ul>
+                ))}
+              </ul>
+
+              {/* Progressive Pagination for 300+ Photo Archives */}
+              {remainingCount > 0 && (
+                <div
+                  data-ascii-panel="true"
+                  className="flex flex-wrap items-center justify-between gap-4 border-t border-line pt-4 font-mono text-xs"
+                >
+                  <span className="text-ink-muted">
+                    Showing {visiblePhotos.length} of {filteredPhotos.length} frames
+                  </span>
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setVisibleLimit((prev) => prev + pageSize)}
+                      className="border border-line bg-surface/85 px-3.5 py-1.5 rounded-[2px] text-ink hover:border-ink/60 transition-colors cursor-pointer"
+                    >
+                      Load {Math.min(pageSize, remainingCount)} more
+                    </button>
+                    {remainingCount > pageSize && (
+                      <button
+                        type="button"
+                        onClick={() => setVisibleLimit(filteredPhotos.length)}
+                        className="text-ink-muted hover:text-ink underline underline-offset-4 cursor-pointer"
+                      >
+                        Show all
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </div>
       </LayoutGroup>

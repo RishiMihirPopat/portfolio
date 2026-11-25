@@ -318,6 +318,7 @@ export default function Admin() {
 
   // Photo uploading state
   const [pendingPhotos, setPendingPhotos] = useState<PendingPhoto[]>([]);
+  const [batchCollection, setBatchCollection] = useState('');
 
   // Diagnostic action log
   const [sysLogs, setSysLogs] = useState<string[]>(() => [
@@ -701,6 +702,7 @@ export default function Admin() {
       iso: photo.iso || '',
       takenAt: photo.takenAt || '',
       location: photo.location || '',
+      collection: photo.collection || '',
     });
     addLog(`Editing metadata for "${photo.title}".`);
   };
@@ -720,6 +722,7 @@ export default function Admin() {
         shutterSpeed: editPhotoMeta.shutterSpeed?.trim() || '',
         iso: editPhotoMeta.iso?.trim() || '',
         location: editPhotoMeta.location?.trim() || '',
+        collection: editPhotoMeta.collection?.trim() || '',
       });
       addLog(`Updated photo "${editPhotoTitle}".`);
       setFeedback({ kind: 'success', text: `Updated "${editPhotoTitle}".` });
@@ -1009,6 +1012,7 @@ export default function Admin() {
           iso: p.iso?.trim() || undefined,
           takenAt: p.takenAt?.trim() || undefined,
           location: p.location?.trim() || undefined,
+          collection: p.collection?.trim() || undefined,
         }))
       );
 
@@ -1019,6 +1023,7 @@ export default function Admin() {
       });
       addLog(`Published ${uploadedCount} photograph(s).`);
       setPendingPhotos([]);
+      setBatchCollection('');
       await loadPostsAndPhotos();
       redirectTimerRef.current = setTimeout(() => {
         switchTab('manage-photo', false);
@@ -1032,6 +1037,17 @@ export default function Admin() {
       setIsPublishing(false);
     }
   };
+
+  const existingCollections = useMemo(() => {
+    const set = new Set<string>();
+    for (const p of allPhotos) {
+      if (p.collection?.trim()) set.add(p.collection.trim());
+    }
+    for (const p of pendingPhotos) {
+      if (p.collection?.trim()) set.add(p.collection.trim());
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [allPhotos, pendingPhotos]);
 
   const skillCategories = useMemo(() => {
     const ordered = [...DEFAULT_SKILL_CATEGORIES];
@@ -1699,6 +1715,49 @@ export default function Admin() {
                           </motion.button>
                         </div>
 
+                        <datalist id="photo-collections-list">
+                          {existingCollections.map((col) => (
+                            <option key={col} value={col} />
+                          ))}
+                        </datalist>
+
+                        {pendingPhotos.length > 0 && (
+                          <div className="flex flex-col sm:flex-row sm:items-end gap-2.5 border border-line bg-surface/60 p-3 rounded-[2px]">
+                            <div className="flex-1 space-y-1">
+                              <label htmlFor="batch-photo-collection" className={LABEL_CLASS}>
+                                Batch collection ({pendingPhotos.length} staged)
+                              </label>
+                              <input
+                                id="batch-photo-collection"
+                                type="text"
+                                list="photo-collections-list"
+                                value={batchCollection}
+                                onChange={(e) => setBatchCollection(e.target.value)}
+                                className={`${INPUT_CLASS} font-mono text-xs min-h-[38px] py-1.5`}
+                                placeholder="e.g. Coast, Monsoon, Japan 2026..."
+                              />
+                            </div>
+                            <motion.button
+                              type="button"
+                              whileTap={{ scale: 0.98 }}
+                              onClick={() => {
+                                const trimmed = batchCollection.trim();
+                                setPendingPhotos((prev) =>
+                                  prev.map((p) => ({ ...p, collection: trimmed }))
+                                );
+                                addLog(
+                                  trimmed
+                                    ? `Assigned collection "${trimmed}" to ${pendingPhotos.length} staged photo(s).`
+                                    : `Cleared collection on ${pendingPhotos.length} staged photo(s).`
+                                );
+                              }}
+                              className={`${SECONDARY_BTN_CLASS} min-h-[38px] py-1.5 shrink-0`}
+                            >
+                              Apply to all
+                            </motion.button>
+                          </div>
+                        )}
+
                         <motion.div
                           layout
                           animate={{ scale: isDraggingPhotos ? 1.008 : 1 }}
@@ -1814,6 +1873,7 @@ export default function Admin() {
                                           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 pt-1">
                                             {(
                                               [
+                                                ['collection', 'Collection', 'Coast'],
                                                 ['camera', 'Camera', 'Fujifilm X100V'],
                                                 ['lens', 'Lens', '23mm f/2'],
                                                 ['location', 'Location', 'Manipal, IN'],
@@ -1833,6 +1893,7 @@ export default function Admin() {
                                                 <input
                                                   id={`staged-${field}-${photo.id}`}
                                                   type="text"
+                                                  list={field === 'collection' ? 'photo-collections-list' : undefined}
                                                   value={photo[field] || ''}
                                                   onChange={(e) => {
                                                     const next = [...pendingPhotos];
@@ -1948,9 +2009,16 @@ export default function Admin() {
                                       />
                                     </div>
                                     <div className="min-w-0 space-y-0.5">
-                                      <h2 className="font-mono text-sm font-normal text-ink truncate">
-                                        {photo.title}
-                                      </h2>
+                                      <div className="flex items-center gap-2 min-w-0">
+                                        <h2 className="font-mono text-sm font-normal text-ink truncate">
+                                          {photo.title}
+                                        </h2>
+                                        {photo.collection && (
+                                          <span className="font-mono text-[10px] text-ink-muted border border-line px-1.5 py-0.5 rounded-[2px] shrink-0">
+                                            {photo.collection}
+                                          </span>
+                                        )}
+                                      </div>
                                       {photo.description && (
                                         <p className="font-sans text-xs sm:text-sm text-ink-muted truncate">
                                           {photo.description}
@@ -2175,6 +2243,7 @@ export default function Admin() {
                       <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 pt-1">
                         {(
                           [
+                            ['collection', 'Collection', 'Coast'],
                             ['camera', 'Camera', 'Fujifilm X100V'],
                             ['lens', 'Lens', '23mm f/2'],
                             ['location', 'Location', 'Manipal, IN'],
@@ -2191,6 +2260,7 @@ export default function Admin() {
                             <input
                               id={`edit-photo-${field}`}
                               type="text"
+                              list={field === 'collection' ? 'photo-collections-list' : undefined}
                               value={editPhotoMeta[field] || ''}
                               onChange={(e) =>
                                 setEditPhotoMeta((prev) => ({
