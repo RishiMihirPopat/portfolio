@@ -145,14 +145,23 @@ export function PortfolioSectionView({ section }: { section: BeachSectionId }) {
     );
   }
 
+  const isPhotography = resolvedSection === 'photography';
+
   return (
     <article
-      data-ascii-panel="true"
-      className="w-full min-[760px]:w-1/2 min-[760px]:max-w-[50%]"
+      data-ascii-panel={isPhotography ? undefined : 'true'}
+      className={
+        isPhotography
+          ? 'w-full'
+          : 'w-full min-[760px]:w-1/2 min-[760px]:max-w-[50%]'
+      }
     >
       {/* On mobile (<760px): keep a ~22vh scene strip at the top with the heading overlaid */}
       <div className="max-[759px]:min-h-[17vh] max-[759px]:flex max-[759px]:flex-col max-[759px]:justify-end pb-3 sm:pb-4">
-        <div className="w-fit">
+        <div
+          data-ascii-panel={isPhotography ? 'true' : undefined}
+          className="w-fit"
+        >
           <ScrambleHeading
             text={currentNav.heading}
             className="font-mono text-xl sm:text-2xl font-medium tracking-tight text-ink"
