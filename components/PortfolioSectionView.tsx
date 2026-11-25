@@ -20,7 +20,6 @@ import { BeachSectionId } from '@/components/AsciiBeachCanvas';
 import { ALL_PAGES } from '@/lib/navigation';
 import { ScrambleHeading } from '@/components/ScrambleHeading';
 import { PostDetailsModal } from '@/components/PostDetailsModal';
-import { PhotoLightbox } from '@/components/PhotoLightbox';
 import { PhotographyGallery } from '@/components/PhotographyGallery';
 
 function summarizePostContent(raw: string): string {
@@ -44,7 +43,6 @@ export function PortfolioSectionView({ section }: { section: BeachSectionId }) {
   const [skills, setSkills] = useState<Skill[]>(() => cvSkills);
 
   const [selectedPost, setSelectedPost] = useState<Post | null>(null);
-  const [selectedPhoto, setSelectedPhoto] = useState<Photo | null>(null);
 
   const { repos: liveRepos } = useGithubRepos();
 
@@ -222,10 +220,7 @@ export function PortfolioSectionView({ section }: { section: BeachSectionId }) {
 
         {/* PHOTOGRAPHY */}
         {resolvedSection === 'photography' && (
-          <PhotographyGallery
-            photos={sortedPhotos}
-            onSelectPhoto={setSelectedPhoto}
-          />
+          <PhotographyGallery photos={sortedPhotos} />
         )}
 
         {/* BLOG */}
@@ -373,14 +368,8 @@ export function PortfolioSectionView({ section }: { section: BeachSectionId }) {
         )}
       </div>
 
-      {/* Detail Modals & Lightbox */}
+      {/* Detail Modal */}
       <PostDetailsModal post={selectedPost} onClose={() => setSelectedPost(null)} />
-      <PhotoLightbox
-        photo={selectedPhoto}
-        photos={sortedPhotos}
-        onClose={() => setSelectedPhoto(null)}
-        onNavigate={setSelectedPhoto}
-      />
     </article>
   );
 }

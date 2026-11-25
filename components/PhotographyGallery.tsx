@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import {
+  AnimatePresence,
   LayoutGroup,
   MotionConfig,
   motion,
@@ -20,7 +21,7 @@ type GalleryViewMode = 'spread' | 'grid';
 
 interface PhotographyGalleryProps {
   photos: GalleryPhoto[];
-  onSelectPhoto: (photo: GalleryPhoto) => void;
+  onSelectPhoto?: (photo: GalleryPhoto) => void;
 }
 
 const CALM_EASE: [number, number, number, number] = [0.16, 1, 0.3, 1];
@@ -56,24 +57,48 @@ function formatShortDate(dateStr?: string): string {
   });
 }
 
+function formatFullDate(dateStr?: string): string | null {
+  if (!dateStr) return null;
+  const date = new Date(dateStr);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toLocaleDateString('en-US', {
+    month: 'short',
+    day: '2-digit',
+    year: 'numeric',
+  });
+}
+
+function formatAspectRatio(width: number, height: number): string {
+  const gcd = (a: number, b: number): number => (b === 0 ? a : gcd(b, a % b));
+  const d = gcd(Math.round(width), Math.round(height)) || 1;
+  const rw = Math.round(width / d);
+  const rh = Math.round(height / d);
+  if (rw <= 20 && rh <= 20) return `${rw}:${rh}`;
+  return `${(width / height).toFixed(2)}:1`;
+}
+
 interface GalleryCardProps {
   photo: GalleryPhoto;
   index: number;
+  total: number;
   viewMode: GalleryViewMode;
+  isExpanded: boolean;
   isDimmed: boolean;
   isHovered: boolean;
   onHoverChange: (id: string | null) => void;
-  onSelectPhoto: (photo: GalleryPhoto) => void;
+  onToggleExpand: (photo: GalleryPhoto) => void;
 }
 
 function GalleryCard({
   photo,
   index,
+  total,
   viewMode,
+  isExpanded,
   isDimmed,
   isHovered,
   onHoverChange,
-  onSelectPhoto,
+  onToggleExpand,
 }: GalleryCardProps) {
   const cardRef = useRef<HTMLLIElement>(null);
   const prefersReducedMotion = useReducedMotion();
@@ -100,9 +125,12 @@ function GalleryCard({
   const isUnavailable = !photo.url || failedUrl === photo.url;
 
   const paddedIndex = String(index + 1).padStart(2, '0');
+  const paddedTotal = String(total).padStart(2, '0');
   const formattedDate = formatShortDate(photo.createdAt);
+  const fullDate = formatFullDate(photo.createdAt);
   const metaLabel = formattedDate ? `${paddedIndex} · ${formattedDate}` : paddedIndex;
   const title = photo.title || 'Untitled';
+  const detailsId = `photo-details-${photo.id}`;
 
   const slotClass =
     viewMode === 'spread'
@@ -127,17 +155,26 @@ function GalleryCard({
     >
       <motion.article
         data-ascii-panel="true"
+        layout="position"
         animate={{
           opacity: isDimmed ? 0.58 : 1,
-          y: isHovered && !prefersReducedMotion ? -4 : 0,
+          y: (isHovered || isExpanded) && !prefersReducedMotion ? -4 : 0,
         }}
-        whileTap={prefersReducedMotion ? undefined : { scale: 0.99 }}
-        transition={{ duration: 0.26, ease: CALM_EASE }}
+        whileTap={prefersReducedMotion ? undefined : { scale: 0.992 }}
+        transition={{
+          layout: LAYOUT_SPRING,
+          duration: 0.26,
+          ease: CALM_EASE,
+        }}
         onMouseEnter={() => onHoverChange(photo.id)}
         onMouseLeave={() => onHoverChange(null)}
         onFocus={() => onHoverChange(photo.id)}
         onBlur={() => onHoverChange(null)}
-        className="group relative border border-line bg-surface/80 backdrop-blur-[2px] hover:border-ink/55 transition-colors duration-300 rounded-[2px] overflow-hidden has-[button:focus-visible]:outline-2 has-[button:focus-visible]:outline-ink has-[button:focus-visible]:outline-offset-2"
+        className={`group relative border bg-surface/85 backdrop-blur-[2px] transition-colors duration-300 rounded-[2px] overflow-hidden has-[button:focus-visible]:outline-2 has-[button:focus-visible]:outline-ink has-[button:focus-visible]:outline-offset-2 ${
+          isExpanded
+            ? 'border-ink/65'
+            : 'border-line hover:border-ink/55'
+        }`}
       >
         <div
           className={`relative overflow-hidden bg-surface/90${
@@ -164,36 +201,90 @@ function GalleryCard({
               fetchPriority={index === 0 ? 'high' : undefined}
               onLoad={() => setLoadedUrl(photo.url)}
               onError={() => setFailedUrl(photo.url)}
-              className={`w-full block motion-safe:transition-transform motion-safe:duration-500 motion-safe:ease-[cubic-bezier(0.16,1,0.3,1)] motion-safe:group-hover:scale-[1.03] ${
-                viewMode === 'grid'
+              className={`w-full block motion-safe:transition-transform motion-safe:duration-500 motion-safe:ease-[cubic-bezier(0.16,1,0.3,1)] ${
+                isExpanded
+                  ? 'motion-safe:scale-[1.015]'
+                  : 'motion-safe:group-hover:scale-[1.03]'
+              } ${
+                viewMode === 'grid' && !isExpanded
                   ? 'aspect-[4/3] object-cover'
-                  : 'h-auto max-h-[70vh] object-cover'
+                  : 'h-auto max-h-[75vh] object-cover'
               }`}
             />
           )}
         </div>
 
-        <div className="border-t border-line px-3.5 py-3 space-y-1">
+        <div className="border-t border-line px-3.5 py-3">
           <div className="flex items-baseline justify-between gap-3">
             <h2 className="font-mono text-xs sm:text-[13px] font-normal text-ink min-w-0 truncate">
               <button
                 type="button"
-                onClick={() => onSelectPhoto(photo)}
+                aria-expanded={isExpanded}
+                aria-controls={detailsId}
+                onClick={() => onToggleExpand(photo)}
                 className="block w-full truncate text-left after:content-[''] after:absolute after:inset-0 focus-visible:outline-none cursor-pointer"
               >
                 {title}
-                <span className="sr-only"> — open preview</span>
+                <span className="sr-only">
+                  {isExpanded ? ' — hide details' : ' — show details'}
+                </span>
               </button>
             </h2>
-            <span className="font-mono text-[11px] text-ink-muted shrink-0">
-              {metaLabel}
-            </span>
+            <div className="flex items-baseline gap-2.5 shrink-0 font-mono text-[11px] text-ink-muted">
+              <span>{metaLabel}</span>
+              <span
+                aria-hidden="true"
+                className="text-ink/70 transition-colors duration-200 group-hover:text-ink"
+              >
+                {isExpanded ? '−' : '+'}
+              </span>
+            </div>
           </div>
-          {photo.description && viewMode === 'spread' && (
-            <p className="font-sans text-xs text-ink-muted leading-relaxed line-clamp-2 transition-colors duration-200 group-hover:text-ink/85">
-              {photo.description}
-            </p>
-          )}
+
+          <AnimatePresence initial={false}>
+            {isExpanded && (
+              <motion.div
+                id={detailsId}
+                key="details"
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: 'auto', opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.32, ease: CALM_EASE }}
+                className="overflow-hidden"
+              >
+                <div className="pt-3 mt-3 border-t border-line/80 space-y-3">
+                  {photo.description && (
+                    <p className="font-sans text-xs sm:text-sm text-ink/90 leading-relaxed">
+                      {photo.description}
+                    </p>
+                  )}
+
+                  <dl className="grid grid-cols-2 sm:flex sm:flex-wrap gap-x-6 gap-y-2 font-mono text-[11px]">
+                    <div className="space-y-0.5">
+                      <dt className="text-ink-muted/75">frame</dt>
+                      <dd className="text-ink">
+                        {paddedIndex} / {paddedTotal}
+                      </dd>
+                    </div>
+                    {fullDate && (
+                      <div className="space-y-0.5">
+                        <dt className="text-ink-muted/75">captured</dt>
+                        <dd className="text-ink">{fullDate}</dd>
+                      </div>
+                    )}
+                    {hasDimensions && width && height && (
+                      <div className="space-y-0.5">
+                        <dt className="text-ink-muted/75">format</dt>
+                        <dd className="text-ink">
+                          {width} × {height} · {formatAspectRatio(width, height)}
+                        </dd>
+                      </div>
+                    )}
+                  </dl>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
       </motion.article>
     </motion.li>
@@ -203,18 +294,38 @@ function GalleryCard({
 export function PhotographyGallery({ photos, onSelectPhoto }: PhotographyGalleryProps) {
   const [viewMode, setViewMode] = useState<GalleryViewMode>('spread');
   const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
-  // Re-measure ASCII clear halos after layout spring settles
+  // Collapse expanded details on Escape
+  useEffect(() => {
+    if (!expandedId) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setExpandedId(null);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [expandedId]);
+
+  // Re-measure ASCII clear halos after layout/expand transitions settle
   useEffect(() => {
     const timer = window.setTimeout(() => {
       window.dispatchEvent(new Event('resize'));
     }, 360);
     return () => window.clearTimeout(timer);
-  }, [viewMode, photos.length]);
+  }, [viewMode, expandedId, photos.length]);
+
+  const handleToggleExpand = (photo: GalleryPhoto) => {
+    setExpandedId((prev) => (prev === photo.id ? null : photo.id));
+    onSelectPhoto?.(photo);
+  };
 
   const countLabel = `${String(photos.length).padStart(2, '0')} ${
     photos.length === 1 ? 'frame' : 'frames'
   }`;
+
+  const activeFocusId = hoveredId ?? expandedId;
 
   return (
     <MotionConfig reducedMotion="user">
@@ -282,21 +393,32 @@ export function PhotographyGallery({ photos, onSelectPhoto }: PhotographyGallery
               className={
                 viewMode === 'spread'
                   ? 'grid grid-cols-1 md:grid-cols-12 gap-y-12 md:gap-x-8 lg:gap-x-10 lg:gap-y-16 pb-12 w-full items-start'
-                  : 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 sm:gap-8 pb-8 w-full'
+                  : 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 sm:gap-8 pb-8 w-full items-start'
               }
             >
-              {photos.map((photo, index) => (
-                <GalleryCard
-                  key={photo.id}
-                  photo={photo}
-                  index={index}
-                  viewMode={viewMode}
-                  isHovered={hoveredId === photo.id}
-                  isDimmed={hoveredId !== null && hoveredId !== photo.id}
-                  onHoverChange={setHoveredId}
-                  onSelectPhoto={onSelectPhoto}
-                />
-              ))}
+              {photos.map((photo, index) => {
+                const isExpanded = expandedId === photo.id;
+                const isHovered = hoveredId === photo.id;
+                const isDimmed =
+                  activeFocusId !== null &&
+                  activeFocusId !== photo.id &&
+                  !isExpanded;
+
+                return (
+                  <GalleryCard
+                    key={photo.id}
+                    photo={photo}
+                    index={index}
+                    total={photos.length}
+                    viewMode={viewMode}
+                    isExpanded={isExpanded}
+                    isHovered={isHovered}
+                    isDimmed={isDimmed}
+                    onHoverChange={setHoveredId}
+                    onToggleExpand={handleToggleExpand}
+                  />
+                );
+              })}
             </ul>
           )}
         </div>
