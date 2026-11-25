@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@types/three": "^0.187.0",
+    "asciify-engine": "^4.33.0",
     "autoprefixer": "^10.4.21",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
