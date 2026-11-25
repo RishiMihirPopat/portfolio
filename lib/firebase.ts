@@ -22,6 +22,12 @@ export function isFirebaseConfigured(): boolean {
   );
 }
 
+export function isFirebaseAuthConfigured(): boolean {
+  return !!(
+    isFirebaseConfigured() && process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN
+  );
+}
+
 function getApp(): FirebaseApp | null {
   if (!isFirebaseConfigured()) return null;
   if (!app) {

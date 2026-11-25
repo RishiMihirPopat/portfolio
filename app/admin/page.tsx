@@ -1,22 +1,31 @@
 'use client';
 
+import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import {
-  useState,
-  useRef,
-  useEffect,
-  useMemo,
-  useCallback,
-  useSyncExternalStore,
-} from 'react';
-import Link from 'next/link';
-import {
-  AlertCircle,
   Camera,
   ImagePlus,
+  Loader2,
   Plus,
   Trash2,
   X,
 } from 'lucide-react';
+import {
+  AnimatePresence,
+  LayoutGroup,
+  MotionConfig,
+  motion,
+  useReducedMotion,
+  type Variants,
+} from 'motion/react';
+import {
+  GoogleAuthProvider,
+  getRedirectResult,
+  onAuthStateChanged,
+  signInWithPopup,
+  signInWithRedirect,
+  signOut,
+  type User,
+} from 'firebase/auth';
 import ReactMarkdown from 'react-markdown';
 import { extractDataImages, createImgRenderer } from '@/lib/markdown';
 import {
@@ -33,15 +42,26 @@ import {
   updatePhoto,
 } from '@/lib/storage';
 import { Skill, Post, Photo } from '@/lib/data';
-import { isFirebaseConfigured } from '@/lib/firebase';
 import {
-  AdminSessionUser,
+  getFirebaseAuth,
+  isFirebaseAuthConfigured,
+  isFirebaseConfigured,
+} from '@/lib/firebase';
+import {
   formatFirebaseAuthError,
-  isLocalDevHost,
-  signInAdminWithGoogle,
-  signOutAdmin,
-  subscribeAdminAuth,
-} from '@/lib/admin-auth';
+  isAuthorizedAdminUser,
+} from '@/lib/adminAuth';
+import { AdminLoginView, AdminAuthStatus } from '@/components/AdminLoginView';
+import {
+  ACCORDION_TRANSITION,
+  CALM_EASE,
+  CollapsibleLog,
+  GLIDE_SPRING,
+  PANEL_VIEW_VARIANTS,
+  SECTION_ITEM_VARIANTS,
+  TACTILE_SPRING,
+  WAVE_EXIT_EASE,
+} from '@/components/CollapsibleLog';
 import { ScrambleHeading } from '@/components/ScrambleHeading';
 
 const DEFAULT_SKILL_CATEGORIES = [
@@ -51,10 +71,46 @@ const DEFAULT_SKILL_CATEGORIES = [
 ];
 
 type AdminTab = 'blog' | 'manage-blog' | 'photo' | 'manage-photo' | 'skills';
-type AuthStatus = 'checking' | 'signed-out' | 'authenticated';
 
-const subscribeNoop = () => () => {};
-const getServerFalse = () => false;
+const TAB_ORDER: AdminTab[] = [
+  'blog',
+  'manage-blog',
+  'photo',
+  'manage-photo',
+  'skills',
+];
+
+const TAB_PANEL_VARIANTS: Variants = {
+  enter: (dir: number) => ({
+    opacity: 0,
+    x: dir * 14,
+    filter: 'blur(1.5px)',
+  }),
+  center: {
+    opacity: 1,
+    x: 0,
+    filter: 'blur(0px)',
+    transition: {
+      duration: 0.24,
+      ease: CALM_EASE,
+    },
+  },
+  exit: (dir: number) => ({
+    opacity: 0,
+    x: dir * -14,
+    filter: 'blur(1.5px)',
+    transition: {
+      duration: 0.16,
+      ease: WAVE_EXIT_EASE,
+    },
+  }),
+};
+
+interface AuthUserSummary {
+  uid: string;
+  email: string | null;
+  displayName: string | null;
+}
 
 interface PendingDeleteTarget {
   kind: 'post' | 'photo';
@@ -83,44 +139,16 @@ interface PendingPhoto {
 }
 
 const INPUT_CLASS =
-  'w-full bg-surface/90 border border-line px-3 py-2.5 min-h-[44px] text-base sm:text-sm text-ink placeholder:text-ink-muted/70 focus:border-ink transition-colors rounded-[2px]';
+  'w-full bg-surface/90 border border-line px-3 py-2.5 min-h-[44px] text-base sm:text-sm text-ink placeholder:text-ink-muted/70 focus:border-ink focus:outline-none transition-colors rounded-[2px]';
 const LABEL_CLASS = 'block font-mono text-xs text-ink-muted';
 const PRIMARY_BTN_CLASS =
-  'font-mono text-xs px-4 py-2.5 min-h-[44px] bg-ink text-bg border border-ink hover:opacity-85 motion-safe:active:scale-[0.99] transition-[opacity,transform,box-shadow] duration-150 ease-out cursor-pointer inline-flex items-center justify-center gap-2 whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100 rounded-[2px]';
+  'font-mono text-xs px-4 py-2.5 min-h-[44px] bg-ink text-bg border border-ink hover:opacity-90 transition-opacity cursor-pointer inline-flex items-center justify-center gap-2 whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed rounded-[2px]';
 const SECONDARY_BTN_CLASS =
-  'font-mono text-xs px-3.5 py-2 min-h-[44px] bg-surface/85 text-ink border border-line hover:border-ink motion-safe:active:scale-[0.99] transition-[border-color,transform] duration-150 ease-out cursor-pointer inline-flex items-center justify-center gap-1.5 whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100 rounded-[2px]';
+  'font-mono text-xs px-3.5 py-2 min-h-[44px] bg-surface/85 text-ink border border-line hover:border-ink transition-colors cursor-pointer inline-flex items-center justify-center gap-1.5 whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed rounded-[2px]';
 const INLINE_ACTION_CLASS =
   'font-mono text-xs text-ink-nav hover:text-ink underline underline-offset-4 cursor-pointer min-h-[36px] inline-flex items-center';
 const DANGER_INLINE_CLASS =
-  'font-mono text-xs text-red-400 [.light_&]:text-red-700 hover:underline underline-offset-4 cursor-pointer min-h-[36px] inline-flex items-center';
-
-function GoogleMark() {
-  return (
-    <svg
-      aria-hidden="true"
-      focusable="false"
-      viewBox="0 0 24 24"
-      className="w-4 h-4 shrink-0"
-    >
-      <path
-        fill="#4285F4"
-        d="M23.745 12.27c0-.79-.07-1.54-.19-2.27h-11.3v4.51h6.47c-.29 1.48-1.14 2.73-2.4 3.58v3h3.86c2.26-2.09 3.56-5.17 3.56-8.82z"
-      />
-      <path
-        fill="#34A853"
-        d="M12.255 24c3.24 0 5.95-1.08 7.93-2.91l-3.86-3c-1.08.72-2.45 1.16-4.07 1.16-3.13 0-5.78-2.11-6.73-4.96h-3.98v3.09C3.515 21.3 7.565 24 12.255 24z"
-      />
-      <path
-        fill="#FBBC05"
-        d="M5.525 14.29c-.25-.72-.38-1.49-.38-2.29s.14-1.57.38-2.29V6.62h-3.98a11.86 11.86 0 0 0 0 10.76l3.98-3.09z"
-      />
-      <path
-        fill="#EA4335"
-        d="M12.255 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C18.205 1.19 15.495 0 12.255 0c-4.69 0-8.74 2.7-10.71 6.62l3.98 3.09c.95-2.85 3.6-4.96 6.73-4.96z"
-      />
-    </svg>
-  );
-}
+  'font-mono text-xs text-red-700 dark:text-red-400 hover:underline underline-offset-4 cursor-pointer min-h-[36px] inline-flex items-center';
 
 function summarizePostContent(raw: string): string {
   const firstParagraph = raw
@@ -130,8 +158,13 @@ function summarizePostContent(raw: string): string {
   return firstParagraph || raw.replace(/[#*`]/g, '').slice(0, 140);
 }
 
+function createGoogleProvider(): GoogleAuthProvider {
+  const provider = new GoogleAuthProvider();
+  provider.setCustomParameters({ prompt: 'select_account' });
+  return provider;
+}
+
 interface ModalDialogProps {
-  open: boolean;
   onClose: () => void;
   titleId: string;
   title: string;
@@ -140,7 +173,6 @@ interface ModalDialogProps {
 }
 
 function ModalDialog({
-  open,
   onClose,
   titleId,
   title,
@@ -152,105 +184,91 @@ function ModalDialog({
   useEffect(() => {
     const dialog = dialogRef.current;
     if (!dialog) return;
-    if (open && !dialog.open) {
+    if (!dialog.open) {
       dialog.showModal();
-    } else if (!open && dialog.open) {
-      dialog.close();
     }
-  }, [open]);
-
-  // Progressive enhancement light-dismiss fallback for browsers lacking closedby="any"
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    if (!dialog || !open || 'closedBy' in HTMLDialogElement.prototype) return;
-
-    let pressedOutside = false;
-    const isOutside = (e: PointerEvent) => {
-      const r = dialog.getBoundingClientRect();
-      return (
-        e.clientX < r.left ||
-        e.clientX > r.right ||
-        e.clientY < r.top ||
-        e.clientY > r.bottom
-      );
-    };
-
-    const onPointerDown = (e: PointerEvent) => {
-      pressedOutside = isOutside(e);
-    };
-    const onPointerUp = (e: PointerEvent) => {
-      if (pressedOutside && isOutside(e)) {
+    return () => {
+      if (dialog.open) {
         dialog.close();
       }
-      pressedOutside = false;
     };
-
-    dialog.addEventListener('pointerdown', onPointerDown);
-    dialog.addEventListener('pointerup', onPointerUp);
-    return () => {
-      dialog.removeEventListener('pointerdown', onPointerDown);
-      dialog.removeEventListener('pointerup', onPointerUp);
-    };
-  }, [open]);
-
-  const handleClose = () => {
-    if (dialogRef.current) {
-      dialogRef.current.returnValue = '';
-    }
-    onClose();
-  };
+  }, []);
 
   return (
     <dialog
       ref={dialogRef}
       aria-labelledby={titleId}
-      onClose={handleClose}
-      {...({ closedby: 'any' } as Record<string, string>)}
-      className={`p-0 m-auto w-[calc(100%-2rem)] ${maxWidthClass} max-h-[85vh] bg-bg/95 border border-line text-ink shadow-2xl overflow-hidden`}
+      onCancel={(e) => {
+        e.preventDefault();
+        onClose();
+      }}
+      className="fixed inset-0 m-0 p-0 w-screen h-dvh max-w-none max-h-none bg-transparent border-0 text-ink overflow-hidden backdrop:bg-transparent backdrop:backdrop-blur-none"
     >
-      <div className="flex flex-col max-h-[85vh]">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-line shrink-0">
-          <h2 id={titleId} className="font-mono text-xs uppercase tracking-wider text-ink-muted truncate pr-4">
-            {title}
-          </h2>
-          <button
-            type="button"
-            onClick={handleClose}
-            className="text-ink-muted hover:text-ink transition-colors p-1.5 min-w-[36px] min-h-[36px] inline-flex items-center justify-center cursor-pointer"
-            aria-label="Close dialog"
-          >
-            <X size={16} />
-          </button>
-        </div>
-        <div className="p-6 overflow-y-auto text-ink text-sm leading-relaxed">
-          {children}
-        </div>
+      <motion.div
+        aria-hidden="true"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        transition={{ duration: 0.2, ease: CALM_EASE }}
+        onClick={onClose}
+        className="fixed inset-0 bg-black/58 backdrop-blur-[3px]"
+      />
+      <div className="fixed inset-0 flex items-center justify-center p-4 pointer-events-none">
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95, y: 10 }}
+          animate={{ opacity: 1, scale: 1, y: 0, transition: GLIDE_SPRING }}
+          exit={{
+            opacity: 0,
+            scale: 0.97,
+            y: 6,
+            transition: { duration: 0.18, ease: CALM_EASE },
+          }}
+          className={`pointer-events-auto w-full ${maxWidthClass} max-h-[85vh] bg-bg/95 border border-line text-ink rounded-[2px] shadow-2xl overflow-hidden flex flex-col`}
+        >
+          <div className="flex items-center justify-between px-6 py-4 border-b border-line shrink-0">
+            <h2
+              id={titleId}
+              className="font-mono text-xs uppercase tracking-wider text-ink-muted truncate pr-4"
+            >
+              {title}
+            </h2>
+            <motion.button
+              type="button"
+              onClick={onClose}
+              whileHover={{ scale: 1.08 }}
+              whileTap={{ scale: 0.9 }}
+              transition={TACTILE_SPRING}
+              className="text-ink-muted hover:text-ink transition-colors p-1.5 min-w-[36px] min-h-[36px] inline-flex items-center justify-center cursor-pointer"
+              aria-label="Close dialog"
+            >
+              <X size={16} />
+            </motion.button>
+          </div>
+          <div className="p-6 overflow-y-auto text-ink text-sm leading-relaxed">
+            {children}
+          </div>
+        </motion.div>
       </div>
     </dialog>
   );
 }
 
 export default function Admin() {
-  const firebaseConfigured = isFirebaseConfigured();
-  const canUseLocalPreview = useSyncExternalStore(
-    subscribeNoop,
-    isLocalDevHost,
-    getServerFalse
-  );
+  const prefersReducedMotion = useReducedMotion();
 
-  // Google OAuth session state (restricted to the authorized owner account)
-  const [authStatus, setAuthStatus] = useState<AuthStatus>(() =>
-    firebaseConfigured ? 'checking' : 'signed-out'
+  // Firebase Google Auth state (restricted to authorized admin email)
+  const [authStatus, setAuthStatus] = useState<AdminAuthStatus>(() =>
+    isFirebaseAuthConfigured() ? 'checking' : 'unconfigured'
   );
-  const [adminUser, setAdminUser] = useState<AdminSessionUser | null>(null);
-  const [isLocalDevSession, setIsLocalDevSession] = useState(false);
   const [isSigningIn, setIsSigningIn] = useState(false);
   const [loginError, setLoginError] = useState('');
+  const [loginNotice, setLoginNotice] = useState('');
 
-  const isAuthenticated = authStatus === 'authenticated';
+  const isAuthenticated = authStatus === 'signed-in';
 
-  // Tab state
+  // Tab state + directional tracking for motion slide
   const [activeTab, setActiveTab] = useState<AdminTab>('blog');
+  const [tabDirection, setTabDirection] = useState<number>(1);
 
   // Management lists and editing states
   const [allPosts, setAllPosts] = useState<Post[]>([]);
@@ -260,6 +278,7 @@ export default function Admin() {
   const [editPhotoTitle, setEditPhotoTitle] = useState('');
   const [editPhotoDescription, setEditPhotoDescription] = useState('');
   const [pendingDelete, setPendingDelete] = useState<PendingDeleteTarget | null>(null);
+  const [fbUser, setFbUser] = useState<AuthUserSummary | null>(null);
 
   // Skills state
   const [skills, setSkills] = useState<Skill[]>([]);
@@ -282,8 +301,10 @@ export default function Admin() {
   const selectPhotosButtonRef = useRef<HTMLButtonElement>(null);
   const tabButtonRefs = useRef<Partial<Record<AdminTab, HTMLButtonElement | null>>>({});
   const redirectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const lastAuthenticatedUidRef = useRef<string | null>(null);
-  const isLocalDevSessionRef = useRef(false);
+  const waveReleaseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingWaveFadeInRef = useRef(false);
+  const interactiveSignInRef = useRef(false);
+  const lastAuthEventRef = useRef<string | null>(null);
 
   // Inline images state
   const [inlineImages, setInlineImages] = useState<{ id: number; name: string; url: string }[]>([]);
@@ -293,9 +314,11 @@ export default function Admin() {
   const [pendingPhotos, setPendingPhotos] = useState<PendingPhoto[]>([]);
 
   // Diagnostic action log
-  const [sysLogs, setSysLogs] = useState<string[]>([
+  const [sysLogs, setSysLogs] = useState<string[]>(() => [
     'Session initialized.',
-    'Waiting for Google sign-in.',
+    isFirebaseAuthConfigured()
+      ? 'Checking Google authentication state...'
+      : 'Firebase Authentication is not configured.',
   ]);
 
   const addLog = useCallback((msg: string) => {
@@ -309,95 +332,268 @@ export default function Admin() {
     }
   }, []);
 
-  useEffect(() => {
-    return () => clearRedirectTimer();
-  }, [clearRedirectTimer]);
+  const releaseWaveFadeIn = useCallback(() => {
+    if (waveReleaseTimerRef.current) {
+      clearTimeout(waveReleaseTimerRef.current);
+      waveReleaseTimerRef.current = null;
+    }
+    if (pendingWaveFadeInRef.current) {
+      pendingWaveFadeInRef.current = false;
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('ascii-page-fade-in'));
+      }
+    }
+  }, []);
 
-  // Subscribe to Firebase Google Auth state changes
+  const startWaveViewTransition = useCallback(() => {
+    if (prefersReducedMotion || typeof window === 'undefined') return;
+    pendingWaveFadeInRef.current = true;
+    window.dispatchEvent(new CustomEvent('ascii-wave-wash'));
+    if (waveReleaseTimerRef.current) clearTimeout(waveReleaseTimerRef.current);
+    waveReleaseTimerRef.current = setTimeout(() => {
+      releaseWaveFadeIn();
+    }, 580);
+  }, [prefersReducedMotion, releaseWaveFadeIn]);
+
   useEffect(() => {
-    return subscribeAdminAuth({
-      onAuthorized: (user) => {
-        isLocalDevSessionRef.current = false;
-        setAdminUser(user);
-        setIsLocalDevSession(false);
+    return () => {
+      clearRedirectTimer();
+      releaseWaveFadeIn();
+    };
+  }, [clearRedirectTimer, releaseWaveFadeIn]);
+
+  // Listen to Firebase Auth state changes and settle any redirect sign-in
+  useEffect(() => {
+    if (!isFirebaseAuthConfigured()) return;
+    const auth = getFirebaseAuth();
+    if (!auth) return;
+
+    const REDIRECT_FLAG = 'admin_google_redirect_pending';
+    let hasPendingRedirect = false;
+    try {
+      hasPendingRedirect = window.sessionStorage.getItem(REDIRECT_FLAG) === '1';
+    } catch {
+      hasPendingRedirect = false;
+    }
+
+    let cancelled = false;
+    let redirectSettled = !hasPendingRedirect;
+    let authStateSeen = false;
+    let latestUser: User | null = null;
+    let redirectFallbackTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const clearRedirectFlag = () => {
+      try {
+        window.sessionStorage.removeItem(REDIRECT_FLAG);
+      } catch {
+        // Ignore storage restrictions
+      }
+    };
+
+    const applyAuthState = async (user: User | null) => {
+      if (cancelled) return;
+
+      if (!user) {
+        lastAuthEventRef.current = null;
+        setFbUser(null);
+        if (redirectSettled && authStateSeen) {
+          setAuthStatus('signed-out');
+        }
+        return;
+      }
+
+      if (isAuthorizedAdminUser(user)) {
+        clearRedirectFlag();
+        const eventKey = `ok:${user.uid}`;
+        if (interactiveSignInRef.current) {
+          interactiveSignInRef.current = false;
+          startWaveViewTransition();
+        }
+        setFbUser({
+          uid: user.uid,
+          email: user.email,
+          displayName: user.displayName,
+        });
+        setAuthStatus('signed-in');
+        setIsSigningIn(false);
         setLoginError('');
-        setAuthStatus('authenticated');
-        if (lastAuthenticatedUidRef.current !== user.uid) {
-          lastAuthenticatedUidRef.current = user.uid;
+        setLoginNotice('');
+        if (lastAuthEventRef.current !== eventKey) {
+          lastAuthEventRef.current = eventKey;
           addLog(`Signed in with Google as ${user.email}.`);
         }
-      },
-      onSignedOut: () => {
-        lastAuthenticatedUidRef.current = null;
-        setAdminUser(null);
-        setAuthStatus((prev) => (isLocalDevSessionRef.current ? prev : 'signed-out'));
-      },
-      onUnauthorized: (email) => {
-        lastAuthenticatedUidRef.current = null;
-        isLocalDevSessionRef.current = false;
-        setAdminUser(null);
-        setIsLocalDevSession(false);
-        setAuthStatus('signed-out');
-        setLoginError(
-          `Access denied for ${email}. Only the site owner's Google account is authorized.`
-        );
-        addLog(`Rejected unauthorized account (${email}).`);
-      },
+        return;
+      }
+
+      // Immediately reject unauthorized Google accounts or legacy anonymous sessions
+      clearRedirectFlag();
+      interactiveSignInRef.current = false;
+      const eventKey = `denied:${user.uid}`;
+      const shouldReport = lastAuthEventRef.current !== eventKey;
+      lastAuthEventRef.current = eventKey;
+
+      const wasAnonymous = user.isAnonymous;
+      const rejectedEmail = user.email;
+      setFbUser(null);
+      setIsSigningIn(false);
+
+      try {
+        await signOut(auth);
+      } catch (err) {
+        console.error('Failed to sign out unauthorized user', err);
+      }
+
+      if (cancelled) return;
+
+      if (shouldReport) {
+        if (wasAnonymous) {
+          addLog('Cleared legacy anonymous session.');
+        } else {
+          const accountLabel = rejectedEmail || 'This account';
+          setLoginError(
+            `Access denied. ${accountLabel} is not authorized to manage this site.`
+          );
+          setLoginNotice('');
+          addLog(`Rejected unauthorized sign-in attempt (${accountLabel}).`);
+        }
+      }
+
+      setAuthStatus('signed-out');
+    };
+
+    if (hasPendingRedirect) {
+      interactiveSignInRef.current = true;
+      redirectFallbackTimer = setTimeout(() => {
+        if (cancelled) return;
+        redirectSettled = true;
+        clearRedirectFlag();
+        if (authStateSeen && !latestUser) {
+          interactiveSignInRef.current = false;
+          setAuthStatus('signed-out');
+        }
+      }, 4000);
+    }
+
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      authStateSeen = true;
+      latestUser = user;
+      void applyAuthState(user);
     });
-  }, [addLog]);
+
+    getRedirectResult(auth)
+      .then(async (redirectResult) => {
+        if (cancelled) return;
+        redirectSettled = true;
+        clearRedirectFlag();
+        if (redirectFallbackTimer) {
+          clearTimeout(redirectFallbackTimer);
+          redirectFallbackTimer = null;
+        }
+        if (redirectResult?.user) {
+          latestUser = redirectResult.user;
+          await applyAuthState(redirectResult.user);
+        } else if (authStateSeen && !latestUser) {
+          setAuthStatus('signed-out');
+        }
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        redirectSettled = true;
+        interactiveSignInRef.current = false;
+        clearRedirectFlag();
+        if (redirectFallbackTimer) {
+          clearTimeout(redirectFallbackTimer);
+          redirectFallbackTimer = null;
+        }
+        const formatted = formatFirebaseAuthError(err);
+        if (formatted.isCancelled) {
+          setLoginNotice(formatted.message);
+        } else {
+          setLoginError(formatted.message);
+        }
+        addLog(`Google sign-in redirect error: ${formatted.message}`);
+        if (authStateSeen && !latestUser) {
+          setAuthStatus('signed-out');
+        }
+      });
+
+    return () => {
+      cancelled = true;
+      if (redirectFallbackTimer) clearTimeout(redirectFallbackTimer);
+      unsubscribe();
+    };
+  }, [addLog, startWaveViewTransition]);
 
   const handleGoogleSignIn = async () => {
-    if (isSigningIn || !firebaseConfigured) return;
-    setLoginError('');
+    if (isSigningIn || !isFirebaseAuthConfigured()) return;
+
+    const authInstance = getFirebaseAuth();
+    if (!authInstance) {
+      setLoginError('Firebase Auth could not be initialized.');
+      return;
+    }
+
+    const provider = createGoogleProvider();
+    interactiveSignInRef.current = true;
     setIsSigningIn(true);
-    addLog('Google sign-in requested.');
+    setLoginError('');
+    setLoginNotice('');
+    addLog('Opening Google sign-in...');
 
     try {
-      const user = await signInAdminWithGoogle();
-      isLocalDevSessionRef.current = false;
-      setAdminUser(user);
-      setIsLocalDevSession(false);
-      setAuthStatus('authenticated');
-      if (lastAuthenticatedUidRef.current !== user.uid) {
-        lastAuthenticatedUidRef.current = user.uid;
-        addLog(`Signed in with Google as ${user.email}.`);
+      // Call signInWithPopup synchronously within the click gesture so popups open with zero delay
+      await signInWithPopup(authInstance, provider);
+      setIsSigningIn(false);
+    } catch (popupErr: unknown) {
+      const formatted = formatFirebaseAuthError(popupErr);
+      if (formatted.shouldFallbackToRedirect) {
+        addLog(formatted.message);
+        setLoginNotice(formatted.message);
+        try {
+          window.sessionStorage.setItem('admin_google_redirect_pending', '1');
+        } catch {
+          // Ignore storage restrictions
+        }
+        await signInWithRedirect(authInstance, provider);
+        return;
       }
-    } catch (err: unknown) {
-      const message = formatFirebaseAuthError(err);
-      lastAuthenticatedUidRef.current = null;
-      setAdminUser(null);
-      setAuthStatus('signed-out');
-      setLoginError(message);
-      addLog(`Sign-in error: ${message}`);
-    } finally {
+      interactiveSignInRef.current = false;
+      if (formatted.isCancelled) {
+        setLoginNotice(formatted.message);
+        addLog(formatted.message);
+      } else {
+        setLoginError(formatted.message);
+        addLog(`Google sign-in error: ${formatted.message}`);
+      }
       setIsSigningIn(false);
     }
   };
 
-  const handleEnterLocalPreview = () => {
-    if (firebaseConfigured || !isLocalDevHost()) return;
-    setLoginError('');
-    setAdminUser(null);
-    isLocalDevSessionRef.current = true;
-    setIsLocalDevSession(true);
-    setAuthStatus('authenticated');
-    addLog('Opened local browser preview session.');
-  };
-
   const handleLogout = async () => {
     clearRedirectTimer();
-    try {
-      await signOutAdmin();
-    } catch (err) {
-      console.error('Sign out error', err);
-    }
-    lastAuthenticatedUidRef.current = null;
-    isLocalDevSessionRef.current = false;
-    setAdminUser(null);
-    setIsLocalDevSession(false);
-    setAuthStatus('signed-out');
-    setLoginError('');
+    setEditingPostId(null);
+    setEditingPhoto(null);
+    setPendingDelete(null);
     setFeedback(null);
+    setLoginError('');
+    setLoginNotice('');
+
+    startWaveViewTransition();
+
+    if (isFirebaseAuthConfigured()) {
+      const authInstance = getFirebaseAuth();
+      if (authInstance) {
+        try {
+          await signOut(authInstance);
+        } catch (err) {
+          console.error('Signout error', err);
+        }
+      }
+    }
+
+    lastAuthEventRef.current = null;
+    setFbUser(null);
+    setAuthStatus(isFirebaseAuthConfigured() ? 'signed-out' : 'unconfigured');
     setSysLogs(['Signed out.', 'Waiting for Google sign-in.']);
   };
 
@@ -428,12 +624,18 @@ export default function Admin() {
 
   const switchTab = (nextTab: AdminTab, clearFeedback = true) => {
     clearRedirectTimer();
+    const prevIdx = TAB_ORDER.indexOf(activeTab);
+    const nextIdx = TAB_ORDER.indexOf(nextTab);
+    if (prevIdx !== -1 && nextIdx !== -1 && prevIdx !== nextIdx) {
+      setTabDirection(nextIdx > prevIdx ? 1 : -1);
+    }
     setActiveTab(nextTab);
     if (clearFeedback) setFeedback(null);
     requestAnimationFrame(() => {
       tabButtonRefs.current[nextTab]?.scrollIntoView({
         block: 'nearest',
         inline: 'nearest',
+        behavior: 'smooth',
       });
     });
   };
@@ -727,7 +929,7 @@ export default function Admin() {
       await loadPostsAndPhotos();
       redirectTimerRef.current = setTimeout(() => {
         switchTab('manage-blog', false);
-      }, 1000);
+      }, 900);
     } catch (error: unknown) {
       console.error('Publish post error', error);
       const errText = error instanceof Error ? error.message : 'Unknown error while saving.';
@@ -778,7 +980,7 @@ export default function Admin() {
       await loadPostsAndPhotos();
       redirectTimerRef.current = setTimeout(() => {
         switchTab('manage-photo', false);
-      }, 1000);
+      }, 900);
     } catch (error: unknown) {
       console.error('Publish photos error', error);
       const errText = error instanceof Error ? error.message : 'Unknown error while uploading.';
@@ -828,958 +1030,1137 @@ export default function Admin() {
     }
   };
 
-  const sessionIdentity = adminUser?.email || (isLocalDevSession ? 'Local browser preview' : 'Signed in');
-  const authStatusLabel =
-    authStatus === 'checking'
-      ? 'Checking session'
-      : firebaseConfigured
-      ? 'Google OAuth'
-      : canUseLocalPreview
-      ? 'Local preview'
-      : 'Auth unavailable';
-
-  if (!isAuthenticated) {
-    return (
-      <article
-        data-ascii-panel="true"
-        className="w-full min-[760px]:w-1/2 min-[760px]:max-w-[50%]"
-      >
-        <div className="max-[759px]:min-h-[17vh] max-[759px]:flex max-[759px]:flex-col max-[759px]:justify-end pb-3 sm:pb-4">
-          <div className="w-fit">
-            <ScrambleHeading
-              text="Admin"
-              className="font-mono text-xl sm:text-2xl font-medium tracking-tight text-ink"
-            />
-          </div>
-        </div>
-
-        <div className="w-full space-y-5">
-          {/* Quiet summary strip — mirrors Photography and Resume */}
-          <div className="border-t border-line pt-3 flex items-baseline justify-between gap-4">
-            <p className="font-sans text-xs sm:text-sm text-ink-muted [text-wrap:pretty]">
-              Publishing console for blog, photography, and skills.
-            </p>
-            <span className="font-mono text-xs text-ink-muted shrink-0">
-              {authStatusLabel}
-            </span>
-          </div>
-
-          {/* Editorial sign-in card */}
-          <div className="border border-line bg-surface/65 rounded-[2px] p-5 sm:p-6 space-y-5 max-w-md">
-            {authStatus === 'checking' ? (
-              <div
-                role="status"
-                aria-live="polite"
-                className="py-4 flex items-center gap-3 font-mono text-xs text-ink-muted"
-              >
-                <span
-                  aria-hidden="true"
-                  className="inline-block w-2 h-2 rounded-full bg-ink-muted/70 motion-safe:animate-pulse shrink-0"
-                />
-                <span>Checking existing session…</span>
-              </div>
-            ) : (
-              <div className="space-y-5">
-                <div className="space-y-1.5">
-                  <h2 className="font-mono text-sm font-normal text-ink [text-wrap:balance]">
-                    Sign in
-                  </h2>
-                  <p className="font-sans text-xs sm:text-sm text-ink-muted leading-relaxed [text-wrap:pretty]">
-                    Use your authorized Google account to manage blog posts, photography, and
-                    skills.
-                  </p>
-                </div>
-
-                {loginError && (
-                  <div
-                    id="admin-signin-error"
-                    role="alert"
-                    className="border border-red-400/50 [.light_&]:border-red-700/50 bg-surface/90 px-3.5 py-2.5 flex items-start gap-2.5 rounded-[2px] text-red-400 [.light_&]:text-red-700"
-                  >
-                    <AlertCircle size={15} aria-hidden="true" className="shrink-0 mt-0.5" />
-                    <p className="font-mono text-xs leading-relaxed break-words">{loginError}</p>
-                  </div>
-                )}
-
-                <div className="space-y-3">
-                  <button
-                    type="button"
-                    onClick={handleGoogleSignIn}
-                    disabled={isSigningIn || !firebaseConfigured}
-                    aria-busy={isSigningIn}
-                    aria-describedby={loginError ? 'admin-signin-error' : undefined}
-                    className="w-full min-h-[44px] px-4 py-2.5 bg-ink text-bg border border-ink font-mono text-xs font-medium inline-flex items-center justify-center gap-2.5 rounded-[2px] cursor-pointer transition-[opacity,transform,box-shadow] duration-150 ease-out hover:opacity-90 hover:shadow-sm motion-safe:active:scale-[0.99] focus-visible:outline-2 focus-visible:outline-ink focus-visible:outline-offset-[3px] disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100"
-                  >
-                    <GoogleMark />
-                    <span>{isSigningIn ? 'Signing in…' : 'Continue with Google'}</span>
-                  </button>
-
-                  {!firebaseConfigured && (
-                    <div className="space-y-3 border-t border-line pt-4">
-                      <p className="font-sans text-xs text-ink-muted leading-relaxed [text-wrap:pretty]">
-                        Firebase Authentication environment variables are not configured in this
-                        build, so Google sign-in is unavailable.
-                      </p>
-                      {canUseLocalPreview && (
-                        <button
-                          type="button"
-                          onClick={handleEnterLocalPreview}
-                          className={`${SECONDARY_BTN_CLASS} w-full`}
-                        >
-                          Open local browser preview
-                        </button>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-
-            <div className="border-t border-line pt-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 font-mono text-xs text-ink-muted">
-              <Link
-                href="/"
-                className="min-h-[44px] inline-flex items-center gap-1.5 text-ink-nav hover:text-ink hover:underline underline-offset-4 transition-colors"
-              >
-                <span aria-hidden="true">←</span>
-                <span>Return to portfolio</span>
-              </Link>
-              <span className="shrink-0">Authorized owner only</span>
-            </div>
-          </div>
-        </div>
-      </article>
-    );
-  }
-
+  const storageSummary =
+    fbUser?.email || (isFirebaseConfigured() ? 'Firestore' : 'Local storage');
   const activeTabId = `admin-tab-${activeTab}`;
+  const publishPostLabel = isPublishing
+    ? 'Saving...'
+    : editingPostId
+    ? 'Save changes'
+    : 'Publish post';
 
   return (
-    <article
-      data-ascii-panel="true"
-      className="w-full min-[760px]:w-1/2 min-[760px]:max-w-[50%]"
-    >
-      <div className="max-[759px]:min-h-[17vh] max-[759px]:flex max-[759px]:flex-col max-[759px]:justify-end pb-3 sm:pb-4">
-        <div className="w-fit">
-          <ScrambleHeading
-            text="Admin"
-            className="font-mono text-xl sm:text-2xl font-medium tracking-tight text-ink"
+    <MotionConfig reducedMotion="user">
+      <AnimatePresence mode="wait" onExitComplete={releaseWaveFadeIn}>
+        {authStatus !== 'signed-in' ? (
+          <AdminLoginView
+            key="admin-login-view"
+            authStatus={authStatus}
+            isSigningIn={isSigningIn}
+            error={loginError}
+            notice={loginNotice}
+            sysLogs={sysLogs}
+            onGoogleSignIn={handleGoogleSignIn}
+            onDismissError={() => setLoginError('')}
           />
-        </div>
-      </div>
-
-      <div className="space-y-5 border-t border-line pt-3">
-        {/* Summary & sign out row — mirrors Resume top strip */}
-        <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-          <p className="font-mono text-xs text-ink-muted min-w-0 break-words">
-            {sessionIdentity} · {allPosts.length} posts · {allPhotos.length} photos · {skills.length}{' '}
-            skills
-          </p>
-          <button
-            type="button"
-            onClick={handleLogout}
-            className="font-mono text-xs text-ink underline underline-offset-4 hover:opacity-80 min-h-[44px] inline-flex items-center shrink-0 whitespace-nowrap cursor-pointer"
+        ) : (
+          <motion.article
+            key="admin-dashboard-view"
+            data-ascii-panel="true"
+            variants={PANEL_VIEW_VARIANTS}
+            initial="initial"
+            animate="animate"
+            exit="exit"
+            className="w-full min-[760px]:w-1/2 min-[760px]:max-w-[640px]"
           >
-            Sign out
-          </button>
-        </div>
-
-        {/* Single-row accessible tablist */}
-        <div
-          role="tablist"
-          aria-label="Admin sections"
-          onKeyDown={handleTabKeyDown}
-          className="flex items-center gap-3 sm:gap-5 border-t border-b border-line overflow-x-auto flex-nowrap [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-        >
-          {tabs.map((tab) => {
-            const isSelected = activeTab === tab.id;
-            return (
-              <button
-                key={tab.id}
-                ref={(el) => {
-                  tabButtonRefs.current[tab.id] = el;
-                }}
-                type="button"
-                role="tab"
-                id={`admin-tab-${tab.id}`}
-                aria-selected={isSelected}
-                tabIndex={isSelected ? 0 : -1}
-                onClick={() => {
-                  if (tab.id === 'blog' && activeTab !== 'blog') {
-                    setEditingPostId(null);
-                  }
-                  switchTab(tab.id);
-                }}
-                className="relative py-3 font-mono text-[11px] sm:text-xs font-normal whitespace-nowrap shrink-0 cursor-pointer transition-colors text-ink-muted hover:text-ink aria-[selected=true]:text-ink aria-[selected=true]:after:content-[''] aria-[selected=true]:after:absolute aria-[selected=true]:after:inset-x-0 aria-[selected=true]:after:bottom-0 aria-[selected=true]:after:border-b-2 aria-[selected=true]:after:border-ink"
-              >
-                {tab.label}
-              </button>
-            );
-          })}
-        </div>
-
-        {/* Status feedback banner */}
-        {feedback && (
-          <div
-            role={feedback.kind === 'error' ? 'alert' : 'status'}
-            aria-live={feedback.kind === 'error' ? 'assertive' : 'polite'}
-            className={`border px-3.5 py-2.5 font-mono text-xs flex items-center justify-between gap-3 rounded-[2px] bg-surface/90 ${
-              feedback.kind === 'error'
-                ? 'border-red-400/50 [.light_&]:border-red-700/50 text-red-400 [.light_&]:text-red-700'
-                : 'border-line text-ink'
-            }`}
-          >
-            <span className="inline-flex items-center gap-2 min-w-0">
-              {feedback.kind === 'error' && (
-                <AlertCircle size={14} aria-hidden="true" className="shrink-0" />
-              )}
-              <span className="break-words">{feedback.text}</span>
-            </span>
-            <button
-              type="button"
-              onClick={() => setFeedback(null)}
-              aria-label="Dismiss message"
-              className="text-ink-muted hover:text-ink p-1 cursor-pointer shrink-0"
+            <motion.div
+              variants={SECTION_ITEM_VARIANTS}
+              className="max-[759px]:min-h-[17vh] max-[759px]:flex max-[759px]:flex-col max-[759px]:justify-end pb-3 sm:pb-4"
             >
-              <X size={14} aria-hidden="true" />
-            </button>
-          </div>
-        )}
-
-        {/* Active tab panel */}
-        <div
-          role="tabpanel"
-          aria-labelledby={activeTabId}
-          className="space-y-5"
-        >
-          {activeTab === 'blog' && (
-            <form onSubmit={handlePublishPost} aria-label="Blog post editor" className="space-y-5">
-              {editingPostId && (
-                <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-line">
-                  <span className="font-mono text-xs text-ink-muted">
-                    Editing existing post
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setEditingPostId(null);
-                      setTitle('');
-                      setContent('');
-                      setImageUrl('');
-                      setInlineImages([]);
-                      setIsPreview(false);
-                      addLog('Cancelled post edit.');
-                      switchTab('manage-blog');
-                    }}
-                    className={DANGER_INLINE_CLASS}
-                  >
-                    Cancel edit
-                  </button>
-                </div>
-              )}
-
-              <div className="space-y-1.5">
-                <label htmlFor="post-title" className={LABEL_CLASS}>
-                  Title
-                </label>
-                <input
-                  id="post-title"
-                  name="title"
-                  type="text"
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
-                  className={INPUT_CLASS}
-                  placeholder="Notes on..."
-                  required
+              <div className="w-fit">
+                <ScrambleHeading
+                  text="Admin"
+                  className="font-mono text-xl sm:text-2xl font-medium tracking-tight text-ink"
                 />
               </div>
+            </motion.div>
 
-              <div className="space-y-1.5">
-                <label htmlFor="post-cover" className={LABEL_CLASS}>
-                  Cover image (optional)
-                </label>
-                <div className="flex flex-col sm:flex-row gap-2.5">
-                  <input
-                    id="post-cover"
-                    name="coverImage"
-                    type="url"
-                    value={imageUrl}
-                    onChange={(e) => setImageUrl(e.target.value)}
-                    className={`${INPUT_CLASS} flex-1 font-mono`}
-                    placeholder="https://... or choose a file"
-                  />
-                  <input
-                    type="file"
-                    accept="image/*"
-                    ref={fileInputRef}
-                    onChange={(e) => handleImageUpload(e, false)}
-                    className="hidden"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    className={SECONDARY_BTN_CLASS}
-                  >
-                    <Camera size={14} />
-                    <span>Choose file</span>
-                  </button>
-                </div>
-                {imageUrl && (
-                  <div className="flex items-center justify-between gap-3 pt-2 border-t border-line mt-2">
-                    <div className="flex items-center gap-3 min-w-0">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={imageUrl}
-                        alt="Cover preview"
-                        className="w-12 h-9 object-cover border border-line shrink-0"
-                      />
-                      <span className="font-mono text-xs text-ink-muted truncate">
-                        {imageUrl.startsWith('data:image')
-                          ? 'Compressed cover image attached'
-                          : imageUrl}
-                      </span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setImageUrl('')}
-                      className={INLINE_ACTION_CLASS}
-                    >
-                      Remove
-                    </button>
-                  </div>
-                )}
-              </div>
-
-              <div className="space-y-2">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <label htmlFor="post-body" className={LABEL_CLASS}>
-                    Body (Markdown)
-                  </label>
-                  <div className="flex items-center gap-3">
-                    {!isPreview && (
-                      <>
-                        <input
-                          type="file"
-                          accept="image/*"
-                          ref={inlineImageRef}
-                          onChange={handleInlineImage}
-                          className="hidden"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => inlineImageRef.current?.click()}
-                          className={INLINE_ACTION_CLASS}
-                        >
-                          <ImagePlus size={13} className="mr-1" />
-                          Insert photo
-                        </button>
-                      </>
-                    )}
-                    <div className="inline-flex border border-line rounded-[2px] overflow-hidden">
-                      <button
-                        type="button"
-                        aria-pressed={!isPreview}
-                        onClick={() => setIsPreview(false)}
-                        className={`px-2.5 py-1 font-mono text-xs transition-colors cursor-pointer ${
-                          !isPreview
-                            ? 'bg-ink text-bg'
-                            : 'bg-surface/85 text-ink-muted hover:text-ink'
-                        }`}
-                      >
-                        Edit
-                      </button>
-                      <button
-                        type="button"
-                        aria-pressed={isPreview}
-                        onClick={() => setIsPreview(true)}
-                        className={`px-2.5 py-1 font-mono text-xs transition-colors cursor-pointer ${
-                          isPreview
-                            ? 'bg-ink text-bg'
-                            : 'bg-surface/85 text-ink-muted hover:text-ink'
-                        }`}
-                      >
-                        Preview
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                {!isPreview && inlineImages.length > 0 && (
-                  <div className="flex flex-wrap gap-3 p-3 border border-line bg-surface/80 rounded-[2px]">
-                    {inlineImages.map((img) => (
-                      <div key={img.id} className="relative group">
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          src={img.url}
-                          alt={img.name}
-                          className="w-16 h-16 object-cover border border-line"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setInlineImages((prev) => prev.filter((i) => i.id !== img.id));
-                            addLog(`Removed inline image "${img.name}".`);
-                          }}
-                          aria-label={`Remove inline image ${img.name}`}
-                          className="absolute -top-2 -right-2 w-5 h-5 bg-bg border border-line text-ink hover:border-ink rounded-full text-xs flex items-center justify-center cursor-pointer"
-                        >
-                          ×
-                        </button>
-                        <p className="font-mono text-[11px] text-ink-muted truncate w-16 mt-1 text-center">
-                          inline:{img.id}
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {isPreview ? (
-                  <div className="w-full min-h-[220px] bg-surface/90 border border-line p-4 sm:p-5 rounded-[2px] prose prose-sm prose-neutral max-w-none font-sans prose-headings:font-medium prose-headings:text-ink prose-p:text-ink/90 prose-p:leading-relaxed prose-li:text-ink/90 prose-code:font-mono prose-code:text-xs dark:prose-invert">
-                    {content ? (
-                      renderPreviewContent(content)
-                    ) : (
-                      <p className="text-ink-muted italic text-sm">Nothing to preview yet.</p>
-                    )}
-                  </div>
-                ) : (
-                  <textarea
-                    ref={textareaRef}
-                    id="post-body"
-                    name="content"
-                    value={content}
-                    onChange={(e) => setContent(e.target.value)}
-                    rows={9}
-                    className={`${INPUT_CLASS} font-mono text-xs sm:text-sm leading-relaxed min-h-[220px] resize-y`}
-                    placeholder="Write in Markdown..."
-                    required
-                  />
-                )}
-              </div>
-
-              <div className="pt-2 flex justify-end">
-                <button
-                  type="submit"
-                  disabled={isPublishing}
-                  className={PRIMARY_BTN_CLASS}
-                >
-                  {isPublishing
-                    ? 'Saving...'
-                    : editingPostId
-                    ? 'Save changes'
-                    : 'Publish post'}
-                </button>
-              </div>
-            </form>
-          )}
-
-          {activeTab === 'manage-blog' && (
-            <div className="space-y-3">
-              <div className="flex flex-wrap items-baseline justify-between gap-3">
-                <p className="font-sans text-xs sm:text-sm text-ink-muted">
-                  Published notes on the blog feed.
-                </p>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setEditingPostId(null);
-                    setTitle('');
-                    setContent('');
-                    setImageUrl('');
-                    setInlineImages([]);
-                    setIsPreview(false);
-                    switchTab('blog');
-                  }}
-                  className="font-mono text-xs text-ink underline underline-offset-4 hover:opacity-80 inline-flex items-center gap-1 cursor-pointer min-h-[36px]"
-                >
-                  <Plus size={13} />
-                  <span>New post</span>
-                </button>
-              </div>
-
-              <div className="divide-y divide-line border-t border-line">
-                {allPosts.length === 0 ? (
-                  <p className="font-sans text-sm text-ink-muted py-6">
-                    No blog posts published yet.
-                  </p>
-                ) : (
-                  allPosts.map((post) => (
-                    <div key={post.id} className="py-3.5 space-y-1.5">
-                      <div className="flex items-baseline justify-between gap-4">
-                        <h2 className="font-mono text-sm font-normal text-ink">
-                          {post.title}
-                        </h2>
-                        {post.createdAt && (
-                          <span className="font-mono text-xs text-ink-muted shrink-0">
-                            {new Date(post.createdAt).toLocaleDateString('en-US', {
-                              year: 'numeric',
-                              month: 'short',
-                              day: '2-digit',
-                            })}
-                          </span>
-                        )}
-                      </div>
-                      <p className="font-sans text-xs sm:text-sm text-ink-muted leading-relaxed line-clamp-2">
-                        {summarizePostContent(post.content)}
-                      </p>
-                      <div className="flex items-center gap-4 pt-0.5">
-                        <button
-                          type="button"
-                          onClick={() => handleEditPost(post)}
-                          className={INLINE_ACTION_CLASS}
-                        >
-                          Edit
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setPendingDelete({ kind: 'post', id: post.id, title: post.title })
-                          }
-                          className={DANGER_INLINE_CLASS}
-                        >
-                          Delete
-                        </button>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-          )}
-
-          {activeTab === 'photo' && (
-            <form onSubmit={handlePublishPhotos} aria-label="Photo uploader" className="space-y-5">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <p className="font-sans text-xs sm:text-sm text-ink-muted">
-                  Stage photographs with titles and captions before publishing.
-                </p>
-                <input
-                  type="file"
-                  accept="image/*"
-                  multiple
-                  ref={photoInputRef}
-                  onChange={(e) => handleImageUpload(e, true)}
-                  className="hidden"
-                />
-                <button
-                  ref={selectPhotosButtonRef}
-                  type="button"
-                  onClick={() => photoInputRef.current?.click()}
-                  className={SECONDARY_BTN_CLASS}
-                >
-                  <Camera size={14} />
-                  <span>Select files</span>
-                </button>
-              </div>
-
-              <div
-                onDragOver={(e) => {
-                  e.preventDefault();
-                  setIsDraggingPhotos(true);
-                }}
-                onDragLeave={() => setIsDraggingPhotos(false)}
-                onDrop={async (e) => {
-                  e.preventDefault();
-                  setIsDraggingPhotos(false);
-                  const dropped = Array.from(e.dataTransfer.files || []);
-                  if (dropped.length) await stagePhotoFiles(dropped);
-                }}
-                className={`border border-dashed transition-colors rounded-[2px] ${
-                  isDraggingPhotos ? 'border-ink bg-surface/90' : 'border-line'
-                }`}
+            <div className="space-y-5 border-t border-line pt-3">
+              {/* Summary & sign out row — mirrors Resume top strip */}
+              <motion.div
+                variants={SECTION_ITEM_VARIANTS}
+                className="flex items-baseline justify-between gap-4"
               >
-                {pendingPhotos.length === 0 ? (
-                  <div className="py-10 px-4 text-center space-y-1">
-                    <p className="font-mono text-xs text-ink">
-                      Drop images here or choose files above.
-                    </p>
-                    <p className="font-sans text-xs text-ink-muted">
-                      Images are automatically resized and compressed before saving.
-                    </p>
+                <p className="font-mono text-xs text-ink-muted min-w-0 truncate">
+                  {storageSummary} · {allPosts.length} posts · {allPhotos.length} photos ·{' '}
+                  {skills.length} skills
+                </p>
+                <motion.button
+                  type="button"
+                  onClick={handleLogout}
+                  whileHover={{ y: -0.5 }}
+                  whileTap={{ scale: 0.97 }}
+                  transition={TACTILE_SPRING}
+                  className="font-mono text-xs text-ink underline underline-offset-4 hover:opacity-80 min-h-[36px] inline-flex items-center shrink-0 whitespace-nowrap cursor-pointer"
+                >
+                  Sign out
+                </motion.button>
+              </motion.div>
+
+              {/* Single-row accessible tablist with Framer Motion sliding underline */}
+              <motion.div variants={SECTION_ITEM_VARIANTS}>
+                <LayoutGroup id="admin-section-tabs">
+                  <div
+                    role="tablist"
+                    aria-label="Admin sections"
+                    onKeyDown={handleTabKeyDown}
+                    className="flex items-center gap-3 sm:gap-5 border-t border-b border-line overflow-x-auto flex-nowrap [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                  >
+                    {tabs.map((tab) => {
+                      const isSelected = activeTab === tab.id;
+                      return (
+                        <motion.button
+                          key={tab.id}
+                          ref={(el) => {
+                            tabButtonRefs.current[tab.id] = el;
+                          }}
+                          type="button"
+                          role="tab"
+                          id={`admin-tab-${tab.id}`}
+                          aria-selected={isSelected}
+                          tabIndex={isSelected ? 0 : -1}
+                          whileTap={{ scale: 0.97 }}
+                          transition={TACTILE_SPRING}
+                          onClick={() => {
+                            if (tab.id === 'blog' && activeTab !== 'blog') {
+                              setEditingPostId(null);
+                            }
+                            switchTab(tab.id);
+                          }}
+                          className={`relative py-3 font-mono text-[11px] sm:text-xs font-normal whitespace-nowrap shrink-0 cursor-pointer transition-colors ${
+                            isSelected ? 'text-ink' : 'text-ink-muted hover:text-ink'
+                          }`}
+                        >
+                          <span className="relative z-10">{tab.label}</span>
+                          {isSelected && (
+                            <motion.span
+                              layoutId="admin-active-tab-underline"
+                              transition={GLIDE_SPRING}
+                              aria-hidden="true"
+                              className="pointer-events-none absolute inset-x-0 bottom-0 h-[2px] bg-ink"
+                            />
+                          )}
+                        </motion.button>
+                      );
+                    })}
                   </div>
-                ) : (
-                  <div className="divide-y divide-line">
-                    {pendingPhotos.map((photo, index) => (
-                      <div
-                        key={photo.id}
-                        className="p-4 flex flex-col sm:flex-row gap-4 items-start"
+                </LayoutGroup>
+              </motion.div>
+
+              {/* Animated status feedback banner */}
+              <AnimatePresence initial={false}>
+                {feedback && (
+                  <motion.div
+                    key={`${feedback.kind}-${feedback.text}`}
+                    role="status"
+                    aria-live="polite"
+                    initial={{ height: 0, opacity: 0, y: -4 }}
+                    animate={{ height: 'auto', opacity: 1, y: 0 }}
+                    exit={{ height: 0, opacity: 0, y: -4 }}
+                    transition={ACCORDION_TRANSITION}
+                    className="overflow-hidden"
+                  >
+                    <div
+                      className={`border px-3.5 py-2.5 font-mono text-xs flex items-center justify-between gap-3 rounded-[2px] bg-surface/90 ${
+                        feedback.kind === 'error'
+                          ? 'border-red-700/50 dark:border-red-400/50 text-red-700 dark:text-red-400'
+                          : 'border-line text-ink'
+                      }`}
+                    >
+                      <span>{feedback.text}</span>
+                      <motion.button
+                        type="button"
+                        onClick={() => setFeedback(null)}
+                        whileHover={{ scale: 1.08 }}
+                        whileTap={{ scale: 0.9 }}
+                        transition={TACTILE_SPRING}
+                        aria-label="Dismiss message"
+                        className="text-ink-muted hover:text-ink p-1 cursor-pointer shrink-0"
                       >
-                        <div className="w-full sm:w-24 h-24 shrink-0 border border-line overflow-hidden bg-surface">
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img
-                            src={photo.url}
-                            alt={photo.title || 'Staged photograph preview'}
-                            className="w-full h-full object-cover"
+                        <X size={14} />
+                      </motion.button>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              {/* Directional Framer Motion active tab panel */}
+              <motion.div variants={SECTION_ITEM_VARIANTS} className="overflow-x-clip">
+                <AnimatePresence mode="wait" initial={false} custom={tabDirection}>
+                  <motion.div
+                    key={activeTab}
+                    custom={tabDirection}
+                    variants={TAB_PANEL_VARIANTS}
+                    initial="enter"
+                    animate="center"
+                    exit="exit"
+                    role="tabpanel"
+                    aria-labelledby={activeTabId}
+                    className="space-y-5"
+                  >
+                    {activeTab === 'blog' && (
+                      <form
+                        onSubmit={handlePublishPost}
+                        aria-label="Blog post editor"
+                        className="space-y-5"
+                      >
+                        <AnimatePresence initial={false}>
+                          {editingPostId && (
+                            <motion.div
+                              key="editing-post-banner"
+                              initial={{ height: 0, opacity: 0 }}
+                              animate={{ height: 'auto', opacity: 1 }}
+                              exit={{ height: 0, opacity: 0 }}
+                              transition={ACCORDION_TRANSITION}
+                              className="overflow-hidden"
+                            >
+                              <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-line">
+                                <span className="font-mono text-xs text-ink-muted">
+                                  Editing existing post
+                                </span>
+                                <motion.button
+                                  type="button"
+                                  whileTap={{ scale: 0.97 }}
+                                  transition={TACTILE_SPRING}
+                                  onClick={() => {
+                                    setEditingPostId(null);
+                                    setTitle('');
+                                    setContent('');
+                                    setImageUrl('');
+                                    setInlineImages([]);
+                                    setIsPreview(false);
+                                    addLog('Cancelled post edit.');
+                                    switchTab('manage-blog');
+                                  }}
+                                  className={DANGER_INLINE_CLASS}
+                                >
+                                  Cancel edit
+                                </motion.button>
+                              </div>
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+
+                        <div className="space-y-1.5">
+                          <label htmlFor="post-title" className={LABEL_CLASS}>
+                            Title
+                          </label>
+                          <input
+                            id="post-title"
+                            name="title"
+                            type="text"
+                            value={title}
+                            onChange={(e) => setTitle(e.target.value)}
+                            className={INPUT_CLASS}
+                            placeholder="Notes on..."
+                            required
                           />
                         </div>
-                        <div className="flex-1 w-full space-y-2.5">
-                          <div className="space-y-1">
-                            <label
-                              htmlFor={`staged-title-${photo.id}`}
-                              className={LABEL_CLASS}
+
+                        <div className="space-y-1.5">
+                          <label htmlFor="post-cover" className={LABEL_CLASS}>
+                            Cover image (optional)
+                          </label>
+                          <div className="flex flex-col sm:flex-row gap-2.5">
+                            <input
+                              id="post-cover"
+                              name="coverImage"
+                              type="url"
+                              value={imageUrl}
+                              onChange={(e) => setImageUrl(e.target.value)}
+                              className={`${INPUT_CLASS} flex-1 font-mono`}
+                              placeholder="https://... or choose a file"
+                            />
+                            <input
+                              type="file"
+                              accept="image/*"
+                              ref={fileInputRef}
+                              onChange={(e) => handleImageUpload(e, false)}
+                              className="hidden"
+                            />
+                            <motion.button
+                              type="button"
+                              whileHover={{ y: -1 }}
+                              whileTap={{ scale: 0.98 }}
+                              transition={TACTILE_SPRING}
+                              onClick={() => fileInputRef.current?.click()}
+                              className={SECONDARY_BTN_CLASS}
                             >
-                              Title
+                              <Camera size={14} />
+                              <span>Choose file</span>
+                            </motion.button>
+                          </div>
+
+                          <AnimatePresence initial={false}>
+                            {imageUrl && (
+                              <motion.div
+                                key="cover-preview"
+                                initial={{ height: 0, opacity: 0 }}
+                                animate={{ height: 'auto', opacity: 1 }}
+                                exit={{ height: 0, opacity: 0 }}
+                                transition={ACCORDION_TRANSITION}
+                                className="overflow-hidden"
+                              >
+                                <div className="flex items-center justify-between gap-3 pt-2 border-t border-line mt-2">
+                                  <div className="flex items-center gap-3 min-w-0">
+                                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                                    <img
+                                      src={imageUrl}
+                                      alt="Cover preview"
+                                      className="w-12 h-9 object-cover border border-line shrink-0"
+                                    />
+                                    <span className="font-mono text-xs text-ink-muted truncate">
+                                      {imageUrl.startsWith('data:image')
+                                        ? 'Compressed cover image attached'
+                                        : imageUrl}
+                                    </span>
+                                  </div>
+                                  <motion.button
+                                    type="button"
+                                    whileTap={{ scale: 0.96 }}
+                                    onClick={() => setImageUrl('')}
+                                    className={INLINE_ACTION_CLASS}
+                                  >
+                                    Remove
+                                  </motion.button>
+                                </div>
+                              </motion.div>
+                            )}
+                          </AnimatePresence>
+                        </div>
+
+                        <div className="space-y-2">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <label htmlFor="post-body" className={LABEL_CLASS}>
+                              Body (Markdown)
+                            </label>
+                            <div className="flex items-center gap-3">
+                              <AnimatePresence initial={false}>
+                                {!isPreview && (
+                                  <motion.div
+                                    key="insert-inline-photo"
+                                    initial={{ opacity: 0, x: 6 }}
+                                    animate={{ opacity: 1, x: 0 }}
+                                    exit={{ opacity: 0, x: 6 }}
+                                    transition={{ duration: 0.16, ease: CALM_EASE }}
+                                    className="inline-flex items-center"
+                                  >
+                                    <input
+                                      type="file"
+                                      accept="image/*"
+                                      ref={inlineImageRef}
+                                      onChange={handleInlineImage}
+                                      className="hidden"
+                                    />
+                                    <motion.button
+                                      type="button"
+                                      whileTap={{ scale: 0.97 }}
+                                      onClick={() => inlineImageRef.current?.click()}
+                                      className={INLINE_ACTION_CLASS}
+                                    >
+                                      <ImagePlus size={13} className="mr-1" />
+                                      Insert photo
+                                    </motion.button>
+                                  </motion.div>
+                                )}
+                              </AnimatePresence>
+
+                              <LayoutGroup id="admin-markdown-mode">
+                                <div className="inline-flex p-0.5 border border-line bg-surface/85 rounded-[2px]">
+                                  {(['edit', 'preview'] as const).map((mode) => {
+                                    const selected = mode === 'preview' ? isPreview : !isPreview;
+                                    return (
+                                      <button
+                                        key={mode}
+                                        type="button"
+                                        aria-pressed={selected}
+                                        onClick={() => setIsPreview(mode === 'preview')}
+                                        className={`relative px-2.5 py-1 font-mono text-xs transition-colors cursor-pointer rounded-[1px] ${
+                                          selected ? 'text-bg' : 'text-ink-muted hover:text-ink'
+                                        }`}
+                                      >
+                                        {selected && (
+                                          <motion.span
+                                            layoutId="admin-markdown-mode-pill"
+                                            transition={GLIDE_SPRING}
+                                            aria-hidden="true"
+                                            className="absolute inset-0 bg-ink rounded-[1px]"
+                                          />
+                                        )}
+                                        <span className="relative z-10">
+                                          {mode === 'edit' ? 'Edit' : 'Preview'}
+                                        </span>
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </LayoutGroup>
+                            </div>
+                          </div>
+
+                          <AnimatePresence initial={false}>
+                            {!isPreview && inlineImages.length > 0 && (
+                              <motion.div
+                                key="inline-images-tray"
+                                initial={{ height: 0, opacity: 0 }}
+                                animate={{ height: 'auto', opacity: 1 }}
+                                exit={{ height: 0, opacity: 0 }}
+                                transition={ACCORDION_TRANSITION}
+                                className="overflow-hidden"
+                              >
+                                <div className="flex flex-wrap gap-3 p-3 border border-line bg-surface/80 rounded-[2px]">
+                                  <AnimatePresence initial={false} mode="popLayout">
+                                    {inlineImages.map((img) => (
+                                      <motion.div
+                                        key={img.id}
+                                        layout
+                                        initial={{ opacity: 0, scale: 0.88 }}
+                                        animate={{ opacity: 1, scale: 1 }}
+                                        exit={{ opacity: 0, scale: 0.85 }}
+                                        transition={TACTILE_SPRING}
+                                        className="relative group"
+                                      >
+                                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                                        <img
+                                          src={img.url}
+                                          alt={img.name}
+                                          className="w-16 h-16 object-cover border border-line"
+                                        />
+                                        <motion.button
+                                          type="button"
+                                          whileHover={{ scale: 1.1 }}
+                                          whileTap={{ scale: 0.9 }}
+                                          onClick={() => {
+                                            setInlineImages((prev) =>
+                                              prev.filter((i) => i.id !== img.id)
+                                            );
+                                            addLog(`Removed inline image "${img.name}".`);
+                                          }}
+                                          aria-label={`Remove inline image ${img.name}`}
+                                          className="absolute -top-2 -right-2 w-5 h-5 bg-bg border border-line text-ink hover:border-ink rounded-full text-xs flex items-center justify-center cursor-pointer"
+                                        >
+                                          ×
+                                        </motion.button>
+                                        <p className="font-mono text-[11px] text-ink-muted truncate w-16 mt-1 text-center">
+                                          inline:{img.id}
+                                        </p>
+                                      </motion.div>
+                                    ))}
+                                  </AnimatePresence>
+                                </div>
+                              </motion.div>
+                            )}
+                          </AnimatePresence>
+
+                          <AnimatePresence mode="wait" initial={false}>
+                            {isPreview ? (
+                              <motion.div
+                                key="markdown-preview"
+                                initial={{ opacity: 0, y: 4 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: -4 }}
+                                transition={{ duration: 0.16, ease: CALM_EASE }}
+                                className="w-full min-h-[220px] bg-surface/90 border border-line p-4 sm:p-5 rounded-[2px] prose prose-sm prose-neutral max-w-none font-sans prose-headings:font-medium prose-headings:text-ink prose-p:text-ink/90 prose-p:leading-relaxed prose-li:text-ink/90 prose-code:font-mono prose-code:text-xs dark:prose-invert"
+                              >
+                                {content ? (
+                                  renderPreviewContent(content)
+                                ) : (
+                                  <p className="text-ink-muted italic text-sm">
+                                    Nothing to preview yet.
+                                  </p>
+                                )}
+                              </motion.div>
+                            ) : (
+                              <motion.div
+                                key="markdown-editor"
+                                initial={{ opacity: 0, y: 4 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: -4 }}
+                                transition={{ duration: 0.16, ease: CALM_EASE }}
+                              >
+                                <textarea
+                                  ref={textareaRef}
+                                  id="post-body"
+                                  name="content"
+                                  value={content}
+                                  onChange={(e) => setContent(e.target.value)}
+                                  rows={9}
+                                  className={`${INPUT_CLASS} font-mono text-xs sm:text-sm leading-relaxed min-h-[220px] resize-y`}
+                                  placeholder="Write in Markdown..."
+                                  required
+                                />
+                              </motion.div>
+                            )}
+                          </AnimatePresence>
+                        </div>
+
+                        <div className="pt-2 flex justify-end">
+                          <motion.button
+                            type="submit"
+                            disabled={isPublishing}
+                            whileHover={!isPublishing ? { y: -1 } : undefined}
+                            whileTap={!isPublishing ? { scale: 0.98 } : undefined}
+                            transition={TACTILE_SPRING}
+                            className={PRIMARY_BTN_CLASS}
+                          >
+                            {isPublishing && (
+                              <motion.span
+                                animate={{ rotate: 360 }}
+                                transition={{ repeat: Infinity, duration: 0.85, ease: 'linear' }}
+                                className="inline-flex"
+                              >
+                                <Loader2 size={14} />
+                              </motion.span>
+                            )}
+                            <AnimatePresence mode="wait" initial={false}>
+                              <motion.span
+                                key={publishPostLabel}
+                                initial={{ opacity: 0, y: 3 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: -3 }}
+                                transition={{ duration: 0.15, ease: CALM_EASE }}
+                              >
+                                {publishPostLabel}
+                              </motion.span>
+                            </AnimatePresence>
+                          </motion.button>
+                        </div>
+                      </form>
+                    )}
+
+                    {activeTab === 'manage-blog' && (
+                      <div className="space-y-3">
+                        <div className="flex flex-wrap items-baseline justify-between gap-3">
+                          <p className="font-sans text-xs sm:text-sm text-ink-muted">
+                            Published notes on the blog feed.
+                          </p>
+                          <motion.button
+                            type="button"
+                            whileHover={{ y: -0.5 }}
+                            whileTap={{ scale: 0.97 }}
+                            transition={TACTILE_SPRING}
+                            onClick={() => {
+                              setEditingPostId(null);
+                              setTitle('');
+                              setContent('');
+                              setImageUrl('');
+                              setInlineImages([]);
+                              setIsPreview(false);
+                              switchTab('blog');
+                            }}
+                            className="font-mono text-xs text-ink underline underline-offset-4 hover:opacity-80 inline-flex items-center gap-1 cursor-pointer min-h-[36px]"
+                          >
+                            <Plus size={13} />
+                            <span>New post</span>
+                          </motion.button>
+                        </div>
+
+                        <div className="divide-y divide-line border-t border-line">
+                          {allPosts.length === 0 ? (
+                            <motion.p
+                              initial={{ opacity: 0 }}
+                              animate={{ opacity: 1 }}
+                              className="font-sans text-sm text-ink-muted py-6"
+                            >
+                              No blog posts published yet.
+                            </motion.p>
+                          ) : (
+                            <AnimatePresence initial={false} mode="popLayout">
+                              {allPosts.map((post) => (
+                                <motion.div
+                                  key={post.id}
+                                  layout
+                                  initial={{ opacity: 0, y: 6 }}
+                                  animate={{ opacity: 1, y: 0 }}
+                                  exit={{ opacity: 0, scale: 0.98 }}
+                                  transition={{ duration: 0.2, ease: CALM_EASE }}
+                                  className="py-3.5 space-y-1.5"
+                                >
+                                  <div className="flex items-baseline justify-between gap-4">
+                                    <h2 className="font-mono text-sm font-normal text-ink">
+                                      {post.title}
+                                    </h2>
+                                    {post.createdAt && (
+                                      <span className="font-mono text-xs text-ink-muted shrink-0">
+                                        {new Date(post.createdAt).toLocaleDateString('en-US', {
+                                          year: 'numeric',
+                                          month: 'short',
+                                          day: '2-digit',
+                                        })}
+                                      </span>
+                                    )}
+                                  </div>
+                                  <p className="font-sans text-xs sm:text-sm text-ink-muted leading-relaxed line-clamp-2">
+                                    {summarizePostContent(post.content)}
+                                  </p>
+                                  <div className="flex items-center gap-4 pt-0.5">
+                                    <motion.button
+                                      type="button"
+                                      whileTap={{ scale: 0.96 }}
+                                      onClick={() => handleEditPost(post)}
+                                      className={INLINE_ACTION_CLASS}
+                                    >
+                                      Edit
+                                    </motion.button>
+                                    <motion.button
+                                      type="button"
+                                      whileTap={{ scale: 0.96 }}
+                                      onClick={() =>
+                                        setPendingDelete({
+                                          kind: 'post',
+                                          id: post.id,
+                                          title: post.title,
+                                        })
+                                      }
+                                      className={DANGER_INLINE_CLASS}
+                                    >
+                                      Delete
+                                    </motion.button>
+                                  </div>
+                                </motion.div>
+                              ))}
+                            </AnimatePresence>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {activeTab === 'photo' && (
+                      <form
+                        onSubmit={handlePublishPhotos}
+                        aria-label="Photo uploader"
+                        className="space-y-5"
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <p className="font-sans text-xs sm:text-sm text-ink-muted">
+                            Stage photographs with titles and captions before publishing.
+                          </p>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            multiple
+                            ref={photoInputRef}
+                            onChange={(e) => handleImageUpload(e, true)}
+                            className="hidden"
+                          />
+                          <motion.button
+                            ref={selectPhotosButtonRef}
+                            type="button"
+                            whileHover={{ y: -1 }}
+                            whileTap={{ scale: 0.98 }}
+                            transition={TACTILE_SPRING}
+                            onClick={() => photoInputRef.current?.click()}
+                            className={SECONDARY_BTN_CLASS}
+                          >
+                            <Camera size={14} />
+                            <span>Select files</span>
+                          </motion.button>
+                        </div>
+
+                        <motion.div
+                          layout
+                          animate={{ scale: isDraggingPhotos ? 1.008 : 1 }}
+                          transition={TACTILE_SPRING}
+                          onDragOver={(e) => {
+                            e.preventDefault();
+                            setIsDraggingPhotos(true);
+                          }}
+                          onDragLeave={() => setIsDraggingPhotos(false)}
+                          onDrop={async (e) => {
+                            e.preventDefault();
+                            setIsDraggingPhotos(false);
+                            const dropped = Array.from(e.dataTransfer.files || []);
+                            if (dropped.length) await stagePhotoFiles(dropped);
+                          }}
+                          className={`border border-dashed transition-colors rounded-[2px] overflow-hidden ${
+                            isDraggingPhotos ? 'border-ink bg-surface/90' : 'border-line'
+                          }`}
+                        >
+                          <AnimatePresence mode="wait" initial={false}>
+                            {pendingPhotos.length === 0 ? (
+                              <motion.div
+                                key="empty-dropzone"
+                                initial={{ opacity: 0 }}
+                                animate={{ opacity: 1 }}
+                                exit={{ opacity: 0 }}
+                                transition={{ duration: 0.16, ease: CALM_EASE }}
+                                className="py-10 px-4 text-center space-y-1"
+                              >
+                                <p className="font-mono text-xs text-ink">
+                                  Drop images here or choose files above.
+                                </p>
+                                <p className="font-sans text-xs text-ink-muted">
+                                  Images are automatically resized and compressed before saving.
+                                </p>
+                              </motion.div>
+                            ) : (
+                              <motion.div
+                                key="staged-list"
+                                initial={{ opacity: 0 }}
+                                animate={{ opacity: 1 }}
+                                exit={{ opacity: 0 }}
+                                className="divide-y divide-line"
+                              >
+                                <AnimatePresence initial={false}>
+                                  {pendingPhotos.map((photo, index) => (
+                                    <motion.div
+                                      key={photo.id}
+                                      layout
+                                      initial={{ opacity: 0, y: 10 }}
+                                      animate={{ opacity: 1, y: 0 }}
+                                      exit={{ opacity: 0, height: 0 }}
+                                      transition={{ duration: 0.22, ease: CALM_EASE }}
+                                      className="overflow-hidden"
+                                    >
+                                      <div className="p-4 flex flex-col sm:flex-row gap-4 items-start">
+                                        <div className="w-full sm:w-24 h-24 shrink-0 border border-line overflow-hidden bg-surface">
+                                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                                          <img
+                                            src={photo.url}
+                                            alt={photo.title || 'Staged photograph preview'}
+                                            className="w-full h-full object-cover"
+                                          />
+                                        </div>
+                                        <div className="flex-1 w-full space-y-2.5">
+                                          <div className="space-y-1">
+                                            <label
+                                              htmlFor={`staged-title-${photo.id}`}
+                                              className={LABEL_CLASS}
+                                            >
+                                              Title
+                                            </label>
+                                            <input
+                                              id={`staged-title-${photo.id}`}
+                                              type="text"
+                                              value={photo.title}
+                                              onChange={(e) => {
+                                                const next = [...pendingPhotos];
+                                                next[index] = {
+                                                  ...next[index],
+                                                  title: e.target.value,
+                                                };
+                                                setPendingPhotos(next);
+                                              }}
+                                              className={INPUT_CLASS}
+                                              placeholder="Photograph title"
+                                              required
+                                            />
+                                          </div>
+                                          <div className="space-y-1">
+                                            <label
+                                              htmlFor={`staged-desc-${photo.id}`}
+                                              className={LABEL_CLASS}
+                                            >
+                                              Caption (optional)
+                                            </label>
+                                            <textarea
+                                              id={`staged-desc-${photo.id}`}
+                                              value={photo.description}
+                                              onChange={(e) => {
+                                                const next = [...pendingPhotos];
+                                                next[index] = {
+                                                  ...next[index],
+                                                  description: e.target.value,
+                                                };
+                                                setPendingPhotos(next);
+                                              }}
+                                              rows={2}
+                                              className={`${INPUT_CLASS} font-sans resize-y`}
+                                              placeholder="Location, camera notes, or context..."
+                                            />
+                                          </div>
+                                        </div>
+                                        <motion.button
+                                          type="button"
+                                          whileHover={{ scale: 1.08 }}
+                                          whileTap={{ scale: 0.9 }}
+                                          transition={TACTILE_SPRING}
+                                          onClick={() => {
+                                            setPendingPhotos((prev) =>
+                                              prev.filter((p) => p.id !== photo.id)
+                                            );
+                                            addLog(`Removed staged photo "${photo.title}".`);
+                                          }}
+                                          aria-label={`Remove ${photo.title || 'staged photo'}`}
+                                          className="text-ink-muted hover:text-red-700 dark:hover:text-red-400 p-2 min-w-[36px] min-h-[36px] inline-flex items-center justify-center self-end sm:self-start cursor-pointer transition-colors"
+                                        >
+                                          <Trash2 size={15} />
+                                        </motion.button>
+                                      </div>
+                                    </motion.div>
+                                  ))}
+                                </AnimatePresence>
+                              </motion.div>
+                            )}
+                          </AnimatePresence>
+                        </motion.div>
+
+                        <div className="pt-1 flex justify-end">
+                          <motion.button
+                            type="submit"
+                            disabled={isPublishing}
+                            whileHover={!isPublishing ? { y: -1 } : undefined}
+                            whileTap={!isPublishing ? { scale: 0.98 } : undefined}
+                            transition={TACTILE_SPRING}
+                            className={PRIMARY_BTN_CLASS}
+                          >
+                            {isPublishing && (
+                              <motion.span
+                                animate={{ rotate: 360 }}
+                                transition={{ repeat: Infinity, duration: 0.85, ease: 'linear' }}
+                                className="inline-flex"
+                              >
+                                <Loader2 size={14} />
+                              </motion.span>
+                            )}
+                            <span>{isPublishing ? 'Uploading...' : 'Publish photos'}</span>
+                          </motion.button>
+                        </div>
+                      </form>
+                    )}
+
+                    {activeTab === 'manage-photo' && (
+                      <div className="space-y-3">
+                        <div className="flex flex-wrap items-baseline justify-between gap-3">
+                          <p className="font-sans text-xs sm:text-sm text-ink-muted">
+                            Archived photographs shown in the photography gallery.
+                          </p>
+                          <motion.button
+                            type="button"
+                            whileHover={{ y: -0.5 }}
+                            whileTap={{ scale: 0.97 }}
+                            transition={TACTILE_SPRING}
+                            onClick={() => switchTab('photo')}
+                            className="font-mono text-xs text-ink underline underline-offset-4 hover:opacity-80 inline-flex items-center gap-1 cursor-pointer min-h-[36px]"
+                          >
+                            <Plus size={13} />
+                            <span>Upload photos</span>
+                          </motion.button>
+                        </div>
+
+                        <div className="divide-y divide-line border-t border-line">
+                          {allPhotos.length === 0 ? (
+                            <motion.p
+                              initial={{ opacity: 0 }}
+                              animate={{ opacity: 1 }}
+                              className="font-sans text-sm text-ink-muted py-6"
+                            >
+                              No photographs archived yet.
+                            </motion.p>
+                          ) : (
+                            <AnimatePresence initial={false} mode="popLayout">
+                              {allPhotos.map((photo) => (
+                                <motion.div
+                                  key={photo.id}
+                                  layout
+                                  initial={{ opacity: 0, y: 6 }}
+                                  animate={{ opacity: 1, y: 0 }}
+                                  exit={{ opacity: 0, scale: 0.98 }}
+                                  transition={{ duration: 0.2, ease: CALM_EASE }}
+                                  className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+                                >
+                                  <div className="flex items-start gap-3.5 min-w-0 flex-1">
+                                    <div className="w-14 h-14 shrink-0 border border-line overflow-hidden bg-surface">
+                                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                                      <img
+                                        src={photo.url}
+                                        alt={photo.title}
+                                        className="w-full h-full object-cover"
+                                      />
+                                    </div>
+                                    <div className="min-w-0 space-y-0.5">
+                                      <h2 className="font-mono text-sm font-normal text-ink truncate">
+                                        {photo.title}
+                                      </h2>
+                                      {photo.description && (
+                                        <p className="font-sans text-xs sm:text-sm text-ink-muted truncate">
+                                          {photo.description}
+                                        </p>
+                                      )}
+                                      {photo.createdAt && (
+                                        <p className="font-mono text-xs text-ink-muted">
+                                          {new Date(photo.createdAt).toLocaleDateString('en-US', {
+                                            year: 'numeric',
+                                            month: 'short',
+                                            day: '2-digit',
+                                          })}
+                                        </p>
+                                      )}
+                                    </div>
+                                  </div>
+                                  <div className="flex items-center gap-4 shrink-0">
+                                    <motion.button
+                                      type="button"
+                                      whileTap={{ scale: 0.96 }}
+                                      onClick={() => handleEditPhoto(photo)}
+                                      className={INLINE_ACTION_CLASS}
+                                    >
+                                      Edit
+                                    </motion.button>
+                                    <motion.button
+                                      type="button"
+                                      whileTap={{ scale: 0.96 }}
+                                      onClick={() =>
+                                        setPendingDelete({
+                                          kind: 'photo',
+                                          id: photo.id,
+                                          title: photo.title,
+                                        })
+                                      }
+                                      className={DANGER_INLINE_CLASS}
+                                    >
+                                      Delete
+                                    </motion.button>
+                                  </div>
+                                </motion.div>
+                              ))}
+                            </AnimatePresence>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {activeTab === 'skills' && (
+                      <div className="space-y-6">
+                        <form
+                          onSubmit={handleAddSkill}
+                          aria-label="Add skill"
+                          className="flex flex-wrap items-end gap-3"
+                        >
+                          <div className="flex-1 min-w-[200px] space-y-1.5">
+                            <label htmlFor="skill-label" className={LABEL_CLASS}>
+                              Skill
                             </label>
                             <input
-                              id={`staged-title-${photo.id}`}
+                              id="skill-label"
+                              name="skillLabel"
                               type="text"
-                              value={photo.title}
-                              onChange={(e) => {
-                                const next = [...pendingPhotos];
-                                next[index] = { ...next[index], title: e.target.value };
-                                setPendingPhotos(next);
-                              }}
+                              value={newSkillLabel}
+                              onChange={(e) => setNewSkillLabel(e.target.value)}
                               className={INPUT_CLASS}
-                              placeholder="Photograph title"
+                              placeholder="e.g. Stan"
                               required
                             />
                           </div>
-                          <div className="space-y-1">
-                            <label
-                              htmlFor={`staged-desc-${photo.id}`}
-                              className={LABEL_CLASS}
-                            >
-                              Caption (optional)
+                          <div className="flex-1 min-w-[200px] space-y-1.5">
+                            <label htmlFor="skill-category" className={LABEL_CLASS}>
+                              Category
                             </label>
-                            <textarea
-                              id={`staged-desc-${photo.id}`}
-                              value={photo.description}
-                              onChange={(e) => {
-                                const next = [...pendingPhotos];
-                                next[index] = { ...next[index], description: e.target.value };
-                                setPendingPhotos(next);
-                              }}
-                              rows={2}
-                              className={`${INPUT_CLASS} font-sans resize-y`}
-                              placeholder="Location, camera notes, or context..."
-                            />
-                          </div>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setPendingPhotos((prev) => prev.filter((p) => p.id !== photo.id));
-                            addLog(`Removed staged photo "${photo.title}".`);
-                          }}
-                          aria-label={`Remove ${photo.title || 'staged photo'}`}
-                          className="text-ink-muted hover:text-red-400 [.light_&]:hover:text-red-700 p-2 min-w-[36px] min-h-[36px] inline-flex items-center justify-center self-end sm:self-start cursor-pointer transition-colors"
-                        >
-                          <Trash2 size={15} aria-hidden="true" />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              <div className="pt-1 flex justify-end">
-                <button
-                  type="submit"
-                  disabled={isPublishing}
-                  className={PRIMARY_BTN_CLASS}
-                >
-                  {isPublishing ? 'Uploading...' : 'Publish photos'}
-                </button>
-              </div>
-            </form>
-          )}
-
-          {activeTab === 'manage-photo' && (
-            <div className="space-y-3">
-              <div className="flex flex-wrap items-baseline justify-between gap-3">
-                <p className="font-sans text-xs sm:text-sm text-ink-muted">
-                  Archived photographs shown in the photography gallery.
-                </p>
-                <button
-                  type="button"
-                  onClick={() => switchTab('photo')}
-                  className="font-mono text-xs text-ink underline underline-offset-4 hover:opacity-80 inline-flex items-center gap-1 cursor-pointer min-h-[36px]"
-                >
-                  <Plus size={13} />
-                  <span>Upload photos</span>
-                </button>
-              </div>
-
-              <div className="divide-y divide-line border-t border-line">
-                {allPhotos.length === 0 ? (
-                  <p className="font-sans text-sm text-ink-muted py-6">
-                    No photographs archived yet.
-                  </p>
-                ) : (
-                  allPhotos.map((photo) => (
-                    <div
-                      key={photo.id}
-                      className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-4"
-                    >
-                      <div className="flex items-start gap-3.5 min-w-0 flex-1">
-                        <div className="w-14 h-14 shrink-0 border border-line overflow-hidden bg-surface">
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img
-                            src={photo.url}
-                            alt={photo.title}
-                            className="w-full h-full object-cover"
-                          />
-                        </div>
-                        <div className="min-w-0 space-y-0.5">
-                          <h2 className="font-mono text-sm font-normal text-ink truncate">
-                            {photo.title}
-                          </h2>
-                          {photo.description && (
-                            <p className="font-sans text-xs sm:text-sm text-ink-muted truncate">
-                              {photo.description}
-                            </p>
-                          )}
-                          {photo.createdAt && (
-                            <p className="font-mono text-xs text-ink-muted">
-                              {new Date(photo.createdAt).toLocaleDateString('en-US', {
-                                year: 'numeric',
-                                month: 'short',
-                                day: '2-digit',
-                              })}
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-4 shrink-0">
-                        <button
-                          type="button"
-                          onClick={() => handleEditPhoto(photo)}
-                          className={INLINE_ACTION_CLASS}
-                        >
-                          Edit
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setPendingDelete({ kind: 'photo', id: photo.id, title: photo.title })
-                          }
-                          className={DANGER_INLINE_CLASS}
-                        >
-                          Delete
-                        </button>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-          )}
-
-          {activeTab === 'skills' && (
-            <div className="space-y-6">
-              <form
-                onSubmit={handleAddSkill}
-                aria-label="Add skill"
-                className="flex flex-wrap items-end gap-3"
-              >
-                <div className="flex-1 min-w-[200px] space-y-1.5">
-                  <label htmlFor="skill-label" className={LABEL_CLASS}>
-                    Skill
-                  </label>
-                  <input
-                    id="skill-label"
-                    name="skillLabel"
-                    type="text"
-                    value={newSkillLabel}
-                    onChange={(e) => setNewSkillLabel(e.target.value)}
-                    className={INPUT_CLASS}
-                    placeholder="e.g. Stan"
-                    required
-                  />
-                </div>
-                <div className="flex-1 min-w-[200px] space-y-1.5">
-                  <label htmlFor="skill-category" className={LABEL_CLASS}>
-                    Category
-                  </label>
-                  <select
-                    id="skill-category"
-                    name="skillCategory"
-                    value={newSkillCategory}
-                    onChange={(e) => setNewSkillCategory(e.target.value)}
-                    className={`${INPUT_CLASS} cursor-pointer`}
-                  >
-                    {skillCategories.map((cat) => (
-                      <option key={cat} value={cat}>
-                        {cat}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="shrink-0">
-                  <button type="submit" className={PRIMARY_BTN_CLASS}>
-                    Add skill
-                  </button>
-                </div>
-              </form>
-
-              <div className="divide-y divide-line border-t border-line">
-                {skillCategories.map((cat) => {
-                  const catSkills = skills.filter((s) => s.category === cat);
-                  return (
-                    <section key={cat} className="py-3.5 space-y-2.5">
-                      <h2 className="font-mono text-xs text-ink-muted">{cat}</h2>
-                      <div className="flex flex-wrap gap-2">
-                        {catSkills.map((skill) => (
-                          <span
-                            key={skill.label}
-                            className="inline-flex items-center gap-1.5 border border-line bg-surface/85 px-2.5 py-1 font-mono text-xs text-ink rounded-[2px]"
-                          >
-                            <span>{skill.label}</span>
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteSkill(skill.label)}
-                              aria-label={`Remove ${skill.label}`}
-                              className="text-ink-muted hover:text-red-400 [.light_&]:hover:text-red-700 pl-0.5 cursor-pointer transition-colors"
+                            <select
+                              id="skill-category"
+                              name="skillCategory"
+                              value={newSkillCategory}
+                              onChange={(e) => setNewSkillCategory(e.target.value)}
+                              className={`${INPUT_CLASS} cursor-pointer`}
                             >
-                              ×
-                            </button>
-                          </span>
-                        ))}
-                        {catSkills.length === 0 && (
-                          <span className="font-sans text-xs text-ink-muted">
-                            No skills in this category.
-                          </span>
-                        )}
+                              {skillCategories.map((cat) => (
+                                <option key={cat} value={cat}>
+                                  {cat}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          <div className="shrink-0">
+                            <motion.button
+                              type="submit"
+                              whileHover={{ y: -1 }}
+                              whileTap={{ scale: 0.98 }}
+                              transition={TACTILE_SPRING}
+                              className={PRIMARY_BTN_CLASS}
+                            >
+                              Add skill
+                            </motion.button>
+                          </div>
+                        </form>
+
+                        <LayoutGroup id="admin-skills-groups">
+                          <div className="divide-y divide-line border-t border-line">
+                            {skillCategories.map((cat) => {
+                              const catSkills = skills.filter((s) => s.category === cat);
+                              return (
+                                <section key={cat} className="py-3.5 space-y-2.5">
+                                  <h2 className="font-mono text-xs text-ink-muted">{cat}</h2>
+                                  <div className="flex flex-wrap gap-2">
+                                    <AnimatePresence initial={false} mode="popLayout">
+                                      {catSkills.map((skill) => (
+                                        <motion.span
+                                          key={skill.label}
+                                          layout
+                                          initial={{ opacity: 0, scale: 0.88 }}
+                                          animate={{ opacity: 1, scale: 1 }}
+                                          exit={{ opacity: 0, scale: 0.84 }}
+                                          transition={TACTILE_SPRING}
+                                          className="inline-flex items-center gap-1.5 border border-line bg-surface/85 px-2.5 py-1 font-mono text-xs text-ink rounded-[2px]"
+                                        >
+                                          <span>{skill.label}</span>
+                                          <motion.button
+                                            type="button"
+                                            whileHover={{ scale: 1.15 }}
+                                            whileTap={{ scale: 0.88 }}
+                                            onClick={() => handleDeleteSkill(skill.label)}
+                                            aria-label={`Remove ${skill.label}`}
+                                            className="text-ink-muted hover:text-red-700 dark:hover:text-red-400 pl-0.5 cursor-pointer transition-colors"
+                                          >
+                                            ×
+                                          </motion.button>
+                                        </motion.span>
+                                      ))}
+                                    </AnimatePresence>
+                                    {catSkills.length === 0 && (
+                                      <span className="font-sans text-xs text-ink-muted">
+                                        No skills in this category.
+                                      </span>
+                                    )}
+                                  </div>
+                                </section>
+                              );
+                            })}
+                          </div>
+                        </LayoutGroup>
                       </div>
-                    </section>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-        </div>
+                    )}
+                  </motion.div>
+                </AnimatePresence>
+              </motion.div>
 
-        {/* Collapsible diagnostics & activity log */}
-        <details className="border-t border-line pt-3">
-          <summary className="font-mono text-xs text-ink-muted hover:text-ink cursor-pointer select-none">
-            Diagnostics & activity log ({sysLogs.length})
-          </summary>
-          <div className="mt-3 space-y-3 font-mono text-xs">
-            <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-[11px] border-b border-line pb-3">
-              <dt className="text-ink-muted">Storage</dt>
-              <dd className="text-ink text-right">
-                {firebaseConfigured ? 'Remote Firestore' : 'Local browser'}
-              </dd>
-              <dt className="text-ink-muted">Authentication</dt>
-              <dd className="text-ink text-right">
-                {adminUser
-                  ? 'Google OAuth'
-                  : isLocalDevSession
-                  ? 'Local browser preview'
-                  : 'Signed out'}
-              </dd>
-              <dt className="text-ink-muted">Account</dt>
-              <dd className="text-ink text-right break-all">
-                {adminUser?.email || 'Local browser preview'}
-              </dd>
-              <dt className="text-ink-muted">Staged photos</dt>
-              <dd className="text-ink text-right">{pendingPhotos.length}</dd>
-            </dl>
-            <div className="space-y-1 text-[11px] text-ink-muted max-h-40 overflow-y-auto">
-              {sysLogs.map((log, i) => (
-                <div key={i} className="leading-relaxed">
-                  {log}
-                </div>
-              ))}
-            </div>
-          </div>
-        </details>
-      </div>
-
-      {/* Edit photo metadata modal */}
-      <ModalDialog
-        open={Boolean(editingPhoto)}
-        onClose={() => setEditingPhoto(null)}
-        titleId="edit-photo-dialog-title"
-        title="Edit photograph"
-      >
-        {editingPhoto && (
-          <div className="space-y-4">
-            <div className="w-full h-40 border border-line overflow-hidden bg-surface flex items-center justify-center">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={editingPhoto.url}
-                alt={editingPhoto.title}
-                className="w-full h-full object-contain"
-              />
-            </div>
-            <form onSubmit={handleSavePhotoMetadata} className="space-y-4">
-              <div className="space-y-1.5">
-                <label htmlFor="edit-photo-title" className={LABEL_CLASS}>
-                  Title
-                </label>
-                <input
-                  id="edit-photo-title"
-                  type="text"
-                  value={editPhotoTitle}
-                  onChange={(e) => setEditPhotoTitle(e.target.value)}
-                  className={INPUT_CLASS}
-                  autoFocus
-                  required
-                />
-              </div>
-              <div className="space-y-1.5">
-                <label htmlFor="edit-photo-desc" className={LABEL_CLASS}>
-                  Description
-                </label>
-                <textarea
-                  id="edit-photo-desc"
-                  value={editPhotoDescription}
-                  onChange={(e) => setEditPhotoDescription(e.target.value)}
-                  rows={3}
-                  className={`${INPUT_CLASS} resize-y`}
-                  placeholder="Optional caption or notes..."
-                />
-              </div>
-              <div className="pt-2 flex justify-end gap-3">
-                <button
-                  type="button"
-                  onClick={() => setEditingPhoto(null)}
-                  className={SECONDARY_BTN_CLASS}
+              {/* Smooth Framer Motion collapsible diagnostics & activity log */}
+              <motion.div variants={SECTION_ITEM_VARIANTS} layout="position">
+                <CollapsibleLog
+                  id="admin-dashboard-diagnostics"
+                  label="Diagnostics & activity log"
+                  logs={sysLogs}
+                  maxHeightClass="max-h-40"
                 >
-                  Cancel
-                </button>
-                <button type="submit" className={PRIMARY_BTN_CLASS}>
-                  Save changes
-                </button>
-              </div>
-            </form>
-          </div>
-        )}
-      </ModalDialog>
-
-      {/* Delete confirmation modal */}
-      <ModalDialog
-        open={Boolean(pendingDelete)}
-        onClose={() => setPendingDelete(null)}
-        titleId="confirm-delete-title"
-        title={`Delete ${pendingDelete?.kind === 'post' ? 'post' : 'photograph'}`}
-        maxWidthClass="max-w-md"
-      >
-        {pendingDelete && (
-          <div className="space-y-5">
-            <p className="font-sans text-sm text-ink leading-relaxed">
-              Delete <span className="font-mono">{pendingDelete.title}</span>? This cannot be
-              undone.
-            </p>
-            <div className="flex justify-end gap-3">
-              <button
-                type="button"
-                autoFocus
-                onClick={() => setPendingDelete(null)}
-                className={SECONDARY_BTN_CLASS}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleConfirmDelete}
-                className="font-mono text-xs px-4 py-2.5 min-h-[44px] bg-red-500/90 text-bg border border-red-400 [.light_&]:bg-red-700 [.light_&]:text-white [.light_&]:border-red-700 hover:opacity-90 motion-safe:active:scale-[0.99] transition-[opacity,transform] cursor-pointer rounded-[2px]"
-              >
-                Delete
-              </button>
+                  <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-[11px] border-b border-line pb-3">
+                    <dt className="text-ink-muted">Storage</dt>
+                    <dd className="text-ink text-right">
+                      {isFirebaseConfigured() ? 'Remote Firestore' : 'Local browser'}
+                    </dd>
+                    <dt className="text-ink-muted">Google account</dt>
+                    <dd className="text-ink text-right truncate">
+                      {fbUser?.email || 'Signed in'}
+                    </dd>
+                    <dt className="text-ink-muted">Staged photos</dt>
+                    <dd className="text-ink text-right">{pendingPhotos.length}</dd>
+                  </dl>
+                </CollapsibleLog>
+              </motion.div>
             </div>
-          </div>
+
+            {/* Edit photo metadata modal (Framer Motion spring enter/exit) */}
+            <AnimatePresence>
+              {editingPhoto && (
+                <ModalDialog
+                  key="edit-photo-modal"
+                  onClose={() => setEditingPhoto(null)}
+                  titleId="edit-photo-dialog-title"
+                  title="Edit photograph"
+                >
+                  <div className="space-y-4">
+                    <div className="w-full h-40 border border-line overflow-hidden bg-surface flex items-center justify-center">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={editingPhoto.url}
+                        alt={editingPhoto.title}
+                        className="w-full h-full object-contain"
+                      />
+                    </div>
+                    <form onSubmit={handleSavePhotoMetadata} className="space-y-4">
+                      <div className="space-y-1.5">
+                        <label htmlFor="edit-photo-title" className={LABEL_CLASS}>
+                          Title
+                        </label>
+                        <input
+                          id="edit-photo-title"
+                          type="text"
+                          value={editPhotoTitle}
+                          onChange={(e) => setEditPhotoTitle(e.target.value)}
+                          className={INPUT_CLASS}
+                          autoFocus
+                          required
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <label htmlFor="edit-photo-desc" className={LABEL_CLASS}>
+                          Description
+                        </label>
+                        <textarea
+                          id="edit-photo-desc"
+                          value={editPhotoDescription}
+                          onChange={(e) => setEditPhotoDescription(e.target.value)}
+                          rows={3}
+                          className={`${INPUT_CLASS} resize-y`}
+                          placeholder="Optional caption or notes..."
+                        />
+                      </div>
+                      <div className="pt-2 flex justify-end gap-3">
+                        <motion.button
+                          type="button"
+                          whileTap={{ scale: 0.98 }}
+                          onClick={() => setEditingPhoto(null)}
+                          className={SECONDARY_BTN_CLASS}
+                        >
+                          Cancel
+                        </motion.button>
+                        <motion.button
+                          type="submit"
+                          whileHover={{ y: -1 }}
+                          whileTap={{ scale: 0.98 }}
+                          transition={TACTILE_SPRING}
+                          className={PRIMARY_BTN_CLASS}
+                        >
+                          Save changes
+                        </motion.button>
+                      </div>
+                    </form>
+                  </div>
+                </ModalDialog>
+              )}
+            </AnimatePresence>
+
+            {/* Delete confirmation modal (Framer Motion spring enter/exit) */}
+            <AnimatePresence>
+              {pendingDelete && (
+                <ModalDialog
+                  key="confirm-delete-modal"
+                  onClose={() => setPendingDelete(null)}
+                  titleId="confirm-delete-title"
+                  title={`Delete ${pendingDelete.kind === 'post' ? 'post' : 'photograph'}`}
+                  maxWidthClass="max-w-md"
+                >
+                  <div className="space-y-5">
+                    <p className="font-sans text-sm text-ink leading-relaxed">
+                      Delete <span className="font-mono">{pendingDelete.title}</span>? This cannot
+                      be undone.
+                    </p>
+                    <div className="flex justify-end gap-3">
+                      <motion.button
+                        type="button"
+                        autoFocus
+                        whileTap={{ scale: 0.98 }}
+                        onClick={() => setPendingDelete(null)}
+                        className={SECONDARY_BTN_CLASS}
+                      >
+                        Cancel
+                      </motion.button>
+                      <motion.button
+                        type="button"
+                        whileHover={{ y: -1 }}
+                        whileTap={{ scale: 0.98 }}
+                        transition={TACTILE_SPRING}
+                        onClick={handleConfirmDelete}
+                        className="font-mono text-xs px-4 py-2.5 min-h-[44px] bg-red-700 text-white dark:bg-red-500/90 dark:text-bg border border-red-700 dark:border-red-400 hover:opacity-90 transition-opacity cursor-pointer rounded-[2px]"
+                      >
+                        Delete
+                      </motion.button>
+                    </div>
+                  </div>
+                </ModalDialog>
+              )}
+            </AnimatePresence>
+          </motion.article>
         )}
-      </ModalDialog>
-    </article>
+      </AnimatePresence>
+    </MotionConfig>
   );
 }

@@ -99,3 +99,35 @@ export function getAdjacentPages(pathname: string | null): {
     next: ALL_PAGES[nextIdx],
   };
 }
+
+export function triggerWaveNavigation(
+  href: string,
+  e?: {
+    metaKey?: boolean;
+    ctrlKey?: boolean;
+    shiftKey?: boolean;
+    altKey?: boolean;
+    button?: number;
+    preventDefault: () => void;
+  }
+): boolean {
+  if (e) {
+    if (
+      e.metaKey ||
+      e.ctrlKey ||
+      e.shiftKey ||
+      e.altKey ||
+      (e.button !== undefined && e.button !== 0)
+    ) {
+      return false;
+    }
+    e.preventDefault();
+  }
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(
+      new CustomEvent<{ href: string }>('portfolio-navigate', { detail: { href } })
+    );
+    return true;
+  }
+  return false;
+}

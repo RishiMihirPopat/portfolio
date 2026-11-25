@@ -350,6 +350,18 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
     navigateRef.current = navigateWithWave;
   });
 
+  // Allow child pages (e.g. Admin "return to site") to trigger scene-aware route transitions
+  useEffect(() => {
+    const onNavigateEvent = (event: Event) => {
+      const targetHref = (event as CustomEvent<{ href?: string }>).detail?.href;
+      if (targetHref) {
+        navigateRef.current(targetHref);
+      }
+    };
+    window.addEventListener('portfolio-navigate', onNavigateEvent);
+    return () => window.removeEventListener('portfolio-navigate', onNavigateEvent);
+  }, []);
+
   // Prefetch primary routes so transitions swap {children} immediately
   useEffect(() => {
     HEADER_NAV_ITEMS.forEach((item) => {

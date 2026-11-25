@@ -187,6 +187,7 @@ export function AsciiBeachCanvas() {
   const lastWashTriggerRef = useRef<number>(-9999);
   const isWashingOrSwappingRef = useRef<boolean>(false);
   const fadeStartRef = useRef<number>(-1);
+  const snapPanelRef = useRef<boolean>(true);
 
   const activeSceneIdRef = useRef<AsciiSceneId>(DEFAULT_ASCII_SCENE);
   const prevSceneIdRef = useRef<AsciiSceneId | null>(null);
@@ -219,6 +220,7 @@ export function AsciiBeachCanvas() {
         fadeOutStartRef.current = -1;
         isWashingOrSwappingRef.current = false;
         fadeStartRef.current = now;
+        snapPanelRef.current = true;
       }
     }
     lastPathRef.current = clean;
@@ -268,6 +270,7 @@ export function AsciiBeachCanvas() {
       fadeOutStartRef.current = -1;
       isWashingOrSwappingRef.current = false;
       fadeStartRef.current = performance.now();
+      snapPanelRef.current = true;
     };
 
     const onSceneChange = (e: Event) => {
@@ -352,6 +355,8 @@ export function AsciiBeachCanvas() {
     const lastCol = new Int32Array(MAX_BATCH_TIERS);
 
     let panelRect = { left: -9999, top: -9999, right: -9999, bottom: -9999, valid: false };
+    let targetPanelDoc = { left: -9999, top: -9999, right: -9999, bottom: -9999, valid: false };
+    let smoothPanelDoc = { left: -9999, top: -9999, right: -9999, bottom: -9999, valid: false };
     let headerRect = { left: -9999, top: -9999, right: -9999, bottom: -9999, valid: false };
     let footerRects: { left: number; top: number; right: number; bottom: number }[] = [];
 
@@ -360,14 +365,36 @@ export function AsciiBeachCanvas() {
       resolvedThemeRef.current === 'light';
 
     const measurePanel = () => {
+      const sx = window.scrollX || 0;
+      const sy = window.scrollY || 0;
       const el = document.querySelector('[data-ascii-panel="true"]');
       if (el) {
         const r = el.getBoundingClientRect();
-        panelRect =
-          r.width > 10 && r.height > 10
-            ? { left: r.left, top: r.top, right: r.right, bottom: r.bottom, valid: true }
-            : { left: -9999, top: -9999, right: -9999, bottom: -9999, valid: false };
+        if (r.width > 10 && r.height > 10) {
+          targetPanelDoc = {
+            left: r.left + sx,
+            top: r.top + sy,
+            right: r.right + sx,
+            bottom: r.bottom + sy,
+            valid: true,
+          };
+          if (!smoothPanelDoc.valid || snapPanelRef.current || reducedMotionRef.current) {
+            smoothPanelDoc = { ...targetPanelDoc };
+            snapPanelRef.current = false;
+          }
+          panelRect = {
+            left: smoothPanelDoc.left - sx,
+            top: smoothPanelDoc.top - sy,
+            right: smoothPanelDoc.right - sx,
+            bottom: smoothPanelDoc.bottom - sy,
+            valid: true,
+          };
+        } else {
+          targetPanelDoc.valid = false;
+          panelRect.valid = false;
+        }
       } else {
+        targetPanelDoc.valid = false;
         panelRect.valid = false;
       }
 
@@ -693,6 +720,32 @@ export function AsciiBeachCanvas() {
 
       if (isFadingIn || washActive || fadeOutActive) {
         measurePanel();
+      }
+
+      if (targetPanelDoc.valid) {
+        if (!smoothPanelDoc.valid || snapPanelRef.current || reducedMotionRef.current) {
+          smoothPanelDoc = { ...targetPanelDoc };
+          snapPanelRef.current = false;
+        } else if (!isWashingOrSwappingRef.current) {
+          const smoothDt = Math.min(0.064, Math.max(0.001, dt || 0.016));
+          const alpha = 1 - Math.exp(-13.5 * smoothDt);
+          smoothPanelDoc.left += (targetPanelDoc.left - smoothPanelDoc.left) * alpha;
+          smoothPanelDoc.top += (targetPanelDoc.top - smoothPanelDoc.top) * alpha;
+          smoothPanelDoc.right += (targetPanelDoc.right - smoothPanelDoc.right) * alpha;
+          smoothPanelDoc.bottom += (targetPanelDoc.bottom - smoothPanelDoc.bottom) * alpha;
+        }
+        const sx = window.scrollX || 0;
+        const sy = window.scrollY || 0;
+        panelRect = {
+          left: smoothPanelDoc.left - sx,
+          top: smoothPanelDoc.top - sy,
+          right: smoothPanelDoc.right - sx,
+          bottom: smoothPanelDoc.bottom - sy,
+          valid: true,
+        };
+      } else {
+        panelRect.valid = false;
+        smoothPanelDoc.valid = false;
       }
 
       // Evaluate scene switch transition state
