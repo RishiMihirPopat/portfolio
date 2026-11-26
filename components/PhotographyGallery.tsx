@@ -85,8 +85,7 @@ function useMasonryColumnCount(): number {
       const w = window.innerWidth;
       if (w < 640) return 1;
       if (w < 1024) return 2;
-      if (w < 1400) return 3;
-      return 4;
+      return 3;
     };
     const update = () => setCols(compute());
     update();
@@ -500,10 +499,10 @@ export function PhotographyGallery({ photos, onSelectPhoto }: PhotographyGallery
   return (
     <MotionConfig reducedMotion="user">
       <LayoutGroup id="photography-masonry">
-        <div className="space-y-6 w-full pb-10">
+        <div className="space-y-10 sm:space-y-12 w-full max-w-[1280px] mx-auto px-2 sm:px-6 lg:px-10 pt-2 pb-16">
           {/* Horizontal Collections Scroller */}
-          <div data-ascii-panel="true" className="relative border-t border-b border-line py-3">
-            <div className="flex items-center justify-between gap-4 pb-2.5">
+          <div data-ascii-panel="true" className="relative border-t border-b border-line py-4">
+            <div className="flex items-center justify-between gap-4 pb-3">
               <span className="font-mono text-[11px] text-ink-muted">
                 collections ({collections.length})
               </span>
@@ -536,7 +535,7 @@ export function PhotographyGallery({ photos, onSelectPhoto }: PhotographyGallery
               role="tablist"
               aria-label="Photo collections"
               onScroll={updateScrollerState}
-              className="flex items-stretch gap-3 overflow-x-auto pb-1 snap-x snap-mandatory [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+              className="flex items-stretch gap-3.5 overflow-x-auto pb-1.5 snap-x snap-mandatory [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
             >
               {collections.map((col) => {
                 const isActive = resolvedCollection === col.id;
@@ -589,7 +588,7 @@ export function PhotographyGallery({ photos, onSelectPhoto }: PhotographyGallery
             </div>
 
             {/* Secondary Filter + Sort Row */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2.5 mt-2 border-t border-line/50">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-3 mt-2.5 border-t border-line/50">
               <div className="relative flex-1 max-w-sm">
                 <Search
                   size={13}
@@ -667,13 +666,13 @@ export function PhotographyGallery({ photos, onSelectPhoto }: PhotographyGallery
               <div
                 role="list"
                 aria-label="Photography masonry gallery"
-                className="grid gap-5 sm:gap-6 items-start"
+                className="grid gap-8 sm:gap-10 lg:gap-12 items-start"
                 style={{
                   gridTemplateColumns: `repeat(${effectiveColumnCount}, minmax(0, 1fr))`,
                 }}
               >
                 {masonryColumns.map((columnItems, colIdx) => (
-                  <div key={colIdx} className="flex flex-col gap-5 sm:gap-6 min-w-0">
+                  <div key={colIdx} className="flex flex-col gap-8 sm:gap-10 lg:gap-12 min-w-0">
                     {columnItems.map(({ photo, index }) => (
                       <div key={photo.id} role="listitem">
                         <MasonryCard

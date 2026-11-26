@@ -155,7 +155,11 @@ export function PortfolioSectionView({ section }: { section: BeachSectionId }) {
       }
     >
       {/* On mobile (<760px): keep a ~22vh scene strip at the top with the heading overlaid */}
-      <div className="max-[759px]:min-h-[17vh] max-[759px]:flex max-[759px]:flex-col max-[759px]:justify-end pb-3 sm:pb-4">
+      <div
+        className={`max-[759px]:min-h-[17vh] max-[759px]:flex max-[759px]:flex-col max-[759px]:justify-end pb-3 sm:pb-4 ${
+          isPhotography ? 'w-full max-w-[1280px] mx-auto px-2 sm:px-6 lg:px-10' : ''
+        }`}
+      >
         <div
           data-ascii-panel={isPhotography ? 'true' : undefined}
           className="w-fit"
