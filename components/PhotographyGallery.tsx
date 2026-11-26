@@ -9,7 +9,7 @@ import {
   useReducedMotion,
 } from 'motion/react';
 import { ChevronLeft, ChevronRight, Search, X } from 'lucide-react';
-import { Photo } from '@/lib/data';
+import { Photo, PhotoCollection } from '@/lib/data';
 
 export type GalleryPhoto = Photo & {
   width?: number;
@@ -20,6 +20,7 @@ type GallerySort = 'newest' | 'oldest';
 
 interface PhotographyGalleryProps {
   photos: GalleryPhoto[];
+  collectionConfigs?: PhotoCollection[];
   onSelectPhoto?: (photo: GalleryPhoto) => void;
 }
 
@@ -300,7 +301,11 @@ function MasonryCard({
   );
 }
 
-export function PhotographyGallery({ photos, onSelectPhoto }: PhotographyGalleryProps) {
+export function PhotographyGallery({
+  photos,
+  collectionConfigs = [],
+  onSelectPhoto,
+}: PhotographyGalleryProps) {
   const columnCount = useMasonryColumnCount();
   const scrollerRef = useRef<HTMLDivElement>(null);
 
@@ -312,12 +317,43 @@ export function PhotographyGallery({ photos, onSelectPhoto }: PhotographyGallery
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
 
-  // Build collections with cover photo & count for the horizontal scroller
+  // Map managed collection configs by lowercase name for O(1) lookup
+  const configByName = useMemo(() => {
+    const map = new Map<string, PhotoCollection>();
+    for (const cfg of collectionConfigs) {
+      if (cfg.name.trim()) {
+        map.set(cfg.name.trim().toLowerCase(), cfg);
+      }
+    }
+    return map;
+  }, [collectionConfigs]);
+
+  const hiddenCollectionNames = useMemo(() => {
+    const set = new Set<string>();
+    for (const cfg of collectionConfigs) {
+      if (cfg.hidden && cfg.name.trim()) {
+        set.add(cfg.name.trim().toLowerCase());
+      }
+    }
+    return set;
+  }, [collectionConfigs]);
+
+  // Exclude photos belonging to collections marked hidden in Admin
+  const publicPhotos = useMemo(
+    () =>
+      photos.filter((photo) => {
+        const col = photo.collection?.trim().toLowerCase();
+        return !col || !hiddenCollectionNames.has(col);
+      }),
+    [photos, hiddenCollectionNames]
+  );
+
+  // Build collections with admin order, custom cover photo, description & count
   const collections = useMemo(() => {
     const buckets = new Map<string, GalleryPhoto[]>();
     const uncategorized: GalleryPhoto[] = [];
 
-    for (const photo of photos) {
+    for (const photo of publicPhotos) {
       const col = photo.collection?.trim();
       if (col) {
         const list = buckets.get(col) || [];
@@ -328,21 +364,43 @@ export function PhotographyGallery({ photos, onSelectPhoto }: PhotographyGallery
       }
     }
 
-    const named = Array.from(buckets.entries())
-      .sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]))
-      .map(([name, items]) => ({
-        id: name,
-        label: name,
-        count: items.length,
-        cover: items[0],
-      }));
+    const photoById = new Map<string, GalleryPhoto>();
+    for (const p of publicPhotos) {
+      photoById.set(p.id, p);
+    }
 
-    const list = [
+    const named = Array.from(buckets.entries())
+      .map(([name, items]) => {
+        const cfg = configByName.get(name.toLowerCase());
+        const customCover = cfg?.coverPhotoId ? photoById.get(cfg.coverPhotoId) : undefined;
+        return {
+          id: name,
+          label: cfg?.name || name,
+          description: cfg?.description,
+          count: items.length,
+          cover: customCover || items[0],
+          order: cfg ? cfg.order : Number.MAX_SAFE_INTEGER,
+        };
+      })
+      .sort(
+        (a, b) =>
+          a.order - b.order ||
+          b.count - a.count ||
+          a.label.localeCompare(b.label)
+      );
+
+    const list: {
+      id: string;
+      label: string;
+      description?: string;
+      count: number;
+      cover?: GalleryPhoto;
+    }[] = [
       {
         id: ALL_COLLECTION,
         label: 'All',
-        count: photos.length,
-        cover: photos[0],
+        count: publicPhotos.length,
+        cover: publicPhotos[0],
       },
       ...named,
     ];
@@ -357,7 +415,7 @@ export function PhotographyGallery({ photos, onSelectPhoto }: PhotographyGallery
     }
 
     return list;
-  }, [photos]);
+  }, [publicPhotos, configByName]);
 
   const resolvedCollection = useMemo(() => {
     if (activeCollection === ALL_COLLECTION) return ALL_COLLECTION;
@@ -366,9 +424,14 @@ export function PhotographyGallery({ photos, onSelectPhoto }: PhotographyGallery
       : ALL_COLLECTION;
   }, [activeCollection, collections]);
 
+  const activeCollectionMeta = useMemo(
+    () => collections.find((c) => c.id === resolvedCollection) || null,
+    [collections, resolvedCollection]
+  );
+
   const filteredPhotos = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
-    const list = photos.filter((photo) => {
+    const list = publicPhotos.filter((photo) => {
       const col = photo.collection?.trim() || '';
       if (resolvedCollection === UNCATEGORIZED_COLLECTION) {
         if (col) return false;
@@ -401,7 +464,7 @@ export function PhotographyGallery({ photos, onSelectPhoto }: PhotographyGallery
     });
 
     return list;
-  }, [photos, resolvedCollection, searchQuery, sortOrder]);
+  }, [publicPhotos, resolvedCollection, searchQuery, sortOrder]);
 
   const visiblePhotos = useMemo(
     () => filteredPhotos.slice(0, visibleLimit),
@@ -620,9 +683,9 @@ export function PhotographyGallery({ photos, onSelectPhoto }: PhotographyGallery
 
               <div className="flex items-center justify-between sm:justify-end gap-5 font-mono text-xs">
                 <span className="text-[11px] text-ink-muted">
-                  {filteredPhotos.length === photos.length
+                  {filteredPhotos.length === publicPhotos.length
                     ? `${filteredPhotos.length} ${filteredPhotos.length === 1 ? 'frame' : 'frames'}`
-                    : `${filteredPhotos.length} of ${photos.length}`}
+                    : `${filteredPhotos.length} of ${publicPhotos.length}`}
                 </span>
                 <button
                   type="button"
@@ -635,6 +698,12 @@ export function PhotographyGallery({ photos, onSelectPhoto }: PhotographyGallery
                 </button>
               </div>
             </div>
+
+            {activeCollectionMeta?.description && (
+              <p className="font-sans text-xs text-ink-muted leading-relaxed pt-2.5 mt-2.5 border-t border-line/40">
+                {activeCollectionMeta.description}
+              </p>
+            )}
           </div>
 
           {/* Balanced Masonry Grid */}

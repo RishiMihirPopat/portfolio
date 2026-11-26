@@ -2,7 +2,11 @@
 
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import {
+  ArrowDown,
+  ArrowUp,
   Camera,
+  Eye,
+  EyeOff,
   ImagePlus,
   Loader2,
   Plus,
@@ -36,12 +40,17 @@ import {
   deleteSkill,
   fetchAllPosts,
   fetchAllPhotos,
+  fetchAllCollections,
+  saveCollection,
+  updateCollection,
+  deleteCollection,
+  renameCollectionAcrossPhotos,
   deletePost,
   deletePhoto,
   updatePost,
   updatePhoto,
 } from '@/lib/storage';
-import { Skill, Post, Photo } from '@/lib/data';
+import { Skill, Post, Photo, PhotoCollection } from '@/lib/data';
 import {
   getFirebaseAuth,
   isFirebaseAuthConfigured,
@@ -75,13 +84,20 @@ const DEFAULT_SKILL_CATEGORIES = [
   'Libraries & Tools',
 ];
 
-type AdminTab = 'blog' | 'manage-blog' | 'photo' | 'manage-photo' | 'skills';
+type AdminTab =
+  | 'blog'
+  | 'manage-blog'
+  | 'photo'
+  | 'manage-photo'
+  | 'collections'
+  | 'skills';
 
 const TAB_ORDER: AdminTab[] = [
   'blog',
   'manage-blog',
   'photo',
   'manage-photo',
+  'collections',
   'skills',
 ];
 
@@ -118,7 +134,7 @@ interface AuthUserSummary {
 }
 
 interface PendingDeleteTarget {
-  kind: 'post' | 'photo';
+  kind: 'post' | 'photo' | 'collection';
   id: string;
   title: string;
 }
@@ -278,11 +294,21 @@ export default function Admin() {
   // Management lists and editing states
   const [allPosts, setAllPosts] = useState<Post[]>([]);
   const [allPhotos, setAllPhotos] = useState<Photo[]>([]);
+  const [allCollections, setAllCollections] = useState<PhotoCollection[]>([]);
+  const [photoFilterCollection, setPhotoFilterCollection] = useState<string>('__all__');
   const [editingPostId, setEditingPostId] = useState<string | null>(null);
   const [editingPhoto, setEditingPhoto] = useState<Photo | null>(null);
   const [editPhotoTitle, setEditPhotoTitle] = useState('');
   const [editPhotoDescription, setEditPhotoDescription] = useState('');
   const [editPhotoMeta, setEditPhotoMeta] = useState<PhotoExifMetadata>({});
+  const [newColName, setNewColName] = useState('');
+  const [newColDescription, setNewColDescription] = useState('');
+  const [newColHidden, setNewColHidden] = useState(false);
+  const [editingCollection, setEditingCollection] = useState<PhotoCollection | null>(null);
+  const [editColName, setEditColName] = useState('');
+  const [editColDescription, setEditColDescription] = useState('');
+  const [editColCoverPhotoId, setEditColCoverPhotoId] = useState('');
+  const [editColHidden, setEditColHidden] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<PendingDeleteTarget | null>(null);
   const [fbUser, setFbUser] = useState<AuthUserSummary | null>(null);
 
@@ -606,16 +632,20 @@ export default function Admin() {
 
   const loadPostsAndPhotos = useCallback(async () => {
     try {
-      const [postsData, photosData] = await Promise.all([
+      const [postsData, photosData, collectionsData] = await Promise.all([
         fetchAllPosts(),
         fetchAllPhotos(),
+        fetchAllCollections(),
       ]);
       setAllPosts(postsData);
       setAllPhotos(photosData);
-      addLog(`Synced ${postsData.length} posts and ${photosData.length} photos.`);
+      setAllCollections(collectionsData);
+      addLog(
+        `Synced ${postsData.length} posts, ${photosData.length} photos, and ${collectionsData.length} collections.`
+      );
     } catch (err) {
       console.error('Failed to load posts/photos', err);
-      addLog('Failed to load posts or photos.');
+      addLog('Failed to load posts, photos, or collections.');
     }
   }, [addLog]);
 
@@ -747,6 +777,20 @@ export default function Admin() {
         await deletePost(target.id);
         addLog(`Deleted post "${target.title}".`);
         setFeedback({ kind: 'success', text: `Deleted "${target.title}".` });
+      } else if (target.kind === 'collection') {
+        addLog(`Removing collection "${target.title}"...`);
+        await deleteCollection(target.id);
+        const unassigned = await renameCollectionAcrossPhotos(target.title, '');
+        addLog(
+          `Removed collection "${target.title}" (${unassigned} photo(s) moved to uncategorized).`
+        );
+        setFeedback({
+          kind: 'success',
+          text:
+            unassigned > 0
+              ? `Removed "${target.title}" and kept ${unassigned} photo${unassigned === 1 ? '' : 's'} as uncategorized.`
+              : `Removed collection "${target.title}".`,
+        });
       } else {
         addLog(`Deleting photo "${target.title}"...`);
         await deletePhoto(target.id);
@@ -759,6 +803,166 @@ export default function Admin() {
       console.error(err);
       setFeedback({ kind: 'error', text: message });
       addLog(`Error deleting ${target.kind}: ${message}`);
+    }
+  };
+
+  const handleCreateCollection = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const cleanName = newColName.trim();
+    if (!cleanName) return;
+    if (allCollections.some((c) => c.name.toLowerCase() === cleanName.toLowerCase())) {
+      setFeedback({ kind: 'error', text: `Collection "${cleanName}" already exists.` });
+      return;
+    }
+    try {
+      const nextOrder =
+        allCollections.length > 0
+          ? Math.max(...allCollections.map((c) => c.order ?? 0)) + 1
+          : 0;
+      await saveCollection({
+        name: cleanName,
+        description: newColDescription.trim() || undefined,
+        order: nextOrder,
+        hidden: newColHidden,
+      });
+      setNewColName('');
+      setNewColDescription('');
+      setNewColHidden(false);
+      addLog(`Created collection "${cleanName}".`);
+      setFeedback({ kind: 'success', text: `Created collection "${cleanName}".` });
+      await loadPostsAndPhotos();
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to create collection';
+      console.error(err);
+      setFeedback({ kind: 'error', text: message });
+      addLog(`Error creating collection: ${message}`);
+    }
+  };
+
+  const handleRegisterAdHocCollection = async (name: string) => {
+    const cleanName = name.trim();
+    if (!cleanName) return;
+    try {
+      const nextOrder =
+        allCollections.length > 0
+          ? Math.max(...allCollections.map((c) => c.order ?? 0)) + 1
+          : 0;
+      await saveCollection({
+        name: cleanName,
+        order: nextOrder,
+        hidden: false,
+      });
+      addLog(`Registered collection "${cleanName}" for settings.`);
+      setFeedback({ kind: 'success', text: `Saved "${cleanName}" to managed collections.` });
+      await loadPostsAndPhotos();
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to save collection';
+      setFeedback({ kind: 'error', text: message });
+    }
+  };
+
+  const handleEditCollection = (col: PhotoCollection) => {
+    setEditingCollection(col);
+    setEditColName(col.name);
+    setEditColDescription(col.description || '');
+    setEditColCoverPhotoId(col.coverPhotoId || '');
+    setEditColHidden(Boolean(col.hidden));
+    addLog(`Editing collection settings for "${col.name}".`);
+  };
+
+  const handleSaveCollectionSettings = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingCollection) return;
+    const cleanName = editColName.trim();
+    if (!cleanName) {
+      setFeedback({ kind: 'error', text: 'Collection name is required.' });
+      return;
+    }
+    const duplicate = allCollections.some(
+      (c) =>
+        c.id !== editingCollection.id &&
+        c.name.toLowerCase() === cleanName.toLowerCase()
+    );
+    if (duplicate) {
+      setFeedback({ kind: 'error', text: `Another collection is already named "${cleanName}".` });
+      return;
+    }
+
+    try {
+      const oldName = editingCollection.name;
+      await updateCollection(editingCollection.id, {
+        name: cleanName,
+        description: editColDescription.trim(),
+        coverPhotoId: editColCoverPhotoId.trim(),
+        hidden: editColHidden,
+      });
+
+      let migrated = 0;
+      if (oldName.trim() !== cleanName) {
+        migrated = await renameCollectionAcrossPhotos(oldName, cleanName);
+      }
+
+      addLog(
+        migrated > 0
+          ? `Updated collection "${cleanName}" and renamed ${migrated} photo(s).`
+          : `Updated collection "${cleanName}".`
+      );
+      setFeedback({
+        kind: 'success',
+        text:
+          migrated > 0
+            ? `Updated "${cleanName}" (${migrated} photo${migrated === 1 ? '' : 's'} updated).`
+            : `Updated collection "${cleanName}".`,
+      });
+      setEditingCollection(null);
+      await loadPostsAndPhotos();
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to update collection';
+      console.error(err);
+      setFeedback({ kind: 'error', text: message });
+      addLog(`Error updating collection: ${message}`);
+    }
+  };
+
+  const handleToggleCollectionVisibility = async (col: PhotoCollection) => {
+    const nextHidden = !col.hidden;
+    try {
+      await updateCollection(col.id, { hidden: nextHidden });
+      addLog(`${nextHidden ? 'Hid' : 'Published'} collection "${col.name}".`);
+      setFeedback({
+        kind: 'success',
+        text: nextHidden
+          ? `"${col.name}" is now hidden from the public gallery.`
+          : `"${col.name}" is now visible in the public gallery.`,
+      });
+      await loadPostsAndPhotos();
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to update visibility';
+      setFeedback({ kind: 'error', text: message });
+    }
+  };
+
+  const handleReorderCollection = async (index: number, delta: -1 | 1) => {
+    const targetIdx = index + delta;
+    if (targetIdx < 0 || targetIdx >= allCollections.length) return;
+
+    const reordered = [...allCollections];
+    const [moved] = reordered.splice(index, 1);
+    reordered.splice(targetIdx, 0, moved);
+
+    // Optimistic local reorder
+    const normalized = reordered.map((c, idx) => ({ ...c, order: idx }));
+    setAllCollections(normalized);
+
+    try {
+      await Promise.all(
+        normalized.map((c) => updateCollection(c.id, { order: c.order }))
+      );
+      addLog(`Moved collection "${moved.name}" ${delta < 0 ? 'up' : 'down'}.`);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to reorder collections';
+      setFeedback({ kind: 'error', text: message });
+      await loadPostsAndPhotos();
     }
   };
 
@@ -1039,15 +1243,56 @@ export default function Admin() {
   };
 
   const existingCollections = useMemo(() => {
-    const set = new Set<string>();
+    const map = new Map<string, string>();
+    for (const c of allCollections) {
+      const name = c.name.trim();
+      if (name && !map.has(name.toLowerCase())) map.set(name.toLowerCase(), name);
+    }
     for (const p of allPhotos) {
-      if (p.collection?.trim()) set.add(p.collection.trim());
+      const name = p.collection?.trim();
+      if (name && !map.has(name.toLowerCase())) map.set(name.toLowerCase(), name);
     }
     for (const p of pendingPhotos) {
-      if (p.collection?.trim()) set.add(p.collection.trim());
+      const name = p.collection?.trim();
+      if (name && !map.has(name.toLowerCase())) map.set(name.toLowerCase(), name);
     }
-    return Array.from(set).sort((a, b) => a.localeCompare(b));
-  }, [allPhotos, pendingPhotos]);
+    return Array.from(map.values()).sort((a, b) => a.localeCompare(b));
+  }, [allCollections, allPhotos, pendingPhotos]);
+
+  const photoCountByCollection = useMemo(() => {
+    const counts = new Map<string, number>();
+    let uncategorized = 0;
+    for (const p of allPhotos) {
+      const name = p.collection?.trim().toLowerCase();
+      if (name) {
+        counts.set(name, (counts.get(name) || 0) + 1);
+      } else {
+        uncategorized += 1;
+      }
+    }
+    return { counts, uncategorized };
+  }, [allPhotos]);
+
+  const adHocCollectionNames = useMemo(() => {
+    const managed = new Set(allCollections.map((c) => c.name.trim().toLowerCase()));
+    const extras = new Map<string, string>();
+    for (const p of allPhotos) {
+      const name = p.collection?.trim();
+      if (name && !managed.has(name.toLowerCase()) && !extras.has(name.toLowerCase())) {
+        extras.set(name.toLowerCase(), name);
+      }
+    }
+    return Array.from(extras.values()).sort((a, b) => a.localeCompare(b));
+  }, [allCollections, allPhotos]);
+
+  const filteredAdminPhotos = useMemo(() => {
+    if (photoFilterCollection === '__all__') return allPhotos;
+    if (photoFilterCollection === '__uncategorized__') {
+      return allPhotos.filter((p) => !p.collection?.trim());
+    }
+    const target = photoFilterCollection.toLowerCase();
+    return allPhotos.filter((p) => (p.collection?.trim() || '').toLowerCase() === target);
+  }, [allPhotos, photoFilterCollection]);
 
   const skillCategories = useMemo(() => {
     const ordered = [...DEFAULT_SKILL_CATEGORIES];
@@ -1065,9 +1310,10 @@ export default function Admin() {
       { id: 'manage-blog', label: `Posts (${allPosts.length})` },
       { id: 'photo', label: 'Upload' },
       { id: 'manage-photo', label: `Photos (${allPhotos.length})` },
+      { id: 'collections', label: `Collections (${allCollections.length})` },
       { id: 'skills', label: `Skills (${skills.length})` },
     ],
-    [editingPostId, allPosts.length, allPhotos.length, skills.length]
+    [editingPostId, allPosts.length, allPhotos.length, allCollections.length, skills.length]
   );
 
   const handleTabKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
@@ -1121,6 +1367,12 @@ export default function Admin() {
             exit="exit"
             className="w-full min-[760px]:w-1/2 min-[760px]:max-w-[640px]"
           >
+            <datalist id="photo-collections-list">
+              {existingCollections.map((col) => (
+                <option key={col} value={col} />
+              ))}
+            </datalist>
+
             <motion.div
               variants={SECTION_ITEM_VARIANTS}
               className="max-[759px]:min-h-[17vh] max-[759px]:flex max-[759px]:flex-col max-[759px]:justify-end pb-3 sm:pb-4"
@@ -1141,7 +1393,7 @@ export default function Admin() {
               >
                 <p className="font-mono text-xs text-ink-muted min-w-0 truncate">
                   {storageSummary} · {allPosts.length} posts · {allPhotos.length} photos ·{' '}
-                  {skills.length} skills
+                  {allCollections.length} collections · {skills.length} skills
                 </p>
                 <motion.button
                   type="button"
@@ -1715,12 +1967,6 @@ export default function Admin() {
                           </motion.button>
                         </div>
 
-                        <datalist id="photo-collections-list">
-                          {existingCollections.map((col) => (
-                            <option key={col} value={col} />
-                          ))}
-                        </datalist>
-
                         {pendingPhotos.length > 0 && (
                           <div className="flex flex-col sm:flex-row sm:items-end gap-2.5 border border-line bg-surface/60 p-3 rounded-[2px]">
                             <div className="flex-1 space-y-1">
@@ -1965,31 +2211,83 @@ export default function Admin() {
                           <p className="font-sans text-xs sm:text-sm text-ink-muted">
                             Archived photographs shown in the photography gallery.
                           </p>
-                          <motion.button
-                            type="button"
-                            whileHover={{ y: -0.5 }}
-                            whileTap={{ scale: 0.97 }}
-                            transition={TACTILE_SPRING}
-                            onClick={() => switchTab('photo')}
-                            className="font-mono text-xs text-ink underline underline-offset-4 hover:opacity-80 inline-flex items-center gap-1 cursor-pointer min-h-[36px]"
-                          >
-                            <Plus size={13} />
-                            <span>Upload photos</span>
-                          </motion.button>
+                          <div className="flex items-center gap-4">
+                            <motion.button
+                              type="button"
+                              whileTap={{ scale: 0.97 }}
+                              onClick={() => switchTab('collections')}
+                              className="font-mono text-xs text-ink-muted hover:text-ink underline underline-offset-4 cursor-pointer min-h-[36px]"
+                            >
+                              Collections settings
+                            </motion.button>
+                            <motion.button
+                              type="button"
+                              whileHover={{ y: -0.5 }}
+                              whileTap={{ scale: 0.97 }}
+                              transition={TACTILE_SPRING}
+                              onClick={() => switchTab('photo')}
+                              className="font-mono text-xs text-ink underline underline-offset-4 hover:opacity-80 inline-flex items-center gap-1 cursor-pointer min-h-[36px]"
+                            >
+                              <Plus size={13} />
+                              <span>Upload photos</span>
+                            </motion.button>
+                          </div>
                         </div>
 
+                        {allPhotos.length > 0 && existingCollections.length > 0 && (
+                          <div
+                            role="group"
+                            aria-label="Filter photos by collection"
+                            className="flex items-center gap-3 overflow-x-auto pb-1 font-mono text-[11px] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                          >
+                            {[
+                              { id: '__all__', label: `All (${allPhotos.length})` },
+                              ...existingCollections.map((name) => ({
+                                id: name,
+                                label: `${name} (${photoCountByCollection.counts.get(name.toLowerCase()) || 0})`,
+                              })),
+                              ...(photoCountByCollection.uncategorized > 0
+                                ? [
+                                    {
+                                      id: '__uncategorized__',
+                                      label: `Uncategorized (${photoCountByCollection.uncategorized})`,
+                                    },
+                                  ]
+                                : []),
+                            ].map((item) => {
+                              const isActive = photoFilterCollection === item.id;
+                              return (
+                                <button
+                                  key={item.id}
+                                  type="button"
+                                  onClick={() => setPhotoFilterCollection(item.id)}
+                                  className={`whitespace-nowrap pb-1 border-b transition-colors cursor-pointer ${
+                                    isActive
+                                      ? 'text-ink border-ink'
+                                      : 'text-ink-muted border-transparent hover:text-ink'
+                                  }`}
+                                >
+                                  {item.label}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+
                         <div className="divide-y divide-line border-t border-line">
-                          {allPhotos.length === 0 ? (
+                          {filteredAdminPhotos.length === 0 ? (
                             <motion.p
                               initial={{ opacity: 0 }}
                               animate={{ opacity: 1 }}
                               className="font-sans text-sm text-ink-muted py-6"
                             >
-                              No photographs archived yet.
+                              {allPhotos.length === 0
+                                ? 'No photographs archived yet.'
+                                : 'No photographs in this collection.'}
                             </motion.p>
                           ) : (
                             <AnimatePresence initial={false} mode="popLayout">
-                              {allPhotos.map((photo) => (
+                              {filteredAdminPhotos.map((photo) => (
                                 <motion.div
                                   key={photo.id}
                                   layout
@@ -2064,6 +2362,256 @@ export default function Admin() {
                             </AnimatePresence>
                           )}
                         </div>
+                      </div>
+                    )}
+
+                    {activeTab === 'collections' && (
+                      <div className="space-y-6">
+                        <p className="font-sans text-xs sm:text-sm text-ink-muted">
+                          Control collection order, descriptions, cover frames, and gallery
+                          visibility for the horizontal scroller on{' '}
+                          <span className="font-mono text-ink">/photography</span>.
+                        </p>
+
+                        {/* Create new collection form */}
+                        <form
+                          onSubmit={handleCreateCollection}
+                          aria-label="Create photo collection"
+                          className="space-y-3 border border-line bg-surface/60 p-3.5 rounded-[2px]"
+                        >
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div className="space-y-1.5">
+                              <label htmlFor="new-col-name" className={LABEL_CLASS}>
+                                Collection name
+                              </label>
+                              <input
+                                id="new-col-name"
+                                type="text"
+                                value={newColName}
+                                onChange={(e) => setNewColName(e.target.value)}
+                                className={INPUT_CLASS}
+                                placeholder="e.g. Coast, Japan 2026"
+                                required
+                              />
+                            </div>
+                            <div className="space-y-1.5">
+                              <label htmlFor="new-col-desc" className={LABEL_CLASS}>
+                                Description (optional)
+                              </label>
+                              <input
+                                id="new-col-desc"
+                                type="text"
+                                value={newColDescription}
+                                onChange={(e) => setNewColDescription(e.target.value)}
+                                className={INPUT_CLASS}
+                                placeholder="Short note shown below the scroller..."
+                              />
+                            </div>
+                          </div>
+
+                          <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+                            <label className="inline-flex items-center gap-2 font-mono text-xs text-ink-muted cursor-pointer select-none">
+                              <input
+                                type="checkbox"
+                                checked={newColHidden}
+                                onChange={(e) => setNewColHidden(e.target.checked)}
+                                className="accent-current cursor-pointer"
+                              />
+                              <span>Start hidden (draft)</span>
+                            </label>
+                            <motion.button
+                              type="submit"
+                              whileHover={{ y: -1 }}
+                              whileTap={{ scale: 0.98 }}
+                              transition={TACTILE_SPRING}
+                              className={PRIMARY_BTN_CLASS}
+                            >
+                              <Plus size={13} />
+                              <span>Create collection</span>
+                            </motion.button>
+                          </div>
+                        </form>
+
+                        {/* Managed collections list */}
+                        <div className="divide-y divide-line border-t border-line">
+                          {allCollections.length === 0 ? (
+                            <p className="font-sans text-sm text-ink-muted py-6">
+                              No managed collections yet. Create one above to control scroller
+                              order, cover frames, and visibility.
+                            </p>
+                          ) : (
+                            <AnimatePresence initial={false} mode="popLayout">
+                              {allCollections.map((col, idx) => {
+                                const colPhotos = allPhotos.filter(
+                                  (p) =>
+                                    (p.collection || '').trim().toLowerCase() ===
+                                    col.name.trim().toLowerCase()
+                                );
+                                const coverPhoto =
+                                  (col.coverPhotoId &&
+                                    colPhotos.find((p) => p.id === col.coverPhotoId)) ||
+                                  colPhotos[0];
+
+                                return (
+                                  <motion.div
+                                    key={col.id}
+                                    layout
+                                    initial={{ opacity: 0, y: 6 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    exit={{ opacity: 0, scale: 0.98 }}
+                                    transition={{ duration: 0.2, ease: CALM_EASE }}
+                                    className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+                                  >
+                                    <div className="flex items-start gap-3.5 min-w-0 flex-1">
+                                      <div className="w-12 h-12 shrink-0 border border-line overflow-hidden bg-surface flex items-center justify-center">
+                                        {coverPhoto?.url ? (
+                                          /* eslint-disable-next-line @next/next/no-img-element */
+                                          <img
+                                            src={coverPhoto.url}
+                                            alt={col.name}
+                                            className="w-full h-full object-cover"
+                                          />
+                                        ) : (
+                                          <span className="font-mono text-[10px] text-ink-muted">
+                                            —
+                                          </span>
+                                        )}
+                                      </div>
+
+                                      <div className="min-w-0 space-y-0.5">
+                                        <div className="flex items-center gap-2 flex-wrap">
+                                          <h2 className="font-mono text-sm font-normal text-ink truncate">
+                                            {String(idx + 1).padStart(2, '0')} · {col.name}
+                                          </h2>
+                                          <span className="font-mono text-[10px] text-ink-muted">
+                                            {colPhotos.length}{' '}
+                                            {colPhotos.length === 1 ? 'frame' : 'frames'}
+                                          </span>
+                                          {col.hidden && (
+                                            <span className="font-mono text-[10px] text-ink-muted border border-line px-1.5 py-0.5 rounded-[2px]">
+                                              hidden
+                                            </span>
+                                          )}
+                                        </div>
+                                        {col.description && (
+                                          <p className="font-sans text-xs text-ink-muted line-clamp-2">
+                                            {col.description}
+                                          </p>
+                                        )}
+                                        <p className="font-mono text-[11px] text-ink-muted/80">
+                                          cover:{' '}
+                                          {col.coverPhotoId && coverPhoto
+                                            ? coverPhoto.title
+                                            : coverPhoto
+                                            ? 'auto (latest)'
+                                            : 'none'}
+                                        </p>
+                                      </div>
+                                    </div>
+
+                                    <div className="flex items-center gap-3 shrink-0 flex-wrap">
+                                      <div className="inline-flex items-center gap-1 border border-line rounded-[2px] px-1">
+                                        <button
+                                          type="button"
+                                          disabled={idx === 0}
+                                          onClick={() => handleReorderCollection(idx, -1)}
+                                          aria-label={`Move ${col.name} earlier`}
+                                          title="Move earlier in scroller"
+                                          className="p-1.5 text-ink-muted hover:text-ink disabled:opacity-25 cursor-pointer disabled:cursor-default transition-opacity"
+                                        >
+                                          <ArrowUp size={13} />
+                                        </button>
+                                        <button
+                                          type="button"
+                                          disabled={idx === allCollections.length - 1}
+                                          onClick={() => handleReorderCollection(idx, 1)}
+                                          aria-label={`Move ${col.name} later`}
+                                          title="Move later in scroller"
+                                          className="p-1.5 text-ink-muted hover:text-ink disabled:opacity-25 cursor-pointer disabled:cursor-default transition-opacity"
+                                        >
+                                          <ArrowDown size={13} />
+                                        </button>
+                                      </div>
+
+                                      <motion.button
+                                        type="button"
+                                        whileTap={{ scale: 0.96 }}
+                                        onClick={() => handleToggleCollectionVisibility(col)}
+                                        className="font-mono text-xs text-ink-muted hover:text-ink inline-flex items-center gap-1 cursor-pointer min-h-[36px]"
+                                        title={
+                                          col.hidden
+                                            ? 'Show in public gallery'
+                                            : 'Hide from public gallery'
+                                        }
+                                      >
+                                        {col.hidden ? <Eye size={13} /> : <EyeOff size={13} />}
+                                        <span>{col.hidden ? 'Show' : 'Hide'}</span>
+                                      </motion.button>
+
+                                      <motion.button
+                                        type="button"
+                                        whileTap={{ scale: 0.96 }}
+                                        onClick={() => handleEditCollection(col)}
+                                        className={INLINE_ACTION_CLASS}
+                                      >
+                                        Settings
+                                      </motion.button>
+
+                                      <motion.button
+                                        type="button"
+                                        whileTap={{ scale: 0.96 }}
+                                        onClick={() =>
+                                          setPendingDelete({
+                                            kind: 'collection',
+                                            id: col.id,
+                                            title: col.name,
+                                          })
+                                        }
+                                        className={DANGER_INLINE_CLASS}
+                                      >
+                                        Remove
+                                      </motion.button>
+                                    </div>
+                                  </motion.div>
+                                );
+                              })}
+                            </AnimatePresence>
+                          )}
+                        </div>
+
+                        {/* Unregistered collection tags found on photos */}
+                        {adHocCollectionNames.length > 0 && (
+                          <div className="border-t border-line pt-4 space-y-2.5">
+                            <div className="space-y-0.5">
+                              <h2 className="font-mono text-xs text-ink">
+                                Unmanaged tags on photos ({adHocCollectionNames.length})
+                              </h2>
+                              <p className="font-sans text-xs text-ink-muted">
+                                These collections exist on uploaded photos without saved settings.
+                                Promote them to customize order, cover, or description.
+                              </p>
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                              {adHocCollectionNames.map((name) => {
+                                const count =
+                                  photoCountByCollection.counts.get(name.toLowerCase()) || 0;
+                                return (
+                                  <button
+                                    key={name}
+                                    type="button"
+                                    onClick={() => handleRegisterAdHocCollection(name)}
+                                    className="font-mono text-xs border border-line bg-surface/80 px-2.5 py-1.5 rounded-[2px] text-ink hover:border-ink transition-colors inline-flex items-center gap-2 cursor-pointer"
+                                  >
+                                    <span>
+                                      {name} ({count})
+                                    </span>
+                                    <span className="text-ink-muted">+ manage</span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     )}
 
@@ -2299,6 +2847,137 @@ export default function Admin() {
               )}
             </AnimatePresence>
 
+            {/* Edit collection settings modal (Framer Motion spring enter/exit) */}
+            <AnimatePresence>
+              {editingCollection && (
+                <ModalDialog
+                  key="edit-collection-modal"
+                  onClose={() => setEditingCollection(null)}
+                  titleId="edit-collection-dialog-title"
+                  title="Collection settings"
+                >
+                  <form onSubmit={handleSaveCollectionSettings} className="space-y-4">
+                    <div className="space-y-1.5">
+                      <label htmlFor="edit-col-name" className={LABEL_CLASS}>
+                        Name (renaming updates all photos in this collection)
+                      </label>
+                      <input
+                        id="edit-col-name"
+                        type="text"
+                        value={editColName}
+                        onChange={(e) => setEditColName(e.target.value)}
+                        className={INPUT_CLASS}
+                        autoFocus
+                        required
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label htmlFor="edit-col-desc" className={LABEL_CLASS}>
+                        Description
+                      </label>
+                      <textarea
+                        id="edit-col-desc"
+                        value={editColDescription}
+                        onChange={(e) => setEditColDescription(e.target.value)}
+                        rows={2}
+                        className={`${INPUT_CLASS} resize-y`}
+                        placeholder="Optional subtitle shown when visitors view this collection..."
+                      />
+                    </div>
+
+                    {/* Visual cover frame picker */}
+                    {(() => {
+                      const matchingPhotos = allPhotos.filter(
+                        (p) =>
+                          (p.collection || '').trim().toLowerCase() ===
+                          editingCollection.name.trim().toLowerCase()
+                      );
+                      return (
+                        <div className="space-y-2">
+                          <div className="flex items-baseline justify-between gap-2">
+                            <span className={LABEL_CLASS}>Cover thumbnail</span>
+                            <button
+                              type="button"
+                              onClick={() => setEditColCoverPhotoId('')}
+                              className={`font-mono text-[11px] cursor-pointer ${
+                                !editColCoverPhotoId
+                                  ? 'text-ink underline underline-offset-4'
+                                  : 'text-ink-muted hover:text-ink'
+                              }`}
+                            >
+                              Auto (latest)
+                            </button>
+                          </div>
+                          {matchingPhotos.length === 0 ? (
+                            <p className="font-sans text-xs text-ink-muted">
+                              Assign photographs to this collection to pick a custom cover frame.
+                            </p>
+                          ) : (
+                            <div className="grid grid-cols-5 sm:grid-cols-6 gap-2 max-h-36 overflow-y-auto pr-1">
+                              {matchingPhotos.map((p) => {
+                                const isPicked = editColCoverPhotoId === p.id;
+                                return (
+                                  <button
+                                    key={p.id}
+                                    type="button"
+                                    onClick={() => setEditColCoverPhotoId(p.id)}
+                                    title={p.title}
+                                    className={`relative aspect-square border overflow-hidden rounded-[2px] cursor-pointer transition-all ${
+                                      isPicked
+                                        ? 'border-ink ring-1 ring-ink'
+                                        : 'border-line opacity-75 hover:opacity-100'
+                                    }`}
+                                  >
+                                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                                    <img
+                                      src={p.url}
+                                      alt={p.title}
+                                      className="w-full h-full object-cover"
+                                    />
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
+
+                    <label className="flex items-center gap-2.5 pt-1 font-mono text-xs text-ink cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        checked={editColHidden}
+                        onChange={(e) => setEditColHidden(e.target.checked)}
+                        className="accent-current cursor-pointer"
+                      />
+                      <span>Hide this collection and its photos from /photography</span>
+                    </label>
+
+                    <div className="pt-2 flex justify-end gap-3">
+                      <motion.button
+                        type="button"
+                        whileTap={{ scale: 0.98 }}
+                        onClick={() => setEditingCollection(null)}
+                        className={SECONDARY_BTN_CLASS}
+                      >
+                        Cancel
+                      </motion.button>
+                      <motion.button
+                        type="submit"
+                        whileHover={{ y: -1 }}
+                        whileTap={{ scale: 0.98 }}
+                        transition={TACTILE_SPRING}
+                        className={PRIMARY_BTN_CLASS}
+                      >
+                        Save settings
+                      </motion.button>
+                    </div>
+                  </form>
+                </ModalDialog>
+              )}
+            </AnimatePresence>
+
             {/* Delete confirmation modal (Framer Motion spring enter/exit) */}
             <AnimatePresence>
               {pendingDelete && (
@@ -2306,13 +2985,29 @@ export default function Admin() {
                   key="confirm-delete-modal"
                   onClose={() => setPendingDelete(null)}
                   titleId="confirm-delete-title"
-                  title={`Delete ${pendingDelete.kind === 'post' ? 'post' : 'photograph'}`}
+                  title={
+                    pendingDelete.kind === 'post'
+                      ? 'Delete post'
+                      : pendingDelete.kind === 'collection'
+                      ? 'Remove collection'
+                      : 'Delete photograph'
+                  }
                   maxWidthClass="max-w-md"
                 >
                   <div className="space-y-5">
                     <p className="font-sans text-sm text-ink leading-relaxed">
-                      Delete <span className="font-mono">{pendingDelete.title}</span>? This cannot
-                      be undone.
+                      {pendingDelete.kind === 'collection' ? (
+                        <>
+                          Remove collection{' '}
+                          <span className="font-mono">{pendingDelete.title}</span>? Your
+                          photographs will stay safe in the archive as uncategorized.
+                        </>
+                      ) : (
+                        <>
+                          Delete <span className="font-mono">{pendingDelete.title}</span>? This
+                          cannot be undone.
+                        </>
+                      )}
                     </p>
                     <div className="flex justify-end gap-3">
                       <motion.button
@@ -2332,7 +3027,7 @@ export default function Admin() {
                         onClick={handleConfirmDelete}
                         className="font-mono text-xs px-4 py-2.5 min-h-[44px] bg-red-700 text-white dark:bg-red-500/90 dark:text-bg border border-red-700 dark:border-red-400 hover:opacity-90 transition-opacity cursor-pointer rounded-[2px]"
                       >
-                        Delete
+                        {pendingDelete.kind === 'collection' ? 'Remove' : 'Delete'}
                       </motion.button>
                     </div>
                   </div>

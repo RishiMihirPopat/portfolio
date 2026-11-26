@@ -5,16 +5,23 @@ import { useRouter } from 'next/navigation';
 import {
   Repo,
   Photo,
+  PhotoCollection,
   Post,
   Skill,
   mockRepos,
   mockPosts,
   mockPhotos,
+  mockCollections,
   cvSkills,
   experiences,
   education,
 } from '@/lib/data';
-import { fetchAllPosts, fetchAllPhotos, fetchAllSkills } from '@/lib/storage';
+import {
+  fetchAllPosts,
+  fetchAllPhotos,
+  fetchAllCollections,
+  fetchAllSkills,
+} from '@/lib/storage';
 import { useGithubRepos } from '@/hooks/useGithubRepos';
 import { BeachSectionId } from '@/components/AsciiBeachCanvas';
 import { ALL_PAGES } from '@/lib/navigation';
@@ -40,6 +47,9 @@ export function PortfolioSectionView({ section }: { section: BeachSectionId }) {
   const router = useRouter();
   const [posts, setPosts] = useState<Post[]>(() => mockPosts);
   const [photos, setPhotos] = useState<Photo[]>(() => mockPhotos);
+  const [photoCollections, setPhotoCollections] = useState<PhotoCollection[]>(
+    () => mockCollections
+  );
   const [skills, setSkills] = useState<Skill[]>(() => cvSkills);
 
   const [selectedPost, setSelectedPost] = useState<Post | null>(null);
@@ -85,13 +95,15 @@ export function PortfolioSectionView({ section }: { section: BeachSectionId }) {
   useEffect(() => {
     let active = true;
     (async () => {
-      const [loadedPosts, loadedPhotos] = await Promise.all([
+      const [loadedPosts, loadedPhotos, loadedCollections] = await Promise.all([
         fetchAllPosts(),
         fetchAllPhotos(),
+        fetchAllCollections(),
       ]);
       if (!active) return;
       setPosts(loadedPosts);
       setPhotos(loadedPhotos);
+      setPhotoCollections(loadedCollections);
 
       const storedSkills = fetchAllSkills();
       const map = new Map<string, Skill>();
@@ -224,7 +236,10 @@ export function PortfolioSectionView({ section }: { section: BeachSectionId }) {
 
         {/* PHOTOGRAPHY */}
         {resolvedSection === 'photography' && (
-          <PhotographyGallery photos={sortedPhotos} />
+          <PhotographyGallery
+            photos={sortedPhotos}
+            collectionConfigs={photoCollections}
+          />
         )}
 
         {/* BLOG */}

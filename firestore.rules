@@ -18,6 +18,11 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    match /photoCollections/{collectionId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }

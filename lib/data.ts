@@ -36,6 +36,16 @@ export interface Photo {
   collection?: string;
 }
 
+export interface PhotoCollection {
+  id: string;
+  name: string;
+  description?: string;
+  coverPhotoId?: string;
+  order: number;
+  hidden?: boolean;
+  createdAt: string;
+}
+
 export interface Post {
   id: string;
   title: string;
@@ -414,6 +424,33 @@ export const mockPhotos: Photo[] = [
     iso: 'ISO 640',
     location: 'Manipal, IN',
     collection: 'Monsoon',
+  },
+];
+
+export const mockCollections: PhotoCollection[] = [
+  {
+    id: 'col-coast',
+    name: 'Coast',
+    description: 'Tidal flats, granite breakwaters, and late-afternoon light along the coast.',
+    order: 0,
+    hidden: false,
+    createdAt: '2026-09-14T12:00:00.000Z',
+  },
+  {
+    id: 'col-monsoon',
+    name: 'Monsoon',
+    description: 'Overcast cloud decks, wet stone geometry, and July rain studies.',
+    order: 1,
+    hidden: false,
+    createdAt: '2026-08-29T12:00:00.000Z',
+  },
+  {
+    id: 'col-night',
+    name: 'Night Studies',
+    description: 'Sodium vapor lamps, wet tarmac reflections, and late-evening stillness.',
+    order: 2,
+    hidden: false,
+    createdAt: '2026-06-04T12:00:00.000Z',
   },
 ];
 

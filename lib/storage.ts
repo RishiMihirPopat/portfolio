@@ -10,12 +10,22 @@ import {
   updateDoc,
 } from 'firebase/firestore';
 import { getDb, isFirebaseConfigured } from './firebase';
-import { Post, Photo, Skill, mockPosts, mockPhotos, cvSkills } from './data';
+import {
+  Post,
+  Photo,
+  PhotoCollection,
+  Skill,
+  mockPosts,
+  mockPhotos,
+  mockCollections,
+  cvSkills,
+} from './data';
 
 const isClient = typeof window !== 'undefined';
 
 const POSTS_KEY = 'portfolio_posts_v2';
 const PHOTOS_KEY = 'portfolio_photos_v2';
+const COLLECTIONS_KEY = 'portfolio_collections_v1';
 const SKILLS_KEY = 'portfolio_skills_v2';
 
 // --- Local Storage fallback helpers for Posts and Photos ---
@@ -236,6 +246,170 @@ export const deletePhoto = async (id: string): Promise<void> => {
   const db = getDb();
   if (!db) return;
   await deleteDoc(doc(db, 'photos', id));
+};
+
+// --- Firebase Firestore / LocalStorage CRUD for Photo Collections ---
+
+function sortPhotoCollections(items: PhotoCollection[]): PhotoCollection[] {
+  return [...items].sort((a, b) => {
+    const orderDiff = (a.order ?? 0) - (b.order ?? 0);
+    if (orderDiff !== 0) return orderDiff;
+    return a.name.localeCompare(b.name);
+  });
+}
+
+export const fetchAllCollections = async (): Promise<PhotoCollection[]> => {
+  if (!isFirebaseConfigured()) {
+    return sortPhotoCollections(
+      getLocalStorageItems<PhotoCollection>(COLLECTIONS_KEY, mockCollections)
+    );
+  }
+  try {
+    const db = getDb();
+    if (!db) throw new Error('Database not initialized');
+    const snapshot = await getDocs(collection(db, 'photoCollections'));
+    const list: PhotoCollection[] = snapshot.docs.map((d) => {
+      const data = d.data();
+      const optStr = (v: unknown): string | undefined =>
+        typeof v === 'string' && v.trim().length > 0 ? v.trim() : undefined;
+      return {
+        id: d.id,
+        name: typeof data.name === 'string' ? data.name.trim() : 'Untitled',
+        description: optStr(data.description),
+        coverPhotoId: optStr(data.coverPhotoId),
+        order: typeof data.order === 'number' && Number.isFinite(data.order) ? data.order : 0,
+        hidden: Boolean(data.hidden),
+        createdAt:
+          data.createdAt instanceof Timestamp
+            ? data.createdAt.toDate().toISOString()
+            : typeof data.createdAt === 'string'
+            ? data.createdAt
+            : new Date().toISOString(),
+      };
+    });
+    return sortPhotoCollections(list);
+  } catch (error) {
+    console.error('Failed to fetch photo collections from Firebase, falling back to local storage:', error);
+    return sortPhotoCollections(
+      getLocalStorageItems<PhotoCollection>(COLLECTIONS_KEY, mockCollections)
+    );
+  }
+};
+
+export const saveCollection = async (
+  col: Omit<PhotoCollection, 'id' | 'createdAt'>
+): Promise<PhotoCollection> => {
+  const cleanName = col.name.trim();
+  if (!cleanName) throw new Error('Collection name is required.');
+
+  if (!isFirebaseConfigured()) {
+    const all = getLocalStorageItems<PhotoCollection>(COLLECTIONS_KEY, mockCollections);
+    if (all.some((c) => c.name.toLowerCase() === cleanName.toLowerCase())) {
+      throw new Error(`Collection "${cleanName}" already exists.`);
+    }
+    const newCol: PhotoCollection = {
+      ...col,
+      name: cleanName,
+      description: col.description?.trim() || undefined,
+      coverPhotoId: col.coverPhotoId?.trim() || undefined,
+      hidden: Boolean(col.hidden),
+      id: `col-${Math.random().toString(36).substring(2, 9)}`,
+      createdAt: new Date().toISOString(),
+    };
+    if (isClient) {
+      localStorage.setItem(COLLECTIONS_KEY, JSON.stringify([...all, newCol]));
+    }
+    return newCol;
+  }
+
+  const db = getDb();
+  if (!db) throw new Error('Database not initialized');
+  const payload = Object.fromEntries(
+    Object.entries({
+      name: cleanName,
+      description: col.description?.trim() || undefined,
+      coverPhotoId: col.coverPhotoId?.trim() || undefined,
+      order: col.order,
+      hidden: Boolean(col.hidden),
+    }).filter(([, v]) => v !== undefined)
+  );
+  const docRef = await addDoc(collection(db, 'photoCollections'), {
+    ...payload,
+    createdAt: Timestamp.now(),
+  });
+  return {
+    ...col,
+    name: cleanName,
+    id: docRef.id,
+    createdAt: new Date().toISOString(),
+  };
+};
+
+export const updateCollection = async (
+  id: string,
+  updates: Partial<PhotoCollection>
+): Promise<void> => {
+  if (!isFirebaseConfigured()) {
+    if (!isClient) return;
+    const all = getLocalStorageItems<PhotoCollection>(COLLECTIONS_KEY, mockCollections);
+    const updated = all.map((c) => (c.id === id ? { ...c, ...updates } : c));
+    localStorage.setItem(COLLECTIONS_KEY, JSON.stringify(updated));
+    return;
+  }
+  const db = getDb();
+  if (!db) throw new Error('Database not initialized');
+  const clean = Object.fromEntries(
+    Object.entries(updates).filter(([, v]) => v !== undefined && v !== null)
+  );
+  await updateDoc(doc(db, 'photoCollections', id), clean);
+};
+
+export const deleteCollection = async (id: string): Promise<void> => {
+  if (!isFirebaseConfigured()) {
+    if (!isClient) return;
+    const all = getLocalStorageItems<PhotoCollection>(COLLECTIONS_KEY, mockCollections);
+    const updated = all.filter((c) => c.id !== id);
+    localStorage.setItem(COLLECTIONS_KEY, JSON.stringify(updated));
+    return;
+  }
+  const db = getDb();
+  if (!db) return;
+  await deleteDoc(doc(db, 'photoCollections', id));
+};
+
+export const renameCollectionAcrossPhotos = async (
+  oldName: string,
+  newName: string
+): Promise<number> => {
+  const from = oldName.trim();
+  const to = newName.trim();
+  if (!from || from === to) return 0;
+
+  if (!isFirebaseConfigured()) {
+    if (!isClient) return 0;
+    const all = getLocalStorageItems<Photo>(PHOTOS_KEY, mockPhotos);
+    let count = 0;
+    const updated = all.map((p) => {
+      if ((p.collection || '').trim().toLowerCase() === from.toLowerCase()) {
+        count += 1;
+        return { ...p, collection: to || undefined };
+      }
+      return p;
+    });
+    if (count > 0) {
+      localStorage.setItem(PHOTOS_KEY, JSON.stringify(updated));
+    }
+    return count;
+  }
+
+  const photos = await fetchAllPhotos();
+  const matching = photos.filter(
+    (p) => (p.collection || '').trim().toLowerCase() === from.toLowerCase()
+  );
+  for (const photo of matching) {
+    await updatePhoto(photo.id, { collection: to });
+  }
+  return matching.length;
 };
 
 // --- Local Storage fallback for Skills ---
