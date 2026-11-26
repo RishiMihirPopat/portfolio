@@ -10,8 +10,6 @@ import {
   Skill,
   mockRepos,
   mockPosts,
-  mockPhotos,
-  mockCollections,
   cvSkills,
   experiences,
   education,
@@ -46,10 +44,9 @@ function getPhotoTimestamp(photo: Photo): number {
 export function PortfolioSectionView({ section }: { section: BeachSectionId }) {
   const router = useRouter();
   const [posts, setPosts] = useState<Post[]>(() => mockPosts);
-  const [photos, setPhotos] = useState<Photo[]>(() => mockPhotos);
-  const [photoCollections, setPhotoCollections] = useState<PhotoCollection[]>(
-    () => mockCollections
-  );
+  const [photos, setPhotos] = useState<Photo[]>([]);
+  const [photoCollections, setPhotoCollections] = useState<PhotoCollection[]>([]);
+  const [isLoadingPhotos, setIsLoadingPhotos] = useState(true);
   const [skills, setSkills] = useState<Skill[]>(() => cvSkills);
 
   const [selectedPost, setSelectedPost] = useState<Post | null>(null);
@@ -95,16 +92,23 @@ export function PortfolioSectionView({ section }: { section: BeachSectionId }) {
   useEffect(() => {
     let active = true;
     (async () => {
-      const [loadedPosts, loadedPhotos, loadedCollections] = await Promise.all([
-        fetchAllPosts(),
-        fetchAllPhotos(),
-        fetchAllCollections(),
-      ]);
-      if (!active) return;
-      setPosts(loadedPosts);
-      setPhotos(loadedPhotos);
-      setPhotoCollections(loadedCollections);
+      try {
+        const [loadedPosts, loadedPhotos, loadedCollections] = await Promise.all([
+          fetchAllPosts(),
+          fetchAllPhotos(),
+          fetchAllCollections(),
+        ]);
+        if (!active) return;
+        setPosts(loadedPosts);
+        setPhotos(loadedPhotos);
+        setPhotoCollections(loadedCollections);
+      } finally {
+        if (active) {
+          setIsLoadingPhotos(false);
+        }
+      }
 
+      if (!active) return;
       const storedSkills = fetchAllSkills();
       const map = new Map<string, Skill>();
       for (const s of storedSkills) {
@@ -239,6 +243,7 @@ export function PortfolioSectionView({ section }: { section: BeachSectionId }) {
           <PhotographyGallery
             photos={sortedPhotos}
             collectionConfigs={photoCollections}
+            isLoading={isLoadingPhotos}
           />
         )}
 

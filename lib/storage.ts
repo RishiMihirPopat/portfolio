@@ -16,8 +16,6 @@ import {
   PhotoCollection,
   Skill,
   mockPosts,
-  mockPhotos,
-  mockCollections,
   cvSkills,
 } from './data';
 
@@ -34,7 +32,9 @@ const getLocalStorageItems = <T>(key: string, fallback: T[]): T[] => {
   try {
     const item = localStorage.getItem(key);
     if (!item) {
-      localStorage.setItem(key, JSON.stringify(fallback));
+      if (fallback.length > 0) {
+        localStorage.setItem(key, JSON.stringify(fallback));
+      }
       return fallback;
     }
     return JSON.parse(item);
@@ -72,7 +72,7 @@ export const updatePost = async (id: string, post: Partial<Post>): Promise<void>
 export const updatePhoto = async (id: string, photo: Partial<Photo>): Promise<void> => {
   if (!isFirebaseConfigured()) {
     if (!isClient) return;
-    const all = getLocalStorageItems<Photo>(PHOTOS_KEY, mockPhotos);
+    const all = getLocalStorageItems<Photo>(PHOTOS_KEY, []);
     const updated = all.map((p) => (p.id === id ? { ...p, ...photo } : p));
     localStorage.setItem(PHOTOS_KEY, JSON.stringify(updated));
     return;
@@ -159,7 +159,7 @@ export const deletePost = async (id: string): Promise<void> => {
 
 export const fetchAllPhotos = async (): Promise<Photo[]> => {
   if (!isFirebaseConfigured()) {
-    return getLocalStorageItems<Photo>(PHOTOS_KEY, mockPhotos);
+    return getLocalStorageItems<Photo>(PHOTOS_KEY, []);
   }
   try {
     const db = getDb();
@@ -194,7 +194,7 @@ export const fetchAllPhotos = async (): Promise<Photo[]> => {
     });
   } catch (error) {
     console.error('Failed to fetch photos from Firebase, falling back to local storage:', error);
-    return getLocalStorageItems<Photo>(PHOTOS_KEY, mockPhotos);
+    return getLocalStorageItems<Photo>(PHOTOS_KEY, []);
   }
 };
 
@@ -238,7 +238,7 @@ export const savePhotos = async (
 export const deletePhoto = async (id: string): Promise<void> => {
   if (!isFirebaseConfigured()) {
     if (!isClient) return;
-    const all = getLocalStorageItems<Photo>(PHOTOS_KEY, mockPhotos);
+    const all = getLocalStorageItems<Photo>(PHOTOS_KEY, []);
     const updated = all.filter((p) => p.id !== id);
     localStorage.setItem(PHOTOS_KEY, JSON.stringify(updated));
     return;
@@ -261,7 +261,7 @@ function sortPhotoCollections(items: PhotoCollection[]): PhotoCollection[] {
 export const fetchAllCollections = async (): Promise<PhotoCollection[]> => {
   if (!isFirebaseConfigured()) {
     return sortPhotoCollections(
-      getLocalStorageItems<PhotoCollection>(COLLECTIONS_KEY, mockCollections)
+      getLocalStorageItems<PhotoCollection>(COLLECTIONS_KEY, [])
     );
   }
   try {
@@ -291,7 +291,7 @@ export const fetchAllCollections = async (): Promise<PhotoCollection[]> => {
   } catch (error) {
     console.error('Failed to fetch photo collections from Firebase, falling back to local storage:', error);
     return sortPhotoCollections(
-      getLocalStorageItems<PhotoCollection>(COLLECTIONS_KEY, mockCollections)
+      getLocalStorageItems<PhotoCollection>(COLLECTIONS_KEY, [])
     );
   }
 };
@@ -303,7 +303,7 @@ export const saveCollection = async (
   if (!cleanName) throw new Error('Collection name is required.');
 
   if (!isFirebaseConfigured()) {
-    const all = getLocalStorageItems<PhotoCollection>(COLLECTIONS_KEY, mockCollections);
+    const all = getLocalStorageItems<PhotoCollection>(COLLECTIONS_KEY, []);
     if (all.some((c) => c.name.toLowerCase() === cleanName.toLowerCase())) {
       throw new Error(`Collection "${cleanName}" already exists.`);
     }
@@ -351,7 +351,7 @@ export const updateCollection = async (
 ): Promise<void> => {
   if (!isFirebaseConfigured()) {
     if (!isClient) return;
-    const all = getLocalStorageItems<PhotoCollection>(COLLECTIONS_KEY, mockCollections);
+    const all = getLocalStorageItems<PhotoCollection>(COLLECTIONS_KEY, []);
     const updated = all.map((c) => (c.id === id ? { ...c, ...updates } : c));
     localStorage.setItem(COLLECTIONS_KEY, JSON.stringify(updated));
     return;
@@ -367,7 +367,7 @@ export const updateCollection = async (
 export const deleteCollection = async (id: string): Promise<void> => {
   if (!isFirebaseConfigured()) {
     if (!isClient) return;
-    const all = getLocalStorageItems<PhotoCollection>(COLLECTIONS_KEY, mockCollections);
+    const all = getLocalStorageItems<PhotoCollection>(COLLECTIONS_KEY, []);
     const updated = all.filter((c) => c.id !== id);
     localStorage.setItem(COLLECTIONS_KEY, JSON.stringify(updated));
     return;
@@ -387,7 +387,7 @@ export const renameCollectionAcrossPhotos = async (
 
   if (!isFirebaseConfigured()) {
     if (!isClient) return 0;
-    const all = getLocalStorageItems<Photo>(PHOTOS_KEY, mockPhotos);
+    const all = getLocalStorageItems<Photo>(PHOTOS_KEY, []);
     let count = 0;
     const updated = all.map((p) => {
       if ((p.collection || '').trim().toLowerCase() === from.toLowerCase()) {

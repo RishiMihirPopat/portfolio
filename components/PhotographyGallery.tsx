@@ -21,6 +21,7 @@ type GallerySort = 'newest' | 'oldest';
 interface PhotographyGalleryProps {
   photos: GalleryPhoto[];
   collectionConfigs?: PhotoCollection[];
+  isLoading?: boolean;
   onSelectPhoto?: (photo: GalleryPhoto) => void;
 }
 
@@ -304,6 +305,7 @@ function MasonryCard({
 export function PhotographyGallery({
   photos,
   collectionConfigs = [],
+  isLoading = false,
   onSelectPhoto,
 }: PhotographyGalleryProps) {
   const columnCount = useMasonryColumnCount();
@@ -538,13 +540,13 @@ export function PhotographyGallery({
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [expandedId]);
 
-  // Re-measure ASCII clear zones after collection filter / expand / pagination changes
+  // Re-measure ASCII clear zones after loading, collection filter, expand, or pagination changes
   useEffect(() => {
     const timer = window.setTimeout(() => {
       window.dispatchEvent(new Event('resize'));
     }, 320);
     return () => window.clearTimeout(timer);
-  }, [resolvedCollection, expandedId, visiblePhotos.length, effectiveColumnCount]);
+  }, [isLoading, resolvedCollection, expandedId, visiblePhotos.length, effectiveColumnCount]);
 
   const handleSelectCollection = (colId: string) => {
     setActiveCollection(colId);
@@ -558,6 +560,92 @@ export function PhotographyGallery({
   };
 
   const remainingCount = Math.max(0, filteredPhotos.length - visiblePhotos.length);
+
+  if (isLoading) {
+    const skeletonRatios = ['aspect-[4/3]', 'aspect-[3/4]', 'aspect-[4/3]'];
+    return (
+      <MotionConfig reducedMotion="user">
+        <div
+          aria-busy="true"
+          aria-live="polite"
+          className="space-y-10 sm:space-y-12 w-full max-w-[1280px] mx-auto px-2 sm:px-6 lg:px-10 pt-2 pb-16"
+        >
+          <div
+            data-ascii-panel="true"
+            className="border-t border-b border-line py-4 flex items-center justify-between gap-4"
+          >
+            <span className="font-mono text-xs text-ink-muted inline-flex items-center gap-2.5">
+              <span
+                aria-hidden="true"
+                className="inline-block w-1.5 h-1.5 rounded-full bg-ink-muted animate-pulse"
+              />
+              loading photographs...
+            </span>
+            <div className="hidden sm:flex items-center gap-3" aria-hidden="true">
+              {[0, 1, 2].map((i) => (
+                <div
+                  key={i}
+                  className="h-7 w-24 border border-line/70 bg-surface/50 rounded-[2px] animate-pulse"
+                />
+              ))}
+            </div>
+          </div>
+
+          <div
+            aria-hidden="true"
+            className="grid gap-8 sm:gap-10 lg:gap-12 items-start"
+            style={{
+              gridTemplateColumns: `repeat(${columnCount}, minmax(0, 1fr))`,
+            }}
+          >
+            {Array.from({ length: columnCount }).map((_, colIdx) => (
+              <div key={colIdx} className="flex flex-col gap-8 sm:gap-10 lg:gap-12">
+                {[0, 1].map((rowIdx) => {
+                  const ratio = skeletonRatios[(colIdx + rowIdx) % skeletonRatios.length];
+                  return (
+                    <div
+                      key={rowIdx}
+                      data-ascii-panel="true"
+                      className="border border-line/70 bg-surface/50 rounded-[2px] overflow-hidden animate-pulse"
+                    >
+                      <div className={`${ratio} w-full bg-ink/5`} />
+                      <div className="border-t border-line/60 px-3.5 py-3 space-y-2">
+                        <div className="h-3 w-2/3 bg-ink/10 rounded-[1px]" />
+                        <div className="h-2.5 w-1/3 bg-ink/5 rounded-[1px]" />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+        </div>
+      </MotionConfig>
+    );
+  }
+
+  if (publicPhotos.length === 0) {
+    return (
+      <MotionConfig reducedMotion="user">
+        <div className="w-full max-w-[1280px] mx-auto px-2 sm:px-6 lg:px-10 pt-2 pb-16">
+          <motion.div
+            data-ascii-panel="true"
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.3, ease: CALM_EASE }}
+            className="border-t border-b border-line py-16 px-4 text-center space-y-2"
+          >
+            <p className="font-mono text-xs sm:text-sm text-ink">
+              No photographs published yet.
+            </p>
+            <p className="font-sans text-xs text-ink-muted">
+              Frames archived from the studio will appear here.
+            </p>
+          </motion.div>
+        </div>
+      </MotionConfig>
+    );
+  }
 
   return (
     <MotionConfig reducedMotion="user">
