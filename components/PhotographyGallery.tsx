@@ -16,7 +16,6 @@ export type GalleryPhoto = Photo & {
   height?: number;
 };
 
-type GalleryDensity = 'gallery' | 'contact';
 type GallerySort = 'newest' | 'oldest';
 
 interface PhotographyGalleryProps {
@@ -34,6 +33,7 @@ const TAB_SPRING = {
 
 const ALL_COLLECTION = '__all__';
 const UNCATEGORIZED_COLLECTION = '__uncategorized__';
+const PAGE_SIZE = 24;
 
 function getPhotoTimestamp(photo: GalleryPhoto): number {
   const raw = photo.takenAt || photo.createdAt;
@@ -77,151 +77,289 @@ function formatFrameNumber(index: number, total: number): string {
   return String(index + 1).padStart(digits, '0');
 }
 
-interface GalleryTileProps {
+function useMasonryColumnCount(): number {
+  const [cols, setCols] = useState(3);
+
+  useEffect(() => {
+    const compute = () => {
+      const w = window.innerWidth;
+      if (w < 640) return 1;
+      if (w < 1024) return 2;
+      if (w < 1400) return 3;
+      return 4;
+    };
+    const update = () => setCols(compute());
+    update();
+    window.addEventListener('resize', update, { passive: true });
+    return () => window.removeEventListener('resize', update);
+  }, []);
+
+  return cols;
+}
+
+interface MasonryCardProps {
   photo: GalleryPhoto;
   index: number;
   total: number;
-  density: GalleryDensity;
-  isSelected: boolean;
-  onSelect: (photo: GalleryPhoto) => void;
+  isExpanded: boolean;
+  onToggleExpand: (photo: GalleryPhoto) => void;
+  onSelectCollection: (collectionId: string) => void;
 }
 
-function GalleryTile({
+function MasonryCard({
   photo,
   index,
   total,
-  density,
-  isSelected,
-  onSelect,
-}: GalleryTileProps) {
+  isExpanded,
+  onToggleExpand,
+  onSelectCollection,
+}: MasonryCardProps) {
+  const prefersReducedMotion = useReducedMotion();
+  const [loadedUrl, setLoadedUrl] = useState<string | null>(null);
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
+
+  const width =
+    typeof photo.width === 'number' && photo.width > 0 ? photo.width : undefined;
+  const height =
+    typeof photo.height === 'number' && photo.height > 0 ? photo.height : undefined;
+  const hasDimensions = width !== undefined && height !== undefined;
+
+  const isLoaded = loadedUrl === photo.url;
   const isUnavailable = !photo.url || failedUrl === photo.url;
+
+  const dateSource = photo.takenAt || photo.createdAt;
+  const shortDate = formatShortDate(dateSource);
+  const fullDate = formatFullDate(dateSource);
+  const frameNo = formatFrameNumber(index, total);
   const title = photo.title || 'Untitled';
-  const frameNum = formatFrameNumber(index, total);
-  const dateLabel = formatShortDate(photo.takenAt || photo.createdAt);
-  const subline = [photo.camera, photo.collection || dateLabel]
+  const detailsId = `masonry-details-${photo.id}`;
+
+  const exposure = [
+    photo.focalLength,
+    photo.aperture,
+    photo.shutterSpeed,
+    photo.iso,
+  ]
+    .map((v) => v?.trim())
+    .filter(Boolean)
+    .join(' · ');
+
+  const subline = [photo.camera, photo.collection || shortDate]
     .filter(Boolean)
     .join(' · ');
 
   return (
-    <motion.li
-      initial={{ opacity: 0, y: 10 }}
+    <motion.article
+      data-ascii-panel="true"
+      initial={prefersReducedMotion ? false : { opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{
-        duration: 0.32,
+        duration: 0.34,
         ease: CALM_EASE,
-        delay: Math.min((index % 24) * 0.02, 0.24),
+        delay: Math.min((index % 12) * 0.025, 0.2),
       }}
-      className="min-w-0"
+      className={`group relative border bg-surface/85 rounded-[2px] overflow-hidden transition-colors duration-200 ${
+        isExpanded
+          ? 'border-ink/70'
+          : 'border-line hover:border-ink/55'
+      }`}
     >
       <button
         type="button"
-        data-ascii-panel="true"
-        onClick={() => onSelect(photo)}
-        aria-pressed={isSelected}
-        className={`group relative block w-full text-left border bg-surface/85 rounded-[2px] overflow-hidden transition-colors duration-200 focus-visible:outline-2 focus-visible:outline-ink focus-visible:outline-offset-2 cursor-pointer ${
-          isSelected
-            ? 'border-ink ring-1 ring-ink/50'
-            : 'border-line hover:border-ink/55'
-        }`}
+        aria-expanded={isExpanded}
+        aria-controls={detailsId}
+        onClick={() => onToggleExpand(photo)}
+        className="block w-full text-left cursor-pointer focus-visible:outline-2 focus-visible:outline-ink focus-visible:outline-offset-[-2px]"
       >
-        <div className="relative aspect-[4/3] w-full overflow-hidden bg-surface/95">
+        <div
+          className={`relative overflow-hidden bg-surface/95${
+            !hasDimensions && !isLoaded && !isUnavailable ? ' min-h-[160px]' : ''
+          }`}
+        >
           {isUnavailable ? (
-            <div className="flex h-full w-full items-center justify-center px-2 text-center font-mono text-[11px] text-ink-muted">
-              [ unavailable ]
+            <div
+              className="flex min-h-[160px] w-full items-center justify-center px-3 py-8 text-center font-mono text-xs text-ink-muted"
+              style={hasDimensions ? { aspectRatio: `${width} / ${height}` } : undefined}
+            >
+              [ image unavailable ]
             </div>
           ) : (
             /* eslint-disable-next-line @next/next/no-img-element */
             <img
               src={photo.url}
               alt={title}
+              width={hasDimensions ? width : undefined}
+              height={hasDimensions ? height : undefined}
+              style={hasDimensions ? { aspectRatio: `${width} / ${height}` } : undefined}
               loading={index >= 6 ? 'lazy' : undefined}
               decoding={index >= 6 ? 'async' : undefined}
               fetchPriority={index === 0 ? 'high' : undefined}
+              onLoad={() => setLoadedUrl(photo.url)}
               onError={() => setFailedUrl(photo.url)}
-              className="h-full w-full object-cover block motion-safe:transition-transform motion-safe:duration-500 motion-safe:ease-[cubic-bezier(0.16,1,0.3,1)] motion-safe:group-hover:scale-[1.035]"
+              className="w-full h-auto block motion-safe:transition-transform motion-safe:duration-500 motion-safe:ease-[cubic-bezier(0.16,1,0.3,1)] motion-safe:group-hover:scale-[1.02]"
             />
-          )}
-
-          {density === 'contact' && (
-            <>
-              <span className="pointer-events-none absolute top-1.5 left-1.5 px-1.5 py-0.5 font-mono text-[10px] leading-none bg-bg/80 text-ink/90 rounded-[2px]">
-                {frameNum}
-              </span>
-              <span className="pointer-events-none absolute inset-x-0 bottom-0 px-2 py-1.5 bg-gradient-to-t from-bg/90 via-bg/55 to-transparent opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 transition-opacity duration-200 font-mono text-[11px] text-ink truncate">
-                {title}
-              </span>
-            </>
           )}
         </div>
 
-        {density === 'gallery' && (
-          <div className="border-t border-line px-3 py-2.5 space-y-0.5">
-            <div className="flex items-baseline justify-between gap-2.5">
-              <span className="font-mono text-xs sm:text-[13px] text-ink truncate">
-                {title}
+        <div className="border-t border-line px-3.5 py-2.5 space-y-0.5">
+          <div className="flex items-baseline justify-between gap-2.5">
+            <h2 className="font-mono text-xs sm:text-[13px] font-normal text-ink truncate group-hover:underline underline-offset-4">
+              {title}
+            </h2>
+            <span className="font-mono text-[11px] text-ink-muted shrink-0 flex items-baseline gap-2">
+              <span>{frameNo}</span>
+              <span aria-hidden="true" className="text-ink/75">
+                {isExpanded ? '−' : '+'}
               </span>
-              <span className="font-mono text-[11px] text-ink-muted shrink-0">
-                {frameNum}
-              </span>
-            </div>
-            {subline && (
-              <p className="font-mono text-[11px] text-ink-muted/85 truncate">
-                {subline}
-              </p>
-            )}
+            </span>
           </div>
-        )}
+          {subline && (
+            <p className="font-mono text-[11px] text-ink-muted/85 truncate">
+              {subline}
+            </p>
+          )}
+        </div>
       </button>
-    </motion.li>
+
+      <AnimatePresence initial={false}>
+        {isExpanded && (
+          <motion.div
+            id={detailsId}
+            key="details"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.28, ease: CALM_EASE }}
+            className="overflow-hidden"
+          >
+            <div className="border-t border-line/80 px-3.5 py-3 space-y-3 bg-bg/40">
+              {photo.description && (
+                <p className="font-sans text-xs text-ink/90 leading-relaxed">
+                  {photo.description}
+                </p>
+              )}
+
+              <dl className="divide-y divide-line/60 border-t border-line/60 font-mono text-[11px]">
+                {photo.camera && (
+                  <div className="py-1.5 flex items-baseline justify-between gap-3">
+                    <dt className="text-ink-muted shrink-0">camera</dt>
+                    <dd className="text-ink text-right truncate">{photo.camera}</dd>
+                  </div>
+                )}
+                {photo.lens && (
+                  <div className="py-1.5 flex items-baseline justify-between gap-3">
+                    <dt className="text-ink-muted shrink-0">lens</dt>
+                    <dd className="text-ink text-right truncate">{photo.lens}</dd>
+                  </div>
+                )}
+                {exposure && (
+                  <div className="py-1.5 flex items-baseline justify-between gap-3">
+                    <dt className="text-ink-muted shrink-0">settings</dt>
+                    <dd className="text-ink text-right">{exposure}</dd>
+                  </div>
+                )}
+                {fullDate && (
+                  <div className="py-1.5 flex items-baseline justify-between gap-3">
+                    <dt className="text-ink-muted shrink-0">captured</dt>
+                    <dd className="text-ink text-right">{fullDate}</dd>
+                  </div>
+                )}
+                {photo.location && (
+                  <div className="py-1.5 flex items-baseline justify-between gap-3">
+                    <dt className="text-ink-muted shrink-0">location</dt>
+                    <dd className="text-ink text-right truncate">{photo.location}</dd>
+                  </div>
+                )}
+                {photo.collection && (
+                  <div className="py-1.5 flex items-baseline justify-between gap-3">
+                    <dt className="text-ink-muted shrink-0">collection</dt>
+                    <dd className="text-right">
+                      <button
+                        type="button"
+                        onClick={() => onSelectCollection(photo.collection!)}
+                        className="text-ink hover:underline underline-offset-4 cursor-pointer"
+                      >
+                        {photo.collection}
+                      </button>
+                    </dd>
+                  </div>
+                )}
+                {hasDimensions && width && height && (
+                  <div className="py-1.5 flex items-baseline justify-between gap-3">
+                    <dt className="text-ink-muted shrink-0">format</dt>
+                    <dd className="text-ink text-right">
+                      {width} × {height} · {formatAspectRatio(width, height)}
+                    </dd>
+                  </div>
+                )}
+              </dl>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </motion.article>
   );
 }
 
 export function PhotographyGallery({ photos, onSelectPhoto }: PhotographyGalleryProps) {
-  const prefersReducedMotion = useReducedMotion();
-  const stageRef = useRef<HTMLElement>(null);
+  const columnCount = useMasonryColumnCount();
+  const scrollerRef = useRef<HTMLDivElement>(null);
 
   const [activeCollection, setActiveCollection] = useState<string>(ALL_COLLECTION);
-  const [density, setDensity] = useState<GalleryDensity>('gallery');
   const [sortOrder, setSortOrder] = useState<GallerySort>('newest');
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [navDirection, setNavDirection] = useState<number>(1);
-  const [visibleLimit, setVisibleLimit] = useState<number>(24);
-  const [stageFailedUrl, setStageFailedUrl] = useState<string | null>(null);
+  const [visibleLimit, setVisibleLimit] = useState<number>(PAGE_SIZE);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(false);
 
-  const pageSize = density === 'contact' ? 48 : 24;
-
-  // Build collection tabs with counts
+  // Build collections with cover photo & count for the horizontal scroller
   const collections = useMemo(() => {
-    const counts = new Map<string, number>();
-    let uncategorizedCount = 0;
+    const buckets = new Map<string, GalleryPhoto[]>();
+    const uncategorized: GalleryPhoto[] = [];
 
     for (const photo of photos) {
       const col = photo.collection?.trim();
       if (col) {
-        counts.set(col, (counts.get(col) || 0) + 1);
+        const list = buckets.get(col) || [];
+        list.push(photo);
+        buckets.set(col, list);
       } else {
-        uncategorizedCount += 1;
+        uncategorized.push(photo);
       }
     }
 
-    const named = Array.from(counts.entries())
-      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-      .map(([name, count]) => ({ id: name, label: name, count }));
+    const named = Array.from(buckets.entries())
+      .sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]))
+      .map(([name, items]) => ({
+        id: name,
+        label: name,
+        count: items.length,
+        cover: items[0],
+      }));
 
-    const tabs = [{ id: ALL_COLLECTION, label: 'All', count: photos.length }, ...named];
-    if (named.length > 0 && uncategorizedCount > 0) {
-      tabs.push({
+    const list = [
+      {
+        id: ALL_COLLECTION,
+        label: 'All',
+        count: photos.length,
+        cover: photos[0],
+      },
+      ...named,
+    ];
+
+    if (named.length > 0 && uncategorized.length > 0) {
+      list.push({
         id: UNCATEGORIZED_COLLECTION,
         label: 'Uncategorized',
-        count: uncategorizedCount,
+        count: uncategorized.length,
+        cover: uncategorized[0],
       });
     }
-    return tabs;
+
+    return list;
   }, [photos]);
 
-  // Ensure activeCollection stays valid if photos update
   const resolvedCollection = useMemo(() => {
     if (activeCollection === ALL_COLLECTION) return ALL_COLLECTION;
     return collections.some((c) => c.id === activeCollection)
@@ -229,10 +367,8 @@ export function PhotographyGallery({ photos, onSelectPhoto }: PhotographyGallery
       : ALL_COLLECTION;
   }, [activeCollection, collections]);
 
-  // Filter & sort photos
   const filteredPhotos = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
-
     const list = photos.filter((photo) => {
       const col = photo.collection?.trim() || '';
       if (resolvedCollection === UNCATEGORIZED_COLLECTION) {
@@ -242,7 +378,7 @@ export function PhotographyGallery({ photos, onSelectPhoto }: PhotographyGallery
       }
 
       if (!q) return true;
-      const haystack = [
+      const hay = [
         photo.title,
         photo.description,
         photo.camera,
@@ -256,7 +392,7 @@ export function PhotographyGallery({ photos, onSelectPhoto }: PhotographyGallery
         .filter(Boolean)
         .join(' ')
         .toLowerCase();
-      return haystack.includes(q);
+      return hay.includes(q);
     });
 
     list.sort((a, b) => {
@@ -273,148 +409,187 @@ export function PhotographyGallery({ photos, onSelectPhoto }: PhotographyGallery
     [filteredPhotos, visibleLimit]
   );
 
-  const selectedIndex = useMemo(
-    () => (selectedId ? filteredPhotos.findIndex((p) => p.id === selectedId) : -1),
-    [filteredPhotos, selectedId]
-  );
+  const effectiveColumnCount =
+    visiblePhotos.length > 0
+      ? Math.min(columnCount, Math.max(2, visiblePhotos.length))
+      : columnCount;
 
-  const selectedPhoto = selectedIndex >= 0 ? filteredPhotos[selectedIndex] : null;
+  // Shortest-column masonry distribution keeps row order top-to-bottom and prevents shifting on "Load more"
+  const masonryColumns = useMemo(() => {
+    const cols: { photo: GalleryPhoto; index: number }[][] = Array.from(
+      { length: effectiveColumnCount },
+      () => []
+    );
+    const heights = new Array<number>(effectiveColumnCount).fill(0);
 
-  const handleSelectCollection = (colId: string) => {
-    setActiveCollection(colId);
-    setVisibleLimit(pageSize);
-    setSelectedId(null);
-  };
-
-  const handleChangeDensity = (next: GalleryDensity) => {
-    setDensity(next);
-    setVisibleLimit((prev) => Math.max(prev, next === 'contact' ? 48 : 24));
-  };
-
-  const handleSelectTile = useCallback(
-    (photo: GalleryPhoto) => {
-      if (selectedId === photo.id) {
-        setSelectedId(null);
-        return;
+    visiblePhotos.forEach((photo, index) => {
+      let shortestIdx = 0;
+      for (let c = 1; c < effectiveColumnCount; c++) {
+        if (heights[c] < heights[shortestIdx]) {
+          shortestIdx = c;
+        }
       }
-      setNavDirection(1);
-      setSelectedId(photo.id);
-      onSelectPhoto?.(photo);
+      cols[shortestIdx].push({ photo, index });
+      const ratio =
+        photo.width && photo.height && photo.width > 0
+          ? photo.height / photo.width
+          : 0.75;
+      // Normalized image height + approximate caption chrome
+      heights[shortestIdx] += ratio + 0.24;
+    });
 
-      // Smoothly bring the inline inspection stage into view if user scrolled down
-      requestAnimationFrame(() => {
-        stageRef.current?.scrollIntoView({
-          behavior: prefersReducedMotion ? 'auto' : 'smooth',
-          block: 'nearest',
-        });
-      });
-    },
-    [selectedId, onSelectPhoto, prefersReducedMotion]
-  );
+    return cols;
+  }, [visiblePhotos, effectiveColumnCount]);
 
-  const handleStep = useCallback(
-    (delta: number) => {
-      if (filteredPhotos.length <= 1 || selectedIndex < 0) return;
-      const nextIdx =
-        (selectedIndex + delta + filteredPhotos.length) % filteredPhotos.length;
-      setNavDirection(delta);
-      const nextPhoto = filteredPhotos[nextIdx];
-      setSelectedId(nextPhoto.id);
-      if (nextIdx >= visibleLimit) {
-        setVisibleLimit(nextIdx + pageSize);
-      }
-    },
-    [filteredPhotos, selectedIndex, visibleLimit, pageSize]
-  );
+  // Monitor horizontal collection scroller overflow for subtle arrow controls
+  const updateScrollerState = useCallback(() => {
+    const el = scrollerRef.current;
+    if (!el) return;
+    setCanScrollLeft(el.scrollLeft > 4);
+    setCanScrollRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 4);
+  }, []);
 
-  // Keyboard navigation while inline inspection stage is open
   useEffect(() => {
-    if (!selectedPhoto) return;
+    updateScrollerState();
+    window.addEventListener('resize', updateScrollerState, { passive: true });
+    return () => window.removeEventListener('resize', updateScrollerState);
+  }, [updateScrollerState, collections.length]);
+
+  const scrollCollectionsBy = (dir: number) => {
+    const el = scrollerRef.current;
+    if (!el) return;
+    el.scrollBy({
+      left: dir * Math.max(240, el.clientWidth * 0.65),
+      behavior: 'smooth',
+    });
+  };
+
+  // Collapse inline details on Escape
+  useEffect(() => {
+    if (!expandedId) return;
     const onKeyDown = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement | null;
-      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) {
-        return;
-      }
       if (e.key === 'Escape') {
-        setSelectedId(null);
-      } else if (e.key === 'ArrowRight') {
-        e.preventDefault();
-        handleStep(1);
-      } else if (e.key === 'ArrowLeft') {
-        e.preventDefault();
-        handleStep(-1);
+        setExpandedId(null);
       }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [selectedPhoto, handleStep]);
+  }, [expandedId]);
 
-  // Re-sync ASCII clear halos when stage opens/closes or layout changes
+  // Re-measure ASCII clear zones after collection filter / expand / pagination changes
   useEffect(() => {
     const timer = window.setTimeout(() => {
       window.dispatchEvent(new Event('resize'));
-    }, 340);
+    }, 320);
     return () => window.clearTimeout(timer);
-  }, [selectedId, resolvedCollection, density, visiblePhotos.length]);
+  }, [resolvedCollection, expandedId, visiblePhotos.length, effectiveColumnCount]);
+
+  const handleSelectCollection = (colId: string) => {
+    setActiveCollection(colId);
+    setVisibleLimit(PAGE_SIZE);
+    setExpandedId(null);
+  };
+
+  const handleToggleExpand = (photo: GalleryPhoto) => {
+    setExpandedId((prev) => (prev === photo.id ? null : photo.id));
+    onSelectPhoto?.(photo);
+  };
 
   const remainingCount = Math.max(0, filteredPhotos.length - visiblePhotos.length);
 
   return (
     <MotionConfig reducedMotion="user">
-      <LayoutGroup id="photography-archive">
-        <div className="space-y-5 w-full pb-10">
-          {/* Archive Controls: Collections + Search + Density + Sort */}
-          <div
-            data-ascii-panel="true"
-            className="border-t border-b border-line py-3 space-y-2.5"
-          >
-            {/* Row 1: Collection Tabs + Frame Count */}
-            <div className="flex items-baseline justify-between gap-4">
-              <div
-                role="tablist"
-                aria-label="Photo collections"
-                className="flex items-center gap-5 overflow-x-auto pb-1 -mb-1"
-              >
-                {collections.map((col) => {
-                  const isActive = resolvedCollection === col.id;
-                  return (
-                    <button
-                      key={col.id}
-                      type="button"
-                      role="tab"
-                      aria-selected={isActive}
-                      onClick={() => handleSelectCollection(col.id)}
-                      className={`relative pb-1.5 font-mono text-xs whitespace-nowrap transition-colors duration-150 cursor-pointer flex items-baseline gap-1.5 ${
-                        isActive
-                          ? 'text-ink'
-                          : 'text-ink-muted hover:text-ink'
-                      }`}
-                    >
-                      <span>{col.label}</span>
-                      <span className="text-[10px] text-ink-muted/80">
-                        {String(col.count).padStart(2, '0')}
-                      </span>
-                      {isActive && (
-                        <motion.span
-                          layoutId="photo-collection-underline"
-                          transition={TAB_SPRING}
-                          className="absolute left-0 right-0 bottom-0 h-px bg-ink"
-                        />
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-
-              <span className="hidden sm:inline font-mono text-[11px] text-ink-muted shrink-0">
-                {filteredPhotos.length === photos.length
-                  ? `${filteredPhotos.length} ${filteredPhotos.length === 1 ? 'frame' : 'frames'}`
-                  : `${filteredPhotos.length} of ${photos.length}`}
+      <LayoutGroup id="photography-masonry">
+        <div className="space-y-6 w-full pb-10">
+          {/* Horizontal Collections Scroller */}
+          <div data-ascii-panel="true" className="relative border-t border-b border-line py-3">
+            <div className="flex items-center justify-between gap-4 pb-2.5">
+              <span className="font-mono text-[11px] text-ink-muted">
+                collections ({collections.length})
               </span>
+              {(canScrollLeft || canScrollRight) && (
+                <div className="flex items-center gap-1.5 font-mono text-xs">
+                  <button
+                    type="button"
+                    onClick={() => scrollCollectionsBy(-1)}
+                    disabled={!canScrollLeft}
+                    aria-label="Scroll collections left"
+                    className="p-1 text-ink-muted hover:text-ink disabled:opacity-25 cursor-pointer disabled:cursor-default transition-opacity"
+                  >
+                    <ChevronLeft size={14} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => scrollCollectionsBy(1)}
+                    disabled={!canScrollRight}
+                    aria-label="Scroll collections right"
+                    className="p-1 text-ink-muted hover:text-ink disabled:opacity-25 cursor-pointer disabled:cursor-default transition-opacity"
+                  >
+                    <ChevronRight size={14} />
+                  </button>
+                </div>
+              )}
             </div>
 
-            {/* Row 2: Search + Sort + Density */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2 border-t border-line/50">
+            <div
+              ref={scrollerRef}
+              role="tablist"
+              aria-label="Photo collections"
+              onScroll={updateScrollerState}
+              className="flex items-stretch gap-3 overflow-x-auto pb-1 snap-x snap-mandatory [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+            >
+              {collections.map((col) => {
+                const isActive = resolvedCollection === col.id;
+                return (
+                  <button
+                    key={col.id}
+                    type="button"
+                    role="tab"
+                    aria-selected={isActive}
+                    onClick={() => handleSelectCollection(col.id)}
+                    className={`relative shrink-0 snap-start flex items-center gap-3 pr-4 pl-2 py-2 border rounded-[2px] text-left transition-colors duration-150 cursor-pointer bg-surface/75 ${
+                      isActive
+                        ? 'border-ink/45 text-ink'
+                        : 'border-line text-ink-muted hover:border-ink/40 hover:text-ink'
+                    }`}
+                  >
+                    <div className="w-10 h-10 shrink-0 overflow-hidden border border-line/70 bg-bg/60 rounded-[1px]">
+                      {col.cover?.url ? (
+                        /* eslint-disable-next-line @next/next/no-img-element */
+                        <img
+                          src={col.cover.url}
+                          alt=""
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center font-mono text-[10px] text-ink-muted">
+                          —
+                        </div>
+                      )}
+                    </div>
+                    <div className="min-w-[72px] space-y-0.5">
+                      <div className="font-mono text-xs text-ink whitespace-nowrap">
+                        {col.label}
+                      </div>
+                      <div className="font-mono text-[10px] text-ink-muted whitespace-nowrap">
+                        {String(col.count).padStart(2, '0')}{' '}
+                        {col.count === 1 ? 'frame' : 'frames'}
+                      </div>
+                    </div>
+                    {isActive && (
+                      <motion.span
+                        layoutId="collection-active-bar"
+                        transition={TAB_SPRING}
+                        className="absolute left-0 right-0 bottom-0 h-[1.5px] bg-ink"
+                      />
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Secondary Filter + Sort Row */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2.5 mt-2 border-t border-line/50">
               <div className="relative flex-1 max-w-sm">
                 <Search
                   size={13}
@@ -426,7 +601,7 @@ export function PhotographyGallery({ photos, onSelectPhoto }: PhotographyGallery
                   value={searchQuery}
                   onChange={(e) => {
                     setSearchQuery(e.target.value);
-                    setVisibleLimit(pageSize);
+                    setVisibleLimit(PAGE_SIZE);
                   }}
                   placeholder="Filter by title, camera, lens, location..."
                   aria-label="Filter photographs"
@@ -444,259 +619,30 @@ export function PhotographyGallery({ photos, onSelectPhoto }: PhotographyGallery
                 )}
               </div>
 
-              <div className="flex flex-wrap items-center justify-between sm:justify-end gap-4 font-mono text-xs">
-                <span className="sm:hidden text-[11px] text-ink-muted">
+              <div className="flex items-center justify-between sm:justify-end gap-5 font-mono text-xs">
+                <span className="text-[11px] text-ink-muted">
                   {filteredPhotos.length === photos.length
                     ? `${filteredPhotos.length} ${filteredPhotos.length === 1 ? 'frame' : 'frames'}`
                     : `${filteredPhotos.length} of ${photos.length}`}
                 </span>
-
                 <button
                   type="button"
                   onClick={() =>
                     setSortOrder((prev) => (prev === 'newest' ? 'oldest' : 'newest'))
                   }
                   className="text-ink-muted hover:text-ink transition-colors cursor-pointer"
-                  title="Toggle chronological sort"
                 >
                   {sortOrder === 'newest' ? 'newest ↓' : 'oldest ↑'}
                 </button>
-
-                <div
-                  role="group"
-                  aria-label="Archive density"
-                  className="inline-flex items-center gap-3 border-l border-line pl-4"
-                >
-                  {(['gallery', 'contact'] as const).map((mode) => {
-                    const isActive = density === mode;
-                    return (
-                      <button
-                        key={mode}
-                        type="button"
-                        onClick={() => handleChangeDensity(mode)}
-                        aria-pressed={isActive}
-                        className={`relative pb-0.5 transition-colors duration-150 cursor-pointer ${
-                          isActive ? 'text-ink' : 'text-ink-muted hover:text-ink'
-                        }`}
-                      >
-                        {mode}
-                        {isActive && (
-                          <motion.span
-                            layoutId="photo-density-underline"
-                            transition={TAB_SPRING}
-                            className="absolute left-0 right-0 bottom-0 h-px bg-ink"
-                          />
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
               </div>
             </div>
           </div>
 
-          {/* Inline Inspection Stage (Zero Modal — Full Image + Camera/EXIF Spec Sheet) */}
-          <AnimatePresence initial={false}>
-            {selectedPhoto && (
-              <motion.section
-                ref={stageRef}
-                key="inline-inspection-stage"
-                aria-label="Selected photograph details"
-                data-ascii-panel="true"
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: 'auto' }}
-                exit={{ opacity: 0, height: 0 }}
-                transition={{ duration: 0.34, ease: CALM_EASE }}
-                className="overflow-hidden"
-              >
-                <div className="border border-line bg-surface/95 backdrop-blur-sm rounded-[2px] overflow-hidden grid grid-cols-1 lg:grid-cols-12">
-                  {/* Left: Uncropped full-frame photograph */}
-                  <div className="lg:col-span-8 flex items-center justify-center p-4 sm:p-6 min-h-[280px] sm:min-h-[400px] lg:min-h-[480px] relative overflow-hidden">
-                    <AnimatePresence mode="wait" initial={false}>
-                      <motion.div
-                        key={selectedPhoto.id}
-                        initial={{
-                          opacity: 0,
-                          x: prefersReducedMotion ? 0 : navDirection * 14,
-                        }}
-                        animate={{ opacity: 1, x: 0 }}
-                        exit={{
-                          opacity: 0,
-                          x: prefersReducedMotion ? 0 : -navDirection * 14,
-                        }}
-                        transition={{ duration: 0.24, ease: CALM_EASE }}
-                        className="w-full h-full flex items-center justify-center"
-                      >
-                        {!selectedPhoto.url || stageFailedUrl === selectedPhoto.url ? (
-                          <p className="font-mono text-xs text-ink-muted py-16">
-                            [ image unavailable ]
-                          </p>
-                        ) : (
-                          /* eslint-disable-next-line @next/next/no-img-element */
-                          <img
-                            src={selectedPhoto.url}
-                            alt={selectedPhoto.title || 'Selected photograph'}
-                            onError={() => setStageFailedUrl(selectedPhoto.url)}
-                            className="max-h-[68vh] w-auto max-w-full object-contain block rounded-[1px]"
-                          />
-                        )}
-                      </motion.div>
-                    </AnimatePresence>
-                  </div>
-
-                  {/* Right: Editorial EXIF & Metadata Spec Sheet */}
-                  <div className="lg:col-span-4 border-t lg:border-t-0 lg:border-l border-line p-4 sm:p-6 flex flex-col justify-between gap-6">
-                    <div className="space-y-4">
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="flex items-center gap-2 font-mono text-[11px] text-ink-muted">
-                          <span>
-                            {formatFrameNumber(selectedIndex, filteredPhotos.length)} /{' '}
-                            {String(filteredPhotos.length).padStart(
-                              filteredPhotos.length >= 100 ? 3 : 2,
-                              '0'
-                            )}
-                          </span>
-                          {selectedPhoto.collection && (
-                            <>
-                              <span aria-hidden="true">·</span>
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  handleSelectCollection(selectedPhoto.collection!)
-                                }
-                                className="text-ink-muted hover:text-ink underline underline-offset-4 cursor-pointer"
-                              >
-                                {selectedPhoto.collection}
-                              </button>
-                            </>
-                          )}
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => setSelectedId(null)}
-                          aria-label="Close photograph details"
-                          className="inline-flex items-center gap-1 font-mono text-[11px] text-ink-muted hover:text-ink transition-colors cursor-pointer"
-                        >
-                          <span>close</span>
-                          <X size={13} />
-                        </button>
-                      </div>
-
-                      <div className="space-y-1.5">
-                        <h2 className="font-mono text-base sm:text-lg font-medium text-ink leading-snug">
-                          {selectedPhoto.title || 'Untitled'}
-                        </h2>
-                        {selectedPhoto.description && (
-                          <p className="font-sans text-xs sm:text-sm text-ink/85 leading-relaxed">
-                            {selectedPhoto.description}
-                          </p>
-                        )}
-                      </div>
-
-                      {/* Exposure Chips */}
-                      {(selectedPhoto.focalLength ||
-                        selectedPhoto.aperture ||
-                        selectedPhoto.shutterSpeed ||
-                        selectedPhoto.iso) && (
-                        <div className="flex flex-wrap gap-1.5 pt-1">
-                          {[
-                            selectedPhoto.focalLength,
-                            selectedPhoto.aperture,
-                            selectedPhoto.shutterSpeed,
-                            selectedPhoto.iso,
-                          ]
-                            .filter(Boolean)
-                            .map((val, i) => (
-                              <span
-                                key={`${val}-${i}`}
-                                className="font-mono text-[11px] text-ink border border-line bg-bg/50 px-2 py-0.5 rounded-[2px]"
-                              >
-                                {val}
-                              </span>
-                            ))}
-                        </div>
-                      )}
-
-                      {/* Structured Technical Metadata */}
-                      <dl className="divide-y divide-line/60 border-t border-b border-line/60 font-mono text-[11px]">
-                        {selectedPhoto.camera && (
-                          <div className="py-2 flex items-baseline justify-between gap-4">
-                            <dt className="text-ink-muted/80 shrink-0">camera</dt>
-                            <dd className="text-ink text-right">{selectedPhoto.camera}</dd>
-                          </div>
-                        )}
-                        {selectedPhoto.lens && (
-                          <div className="py-2 flex items-baseline justify-between gap-4">
-                            <dt className="text-ink-muted/80 shrink-0">lens</dt>
-                            <dd className="text-ink text-right">{selectedPhoto.lens}</dd>
-                          </div>
-                        )}
-                        {formatFullDate(selectedPhoto.takenAt || selectedPhoto.createdAt) && (
-                          <div className="py-2 flex items-baseline justify-between gap-4">
-                            <dt className="text-ink-muted/80 shrink-0">captured</dt>
-                            <dd className="text-ink text-right">
-                              {formatFullDate(
-                                selectedPhoto.takenAt || selectedPhoto.createdAt
-                              )}
-                            </dd>
-                          </div>
-                        )}
-                        {selectedPhoto.location && (
-                          <div className="py-2 flex items-baseline justify-between gap-4">
-                            <dt className="text-ink-muted/80 shrink-0">location</dt>
-                            <dd className="text-ink text-right">{selectedPhoto.location}</dd>
-                          </div>
-                        )}
-                        {selectedPhoto.width && selectedPhoto.height && (
-                          <div className="py-2 flex items-baseline justify-between gap-4">
-                            <dt className="text-ink-muted/80 shrink-0">format</dt>
-                            <dd className="text-ink text-right">
-                              {selectedPhoto.width} × {selectedPhoto.height} ·{' '}
-                              {formatAspectRatio(
-                                selectedPhoto.width,
-                                selectedPhoto.height
-                              )}
-                            </dd>
-                          </div>
-                        )}
-                      </dl>
-                    </div>
-
-                    {/* Prev / Next Navigation */}
-                    {filteredPhotos.length > 1 && (
-                      <div className="flex items-center justify-between gap-3 pt-2 font-mono text-xs">
-                        <button
-                          type="button"
-                          onClick={() => handleStep(-1)}
-                          className="inline-flex items-center gap-1.5 border border-line px-3 py-1.5 rounded-[2px] text-ink-muted hover:text-ink hover:border-ink/55 transition-colors cursor-pointer"
-                        >
-                          <ChevronLeft size={13} />
-                          <span>prev</span>
-                        </button>
-                        <span className="text-[11px] text-ink-muted/85 hidden sm:inline">
-                          ← / → · esc
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => handleStep(1)}
-                          className="inline-flex items-center gap-1.5 border border-line px-3 py-1.5 rounded-[2px] text-ink-muted hover:text-ink hover:border-ink/55 transition-colors cursor-pointer"
-                        >
-                          <span>next</span>
-                          <ChevronRight size={13} />
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </motion.section>
-            )}
-          </AnimatePresence>
-
-          {/* Archive Grid */}
+          {/* Balanced Masonry Grid */}
           {filteredPhotos.length === 0 ? (
             <div
               data-ascii-panel="true"
-              className="border border-line bg-surface/80 rounded-[2px] py-12 px-6 text-center space-y-2"
+              className="border-t border-b border-line py-10 px-4 text-center space-y-2"
             >
               <p className="font-mono text-xs text-ink">
                 {photos.length === 0
@@ -712,34 +658,39 @@ export function PhotographyGallery({ photos, onSelectPhoto }: PhotographyGallery
                   }}
                   className="font-mono text-xs text-ink-muted hover:text-ink underline underline-offset-4 cursor-pointer"
                 >
-                  Reset filters
+                  reset filters
                 </button>
               )}
             </div>
           ) : (
             <>
-              <ul
+              <div
                 role="list"
-                className={
-                  density === 'contact'
-                    ? 'grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-2.5 sm:gap-3 w-full'
-                    : 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 sm:gap-6 w-full'
-                }
+                aria-label="Photography masonry gallery"
+                className="grid gap-5 sm:gap-6 items-start"
+                style={{
+                  gridTemplateColumns: `repeat(${effectiveColumnCount}, minmax(0, 1fr))`,
+                }}
               >
-                {visiblePhotos.map((photo, index) => (
-                  <GalleryTile
-                    key={photo.id}
-                    photo={photo}
-                    index={index}
-                    total={filteredPhotos.length}
-                    density={density}
-                    isSelected={selectedId === photo.id}
-                    onSelect={handleSelectTile}
-                  />
+                {masonryColumns.map((columnItems, colIdx) => (
+                  <div key={colIdx} className="flex flex-col gap-5 sm:gap-6 min-w-0">
+                    {columnItems.map(({ photo, index }) => (
+                      <div key={photo.id} role="listitem">
+                        <MasonryCard
+                          photo={photo}
+                          index={index}
+                          total={filteredPhotos.length}
+                          isExpanded={expandedId === photo.id}
+                          onToggleExpand={handleToggleExpand}
+                          onSelectCollection={handleSelectCollection}
+                        />
+                      </div>
+                    ))}
+                  </div>
                 ))}
-              </ul>
+              </div>
 
-              {/* Progressive Pagination for 300+ Photo Archives */}
+              {/* Progressive Pagination for 300+ Photos */}
               {remainingCount > 0 && (
                 <div
                   data-ascii-panel="true"
@@ -748,21 +699,21 @@ export function PhotographyGallery({ photos, onSelectPhoto }: PhotographyGallery
                   <span className="text-ink-muted">
                     Showing {visiblePhotos.length} of {filteredPhotos.length} frames
                   </span>
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-4">
                     <button
                       type="button"
-                      onClick={() => setVisibleLimit((prev) => prev + pageSize)}
+                      onClick={() => setVisibleLimit((prev) => prev + PAGE_SIZE)}
                       className="border border-line bg-surface/85 px-3.5 py-1.5 rounded-[2px] text-ink hover:border-ink/60 transition-colors cursor-pointer"
                     >
-                      Load {Math.min(pageSize, remainingCount)} more
+                      Load {Math.min(PAGE_SIZE, remainingCount)} more ↓
                     </button>
-                    {remainingCount > pageSize && (
+                    {remainingCount > PAGE_SIZE && (
                       <button
                         type="button"
                         onClick={() => setVisibleLimit(filteredPhotos.length)}
                         className="text-ink-muted hover:text-ink underline underline-offset-4 cursor-pointer"
                       >
-                        Show all
+                        show all
                       </button>
                     )}
                   </div>
