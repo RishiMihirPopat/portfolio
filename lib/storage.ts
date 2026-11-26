@@ -3,9 +3,11 @@ import {
   addDoc,
   deleteDoc,
   doc,
+  getDoc,
   getDocs,
   query,
   orderBy,
+  setDoc,
   Timestamp,
   updateDoc,
 } from 'firebase/firestore';
@@ -24,6 +26,7 @@ const isClient = typeof window !== 'undefined';
 const POSTS_KEY = 'portfolio_posts_v2';
 const PHOTOS_KEY = 'portfolio_photos_v2';
 const COLLECTIONS_KEY = 'portfolio_collections_v1';
+const HIDDEN_REPOS_KEY = 'portfolio_hidden_repos_v1';
 const SKILLS_KEY = 'portfolio_skills_v2';
 
 // --- Local Storage fallback helpers for Posts and Photos ---
@@ -410,6 +413,60 @@ export const renameCollectionAcrossPhotos = async (
     await updatePhoto(photo.id, { collection: to });
   }
   return matching.length;
+};
+
+// --- Firebase Firestore / LocalStorage settings for hidden GitHub projects ---
+
+function normalizeHiddenRepoNames(names: unknown): string[] {
+  if (!Array.isArray(names)) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const item of names) {
+    if (typeof item !== 'string') continue;
+    const clean = item.trim().toLowerCase();
+    if (clean && !seen.has(clean)) {
+      seen.add(clean);
+      out.push(clean);
+    }
+  }
+  return out;
+}
+
+export const fetchHiddenRepos = async (): Promise<string[]> => {
+  if (!isFirebaseConfigured()) {
+    return normalizeHiddenRepoNames(getLocalStorageItems<string>(HIDDEN_REPOS_KEY, []));
+  }
+  try {
+    const db = getDb();
+    if (!db) throw new Error('Database not initialized');
+    const snap = await getDoc(doc(db, 'siteSettings', 'projects'));
+    if (!snap.exists()) return [];
+    return normalizeHiddenRepoNames(snap.data()?.hiddenRepos);
+  } catch (error) {
+    console.error('Failed to fetch hidden repos from Firebase, falling back to local storage:', error);
+    return normalizeHiddenRepoNames(getLocalStorageItems<string>(HIDDEN_REPOS_KEY, []));
+  }
+};
+
+export const saveHiddenRepos = async (hiddenRepos: string[]): Promise<string[]> => {
+  const clean = normalizeHiddenRepoNames(hiddenRepos);
+  if (!isFirebaseConfigured()) {
+    if (isClient) {
+      localStorage.setItem(HIDDEN_REPOS_KEY, JSON.stringify(clean));
+    }
+    return clean;
+  }
+  const db = getDb();
+  if (!db) throw new Error('Database not initialized');
+  await setDoc(
+    doc(db, 'siteSettings', 'projects'),
+    {
+      hiddenRepos: clean,
+      updatedAt: Timestamp.now(),
+    },
+    { merge: true }
+  );
+  return clean;
 };
 
 // --- Local Storage fallback for Skills ---

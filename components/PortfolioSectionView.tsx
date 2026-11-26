@@ -18,6 +18,7 @@ import {
   fetchAllPosts,
   fetchAllPhotos,
   fetchAllCollections,
+  fetchHiddenRepos,
   fetchAllSkills,
 } from '@/lib/storage';
 import { useGithubRepos } from '@/hooks/useGithubRepos';
@@ -46,6 +47,7 @@ export function PortfolioSectionView({ section }: { section: BeachSectionId }) {
   const [posts, setPosts] = useState<Post[]>(() => mockPosts);
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [photoCollections, setPhotoCollections] = useState<PhotoCollection[]>([]);
+  const [hiddenRepos, setHiddenRepos] = useState<string[]>([]);
   const [isLoadingPhotos, setIsLoadingPhotos] = useState(true);
   const [skills, setSkills] = useState<Skill[]>(() => cvSkills);
 
@@ -82,26 +84,32 @@ export function PortfolioSectionView({ section }: { section: BeachSectionId }) {
   }, [resolvedSection, router]);
 
   const allProjects = useMemo(() => {
+    const hiddenSet = new Set(hiddenRepos.map((n) => n.toLowerCase()));
     const seededNames = new Set(mockRepos.map((r) => r.name.toLowerCase()));
     const extras = liveRepos.filter(
       (r) => !seededNames.has(r.name.toLowerCase())
     );
-    return [...mockRepos, ...extras];
-  }, [liveRepos]);
+    return [...mockRepos, ...extras].filter(
+      (r) => !hiddenSet.has(r.name.toLowerCase())
+    );
+  }, [liveRepos, hiddenRepos]);
 
   useEffect(() => {
     let active = true;
     (async () => {
       try {
-        const [loadedPosts, loadedPhotos, loadedCollections] = await Promise.all([
-          fetchAllPosts(),
-          fetchAllPhotos(),
-          fetchAllCollections(),
-        ]);
+        const [loadedPosts, loadedPhotos, loadedCollections, loadedHiddenRepos] =
+          await Promise.all([
+            fetchAllPosts(),
+            fetchAllPhotos(),
+            fetchAllCollections(),
+            fetchHiddenRepos(),
+          ]);
         if (!active) return;
         setPosts(loadedPosts);
         setPhotos(loadedPhotos);
         setPhotoCollections(loadedCollections);
+        setHiddenRepos(loadedHiddenRepos);
       } finally {
         if (active) {
           setIsLoadingPhotos(false);
@@ -192,49 +200,55 @@ export function PortfolioSectionView({ section }: { section: BeachSectionId }) {
         {/* PROJECTS */}
         {resolvedSection === 'projects' && (
           <div className="divide-y divide-line border-t border-line">
-            {allProjects.map((repo: Repo) => {
-              const isExternal = Boolean(
-                repo.html_url && /^https?:\/\//i.test(repo.html_url)
-              );
-              const rawTags = repo.tags || [];
-              const lang = (repo.language || 'Python').trim();
-              const mergedTags = [
-                lang,
-                ...rawTags.filter((t) => t.toLowerCase() !== lang.toLowerCase()),
-              ];
+            {allProjects.length === 0 ? (
+              <p className="font-sans text-sm text-ink-muted py-6">
+                No projects listed yet.
+              </p>
+            ) : (
+              allProjects.map((repo: Repo) => {
+                const isExternal = Boolean(
+                  repo.html_url && /^https?:\/\//i.test(repo.html_url)
+                );
+                const rawTags = repo.tags || [];
+                const lang = (repo.language || 'Python').trim();
+                const mergedTags = [
+                  lang,
+                  ...rawTags.filter((t) => t.toLowerCase() !== lang.toLowerCase()),
+                ];
 
-              return (
-                <a
-                  key={repo.id}
-                  href={repo.html_url || '#'}
-                  target={isExternal ? '_blank' : undefined}
-                  rel={isExternal ? 'noopener noreferrer' : undefined}
-                  className="block py-3.5 sm:py-4 group space-y-1.5 cursor-pointer transition-opacity duration-150 active:opacity-75"
-                >
-                  <div className="flex items-baseline justify-between gap-3">
-                    <h2 className="font-mono text-sm sm:text-base font-normal text-ink group-hover:underline underline-offset-4">
-                      {repo.title || repo.name}
-                    </h2>
-                    {isExternal && (
-                      <span
-                        aria-hidden="true"
-                        className="font-mono text-xs text-ink-nav group-hover:text-ink motion-safe:group-hover:translate-x-0.5 motion-safe:group-hover:-translate-y-0.5 transition-[color,transform] duration-150 shrink-0"
-                      >
-                        ↗
-                      </span>
-                    )}
-                  </div>
-                  <p className="font-sans text-xs sm:text-sm text-ink/90 leading-relaxed">
-                    {repo.description}
-                  </p>
-                  {mergedTags.length > 0 && (
-                    <p className="font-mono text-[11px] sm:text-xs text-ink-muted leading-relaxed">
-                      {mergedTags.join(' · ')}
+                return (
+                  <a
+                    key={repo.id}
+                    href={repo.html_url || '#'}
+                    target={isExternal ? '_blank' : undefined}
+                    rel={isExternal ? 'noopener noreferrer' : undefined}
+                    className="block py-3.5 sm:py-4 group space-y-1.5 cursor-pointer transition-opacity duration-150 active:opacity-75"
+                  >
+                    <div className="flex items-baseline justify-between gap-3">
+                      <h2 className="font-mono text-sm sm:text-base font-normal text-ink group-hover:underline underline-offset-4">
+                        {repo.title || repo.name}
+                      </h2>
+                      {isExternal && (
+                        <span
+                          aria-hidden="true"
+                          className="font-mono text-xs text-ink-nav group-hover:text-ink motion-safe:group-hover:translate-x-0.5 motion-safe:group-hover:-translate-y-0.5 transition-[color,transform] duration-150 shrink-0"
+                        >
+                          ↗
+                        </span>
+                      )}
+                    </div>
+                    <p className="font-sans text-xs sm:text-sm text-ink/90 leading-relaxed">
+                      {repo.description}
                     </p>
-                  )}
-                </a>
-              );
-            })}
+                    {mergedTags.length > 0 && (
+                      <p className="font-mono text-[11px] sm:text-xs text-ink-muted leading-relaxed">
+                        {mergedTags.join(' · ')}
+                      </p>
+                    )}
+                  </a>
+                );
+              })
+            )}
           </div>
         )}
 

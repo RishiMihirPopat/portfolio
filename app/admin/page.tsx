@@ -45,12 +45,15 @@ import {
   updateCollection,
   deleteCollection,
   renameCollectionAcrossPhotos,
+  fetchHiddenRepos,
+  saveHiddenRepos,
   deletePost,
   deletePhoto,
   updatePost,
   updatePhoto,
 } from '@/lib/storage';
-import { Skill, Post, Photo, PhotoCollection } from '@/lib/data';
+import { Skill, Post, Photo, PhotoCollection, Repo, mockRepos } from '@/lib/data';
+import { useGithubRepos } from '@/hooks/useGithubRepos';
 import {
   getFirebaseAuth,
   isFirebaseAuthConfigured,
@@ -90,6 +93,7 @@ type AdminTab =
   | 'photo'
   | 'manage-photo'
   | 'collections'
+  | 'projects'
   | 'skills';
 
 const TAB_ORDER: AdminTab[] = [
@@ -98,6 +102,7 @@ const TAB_ORDER: AdminTab[] = [
   'photo',
   'manage-photo',
   'collections',
+  'projects',
   'skills',
 ];
 
@@ -295,6 +300,9 @@ export default function Admin() {
   const [allPosts, setAllPosts] = useState<Post[]>([]);
   const [allPhotos, setAllPhotos] = useState<Photo[]>([]);
   const [allCollections, setAllCollections] = useState<PhotoCollection[]>([]);
+  const [hiddenRepos, setHiddenRepos] = useState<string[]>([]);
+  const [customHiddenRepoName, setCustomHiddenRepoName] = useState('');
+  const { repos: liveRepos } = useGithubRepos();
   const [photoFilterCollection, setPhotoFilterCollection] = useState<string>('__all__');
   const [editingPostId, setEditingPostId] = useState<string | null>(null);
   const [editingPhoto, setEditingPhoto] = useState<Photo | null>(null);
@@ -632,16 +640,18 @@ export default function Admin() {
 
   const loadPostsAndPhotos = useCallback(async () => {
     try {
-      const [postsData, photosData, collectionsData] = await Promise.all([
+      const [postsData, photosData, collectionsData, hiddenReposData] = await Promise.all([
         fetchAllPosts(),
         fetchAllPhotos(),
         fetchAllCollections(),
+        fetchHiddenRepos(),
       ]);
       setAllPosts(postsData);
       setAllPhotos(photosData);
       setAllCollections(collectionsData);
+      setHiddenRepos(hiddenReposData);
       addLog(
-        `Synced ${postsData.length} posts, ${photosData.length} photos, and ${collectionsData.length} collections.`
+        `Synced ${postsData.length} posts, ${photosData.length} photos, ${collectionsData.length} collections, and ${hiddenReposData.length} hidden repo(s).`
       );
     } catch (err) {
       console.error('Failed to load posts/photos', err);
@@ -961,6 +971,62 @@ export default function Admin() {
       addLog(`Moved collection "${moved.name}" ${delta < 0 ? 'up' : 'down'}.`);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Failed to reorder collections';
+      setFeedback({ kind: 'error', text: message });
+      await loadPostsAndPhotos();
+    }
+  };
+
+  const handleToggleRepoVisibility = async (repoName: string, displayLabel?: string) => {
+    const key = repoName.trim().toLowerCase();
+    if (!key) return;
+    const isCurrentlyHidden = hiddenRepos.includes(key);
+    const nextList = isCurrentlyHidden
+      ? hiddenRepos.filter((name) => name !== key)
+      : [...hiddenRepos, key];
+
+    setHiddenRepos(nextList);
+    try {
+      const saved = await saveHiddenRepos(nextList);
+      setHiddenRepos(saved);
+      const label = displayLabel || repoName;
+      addLog(`${isCurrentlyHidden ? 'Shown' : 'Hidden'} project "${label}" on /projects.`);
+      setFeedback({
+        kind: 'success',
+        text: isCurrentlyHidden
+          ? `"${label}" is now visible on /projects.`
+          : `"${label}" is now hidden from /projects.`,
+      });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to update project visibility';
+      console.error(err);
+      setFeedback({ kind: 'error', text: message });
+      await loadPostsAndPhotos();
+    }
+  };
+
+  const handleAddCustomHiddenRepo = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const cleaned = customHiddenRepoName
+      .trim()
+      .replace(/^https?:\/\/github\.com\/[^/]+\//i, '')
+      .replace(/\/.*$/, '')
+      .trim()
+      .toLowerCase();
+    if (!cleaned) return;
+    if (hiddenRepos.includes(cleaned)) {
+      setFeedback({ kind: 'error', text: `"${cleaned}" is already hidden.` });
+      return;
+    }
+    const nextList = [...hiddenRepos, cleaned];
+    setHiddenRepos(nextList);
+    setCustomHiddenRepoName('');
+    try {
+      const saved = await saveHiddenRepos(nextList);
+      setHiddenRepos(saved);
+      addLog(`Hidden GitHub repo "${cleaned}" on /projects.`);
+      setFeedback({ kind: 'success', text: `Hidden "${cleaned}" from /projects.` });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to hide repository';
       setFeedback({ kind: 'error', text: message });
       await loadPostsAndPhotos();
     }
@@ -1294,6 +1360,20 @@ export default function Admin() {
     return allPhotos.filter((p) => (p.collection?.trim() || '').toLowerCase() === target);
   }, [allPhotos, photoFilterCollection]);
 
+  const allAdminProjects = useMemo<(Repo & { source: 'featured' | 'github' })[]>(() => {
+    const seededNames = new Set(mockRepos.map((r) => r.name.toLowerCase()));
+    const featured = mockRepos.map((r) => ({ ...r, source: 'featured' as const }));
+    const github = liveRepos
+      .filter((r) => !seededNames.has(r.name.toLowerCase()))
+      .map((r) => ({ ...r, source: 'github' as const }));
+    return [...featured, ...github];
+  }, [liveRepos]);
+
+  const extraHiddenRepoNames = useMemo(() => {
+    const known = new Set(allAdminProjects.map((r) => r.name.toLowerCase()));
+    return hiddenRepos.filter((name) => !known.has(name.toLowerCase()));
+  }, [allAdminProjects, hiddenRepos]);
+
   const skillCategories = useMemo(() => {
     const ordered = [...DEFAULT_SKILL_CATEGORIES];
     for (const s of skills) {
@@ -1311,9 +1391,24 @@ export default function Admin() {
       { id: 'photo', label: 'Upload' },
       { id: 'manage-photo', label: `Photos (${allPhotos.length})` },
       { id: 'collections', label: `Collections (${allCollections.length})` },
+      {
+        id: 'projects',
+        label:
+          hiddenRepos.length > 0
+            ? `Projects (${allAdminProjects.length - hiddenRepos.filter((n) => allAdminProjects.some((p) => p.name.toLowerCase() === n)).length}/${allAdminProjects.length})`
+            : `Projects (${allAdminProjects.length})`,
+      },
       { id: 'skills', label: `Skills (${skills.length})` },
     ],
-    [editingPostId, allPosts.length, allPhotos.length, allCollections.length, skills.length]
+    [
+      editingPostId,
+      allPosts.length,
+      allPhotos.length,
+      allCollections.length,
+      allAdminProjects,
+      hiddenRepos,
+      skills.length,
+    ]
   );
 
   const handleTabKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
@@ -2609,6 +2704,135 @@ export default function Admin() {
                                   </button>
                                 );
                               })}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {activeTab === 'projects' && (
+                      <div className="space-y-6">
+                        <p className="font-sans text-xs sm:text-sm text-ink-muted">
+                          Hide or show GitHub and featured projects listed on{' '}
+                          <span className="font-mono text-ink">/projects</span>.
+                        </p>
+
+                        {/* Pre-hide any GitHub repository by exact slug or URL */}
+                        <form
+                          onSubmit={handleAddCustomHiddenRepo}
+                          aria-label="Hide GitHub repository by name"
+                          className="flex flex-wrap items-end gap-3 border border-line bg-surface/60 p-3.5 rounded-[2px]"
+                        >
+                          <div className="flex-1 min-w-[200px] space-y-1.5">
+                            <label htmlFor="hide-repo-name" className={LABEL_CLASS}>
+                              Hide GitHub repo by name (or URL)
+                            </label>
+                            <input
+                              id="hide-repo-name"
+                              type="text"
+                              value={customHiddenRepoName}
+                              onChange={(e) => setCustomHiddenRepoName(e.target.value)}
+                              className={`${INPUT_CLASS} font-mono text-xs`}
+                              placeholder="e.g. portfolio or dotfiles"
+                            />
+                          </div>
+                          <div className="shrink-0">
+                            <motion.button
+                              type="submit"
+                              whileHover={{ y: -1 }}
+                              whileTap={{ scale: 0.98 }}
+                              transition={TACTILE_SPRING}
+                              className={SECONDARY_BTN_CLASS}
+                            >
+                              <EyeOff size={13} />
+                              <span>Hide repo</span>
+                            </motion.button>
+                          </div>
+                        </form>
+
+                        {/* Loaded projects list */}
+                        <div className="divide-y divide-line border-t border-line">
+                          {allAdminProjects.map((repo) => {
+                            const isHidden = hiddenRepos.includes(repo.name.toLowerCase());
+                            return (
+                              <motion.div
+                                key={`${repo.source}-${repo.id}-${repo.name}`}
+                                layout
+                                className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+                              >
+                                <div
+                                  className={`min-w-0 flex-1 space-y-1 transition-opacity ${
+                                    isHidden ? 'opacity-55' : 'opacity-100'
+                                  }`}
+                                >
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <h2 className="font-mono text-sm font-normal text-ink truncate">
+                                      {repo.title || repo.name}
+                                    </h2>
+                                    <span className="font-mono text-[10px] text-ink-muted border border-line px-1.5 py-0.5 rounded-[2px] shrink-0">
+                                      {repo.source}
+                                    </span>
+                                    {isHidden && (
+                                      <span className="font-mono text-[10px] text-ink border border-ink/50 px-1.5 py-0.5 rounded-[2px] shrink-0">
+                                        hidden
+                                      </span>
+                                    )}
+                                  </div>
+                                  <p className="font-mono text-[11px] text-ink-muted truncate">
+                                    {repo.name}
+                                    {repo.language ? ` · ${repo.language}` : ''}
+                                  </p>
+                                  {repo.description && (
+                                    <p className="font-sans text-xs text-ink-muted line-clamp-2">
+                                      {repo.description}
+                                    </p>
+                                  )}
+                                </div>
+
+                                <div className="flex items-center gap-3 shrink-0">
+                                  <motion.button
+                                    type="button"
+                                    whileTap={{ scale: 0.96 }}
+                                    onClick={() =>
+                                      handleToggleRepoVisibility(
+                                        repo.name,
+                                        repo.title || repo.name
+                                      )
+                                    }
+                                    className="font-mono text-xs border border-line bg-surface/85 px-3 py-1.5 rounded-[2px] text-ink hover:border-ink transition-colors inline-flex items-center gap-1.5 cursor-pointer min-h-[36px]"
+                                  >
+                                    {isHidden ? <Eye size={13} /> : <EyeOff size={13} />}
+                                    <span>{isHidden ? 'Show' : 'Hide'}</span>
+                                  </motion.button>
+                                </div>
+                              </motion.div>
+                            );
+                          })}
+                        </div>
+
+                        {/* Extra hidden repo names not currently in the synced list */}
+                        {extraHiddenRepoNames.length > 0 && (
+                          <div className="border-t border-line pt-4 space-y-2.5">
+                            <h2 className="font-mono text-xs text-ink-muted">
+                              Other hidden repo names ({extraHiddenRepoNames.length})
+                            </h2>
+                            <div className="flex flex-wrap gap-2">
+                              {extraHiddenRepoNames.map((repoName) => (
+                                <span
+                                  key={repoName}
+                                  className="inline-flex items-center gap-2 border border-line bg-surface/85 px-2.5 py-1 font-mono text-xs text-ink rounded-[2px]"
+                                >
+                                  <span>{repoName}</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleToggleRepoVisibility(repoName)}
+                                    aria-label={`Unhide ${repoName}`}
+                                    className="text-ink-muted hover:text-ink underline underline-offset-2 cursor-pointer text-[11px]"
+                                  >
+                                    show
+                                  </button>
+                                </span>
+                              ))}
                             </div>
                           </div>
                         )}
