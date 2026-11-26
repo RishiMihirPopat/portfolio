@@ -206,9 +206,9 @@ function MasonryCard({
 
         <div className="border-t border-line px-3.5 py-2.5 space-y-0.5">
           <div className="flex items-baseline justify-between gap-2.5">
-            <h2 className="font-mono text-xs sm:text-[13px] font-normal text-ink truncate group-hover:underline underline-offset-4">
+            <h3 className="font-mono text-xs sm:text-[13px] font-normal text-ink truncate group-hover:underline underline-offset-4">
               {title}
-            </h2>
+            </h3>
             <span className="font-mono text-[11px] text-ink-muted shrink-0 flex items-baseline gap-2 tabular-nums">
               <span>{frameNo}</span>
               <span aria-hidden="true" className="text-ink">
@@ -354,8 +354,39 @@ export function PhotographyGallery({
     [photos, hiddenCollectionNames]
   );
 
-  // Build collections with admin order, custom cover photo, description & count
+  // Build collections with admin order, custom cover photo, description, count, and derived series metadata
   const collections = useMemo(() => {
+    const summarizeItems = (items: GalleryPhoto[]) => {
+      const years: number[] = [];
+      const locSet = new Set<string>();
+      const camSet = new Set<string>();
+
+      for (const item of items) {
+        const rawDate = item.takenAt || item.createdAt;
+        if (rawDate) {
+          const d = new Date(rawDate);
+          if (!Number.isNaN(d.getTime())) years.push(d.getFullYear());
+        }
+        const loc = item.location?.trim();
+        if (loc && locSet.size < 2) locSet.add(loc);
+        const cam = item.camera?.trim();
+        if (cam && camSet.size < 2) camSet.add(cam);
+      }
+
+      let yearSpan: string | undefined;
+      if (years.length > 0) {
+        const minY = Math.min(...years);
+        const maxY = Math.max(...years);
+        yearSpan = minY === maxY ? String(minY) : `${minY} – ${maxY}`;
+      }
+
+      return {
+        yearSpan,
+        locations: Array.from(locSet),
+        cameras: Array.from(camSet),
+      };
+    };
+
     const buckets = new Map<string, GalleryPhoto[]>();
     const uncategorized: GalleryPhoto[] = [];
 
@@ -379,13 +410,16 @@ export function PhotographyGallery({
       .map(([name, items]) => {
         const cfg = configByName.get(name.toLowerCase());
         const customCover = cfg?.coverPhotoId ? photoById.get(cfg.coverPhotoId) : undefined;
+        const summary = summarizeItems(items);
         return {
           id: name,
           label: cfg?.name || name,
           description: cfg?.description,
           count: items.length,
           cover: customCover || items[0],
+          previewCovers: items.slice(0, 4),
           order: cfg ? cfg.order : Number.MAX_SAFE_INTEGER,
+          ...summary,
         };
       })
       .sort(
@@ -395,33 +429,61 @@ export function PhotographyGallery({
           a.label.localeCompare(b.label)
       );
 
+    const allSummary = summarizeItems(publicPhotos);
     const list: {
       id: string;
+      indexLabel: string;
       label: string;
       description?: string;
       count: number;
       cover?: GalleryPhoto;
+      previewCovers: GalleryPhoto[];
+      yearSpan?: string;
+      locations: string[];
+      cameras: string[];
+      isArchiveAll?: boolean;
     }[] = [
       {
         id: ALL_COLLECTION,
-        label: 'All',
+        indexLabel: 'ALL',
+        label: 'All Photographs',
         count: publicPhotos.length,
         cover: publicPhotos[0],
+        previewCovers: publicPhotos.slice(0, 4),
+        isArchiveAll: true,
+        ...allSummary,
       },
-      ...named,
+      ...named.map((item, idx) => ({
+        id: item.id,
+        indexLabel: String(idx + 1).padStart(2, '0'),
+        label: item.label,
+        description: item.description,
+        count: item.count,
+        cover: item.cover,
+        previewCovers: item.previewCovers,
+        yearSpan: item.yearSpan,
+        locations: item.locations,
+        cameras: item.cameras,
+      })),
     ];
 
     if (named.length > 0 && uncategorized.length > 0) {
+      const uncatSummary = summarizeItems(uncategorized);
       list.push({
         id: UNCATEGORIZED_COLLECTION,
+        indexLabel: 'MISC',
         label: 'Uncategorized',
         count: uncategorized.length,
         cover: uncategorized[0],
+        previewCovers: uncategorized.slice(0, 4),
+        ...uncatSummary,
       });
     }
 
     return list;
   }, [publicPhotos, configByName]);
+
+  const hasNamedCollections = collections.length > 1;
 
   const resolvedCollection = useMemo(() => {
     if (activeCollection === ALL_COLLECTION) return ALL_COLLECTION;
@@ -595,6 +657,18 @@ export function PhotographyGallery({
   );
   const activeTabDomId = `gallery-tab-${activeTabIndex}`;
 
+  const activeSeriesMetaLine = useMemo(() => {
+    if (!activeCollectionMeta) return '';
+    return [
+      `${activeCollectionMeta.count} ${activeCollectionMeta.count === 1 ? 'frame' : 'frames'}`,
+      activeCollectionMeta.yearSpan,
+      ...activeCollectionMeta.locations,
+      ...activeCollectionMeta.cameras,
+    ]
+      .filter(Boolean)
+      .join(' · ');
+  }, [activeCollectionMeta]);
+
   if (isLoading) {
     const skeletonRatios = ['aspect-[4/3]', 'aspect-[3/4]', 'aspect-[4/3]'];
     return (
@@ -604,23 +678,40 @@ export function PhotographyGallery({
           aria-live="polite"
           className="space-y-10 sm:space-y-12 w-full max-w-[1280px] mx-auto px-2 sm:px-6 lg:px-10 pt-2 pb-16"
         >
-          <div
-            data-ascii-panel="true"
-            className="border-t border-b border-line py-4 flex items-center justify-between gap-4"
-          >
-            <span className="font-mono text-xs text-ink-muted inline-flex items-center gap-2.5">
-              <span
-                aria-hidden="true"
-                className="inline-block w-1.5 h-1.5 rounded-full bg-ink-muted motion-safe:animate-pulse"
-              />
-              loading photographs...
-            </span>
-            <div className="hidden sm:flex items-center gap-3" aria-hidden="true">
-              {[0, 1, 2].map((i) => (
+          {/* Series folio strip skeleton */}
+          <div className="space-y-4">
+            <div
+              data-ascii-panel="true"
+              className="border-t border-line pt-4 flex items-center justify-between gap-4"
+            >
+              <span className="font-mono text-xs text-ink-muted inline-flex items-center gap-2.5">
+                <span
+                  aria-hidden="true"
+                  className="inline-block w-1.5 h-1.5 rounded-full bg-ink-muted motion-safe:animate-pulse"
+                />
+                loading photographs...
+              </span>
+            </div>
+            <div
+              aria-hidden="true"
+              className="flex items-stretch gap-5 sm:gap-6 overflow-hidden"
+            >
+              {[0, 1, 2, 3].map((i) => (
                 <div
                   key={i}
-                  className="h-7 w-24 border border-line/70 bg-surface/50 rounded-[2px] motion-safe:animate-pulse"
-                />
+                  data-ascii-panel="true"
+                  className="w-[228px] sm:w-[264px] shrink-0 border border-line/70 bg-surface/55 rounded-[2px] overflow-hidden motion-safe:animate-pulse"
+                >
+                  <div className="aspect-[4/3] w-full bg-ink/5" />
+                  <div className="border-t border-line/60 px-3.5 py-3 space-y-2">
+                    <div className="flex justify-between">
+                      <div className="h-2.5 w-8 bg-ink/10 rounded-[1px]" />
+                      <div className="h-2.5 w-14 bg-ink/5 rounded-[1px]" />
+                    </div>
+                    <div className="h-3.5 w-2/3 bg-ink/10 rounded-[1px]" />
+                    <div className="h-2.5 w-4/5 bg-ink/5 rounded-[1px]" />
+                  </div>
+                </div>
               ))}
             </div>
           </div>
@@ -687,170 +778,294 @@ export function PhotographyGallery({
     );
   }
 
+  const namedSeriesCount = collections.filter(
+    (c) => c.id !== ALL_COLLECTION && c.id !== UNCATEGORIZED_COLLECTION
+  ).length;
+
   return (
     <MotionConfig reducedMotion="user">
       <LayoutGroup id="photography-masonry">
         <div className="space-y-10 sm:space-y-12 w-full max-w-[1280px] mx-auto px-2 sm:px-6 lg:px-10 pt-2 pb-16">
-          {/* Horizontal Collections Scroller */}
-          <div data-ascii-panel="true" className="relative border-t border-b border-line py-4">
-            <div className="flex items-center justify-between gap-4 pb-3">
-              <span className="font-mono text-[11px] text-ink-muted tabular-nums">
-                collections ({collections.length})
-              </span>
-              {(canScrollLeft || canScrollRight) && (
-                <div className="flex items-center gap-1 font-mono text-xs">
-                  <button
-                    type="button"
-                    onClick={() => scrollCollectionsBy(-1)}
-                    disabled={!canScrollLeft}
-                    aria-label="Scroll collections left"
-                    className="min-w-[32px] min-h-[32px] inline-flex items-center justify-center text-ink-muted hover:text-ink disabled:opacity-30 cursor-pointer disabled:cursor-default transition-opacity"
+          {/* Curated Series Folio Shelf — first-class visual weight for collections */}
+          {hasNamedCollections && (
+            <section aria-labelledby="photography-series-heading" className="space-y-4">
+              <div
+                data-ascii-panel="true"
+                className="flex items-center justify-between gap-4 border-t border-line pt-4"
+              >
+                <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                  <h2
+                    id="photography-series-heading"
+                    className="font-mono text-xs uppercase tracking-[0.14em] text-ink"
                   >
-                    <ChevronLeft size={14} aria-hidden="true" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => scrollCollectionsBy(1)}
-                    disabled={!canScrollRight}
-                    aria-label="Scroll collections right"
-                    className="min-w-[32px] min-h-[32px] inline-flex items-center justify-center text-ink-muted hover:text-ink disabled:opacity-30 cursor-pointer disabled:cursor-default transition-opacity"
-                  >
-                    <ChevronRight size={14} aria-hidden="true" />
-                  </button>
+                    Collections
+                  </h2>
+                  <span className="font-mono text-[11px] text-ink-muted tabular-nums">
+                    {String(namedSeriesCount).padStart(2, '0')}{' '}
+                    {namedSeriesCount === 1 ? 'series' : 'series'} ·{' '}
+                    {publicPhotos.length}{' '}
+                    {publicPhotos.length === 1 ? 'frame' : 'frames'}
+                  </span>
                 </div>
-              )}
-            </div>
 
-            <div
-              ref={scrollerRef}
-              role="tablist"
-              aria-label="Photo collections"
-              onScroll={updateScrollerState}
-              onKeyDown={(e) => handleTabKeyDown(e, activeTabIndex)}
-              className="flex items-stretch gap-3.5 overflow-x-auto pb-1.5 snap-x snap-mandatory [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-            >
-              {collections.map((col, idx) => {
-                const isActive = resolvedCollection === col.id;
-                return (
-                  <button
-                    key={col.id}
-                    id={`gallery-tab-${idx}`}
-                    type="button"
-                    role="tab"
-                    tabIndex={isActive ? 0 : -1}
-                    aria-selected={isActive}
-                    aria-controls="photography-gallery-panel"
-                    onClick={() => handleSelectCollection(col.id)}
-                    className={`relative shrink-0 snap-start flex items-center gap-3 pr-4 pl-2 py-2 min-h-[56px] border rounded-[2px] text-left transition-colors duration-150 cursor-pointer bg-surface/75 ${
-                      isActive
-                        ? 'border-ink/55 text-ink'
-                        : 'border-line text-ink-muted hover:border-ink/40 hover:text-ink'
-                    }`}
-                  >
-                    <div className="w-10 h-10 shrink-0 overflow-hidden border border-line/70 bg-bg/60 rounded-[1px]">
-                      {col.cover?.url ? (
-                        /* eslint-disable-next-line @next/next/no-img-element */
-                        <img
-                          src={col.cover.url}
-                          alt=""
-                          width={40}
-                          height={40}
-                          loading="lazy"
-                          decoding="async"
-                          className="w-full h-full object-cover"
-                        />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center font-mono text-[10px] text-ink-muted">
-                          —
-                        </div>
-                      )}
-                    </div>
-                    <div className="min-w-[72px] space-y-0.5">
-                      <div className="font-mono text-xs text-ink whitespace-nowrap">
-                        {col.label}
-                      </div>
-                      <div className="font-mono text-[10px] text-ink-muted whitespace-nowrap tabular-nums">
-                        {String(col.count).padStart(2, '0')}{' '}
-                        {col.count === 1 ? 'frame' : 'frames'}
-                      </div>
-                    </div>
-                    {isActive && (
-                      <motion.span
-                        layoutId="collection-active-bar"
-                        transition={TAB_SPRING}
-                        className="absolute left-0 right-0 bottom-0 h-[1.5px] bg-ink"
-                      />
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* Secondary Filter + Sort Row */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-3 mt-2.5 border-t border-line/50">
-              <div className="relative flex-1 max-w-sm">
-                <Search
-                  size={13}
-                  aria-hidden="true"
-                  className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-muted"
-                />
-                <input
-                  type="search"
-                  value={searchQuery}
-                  onChange={(e) => {
-                    setSearchQuery(e.target.value);
-                    setVisibleLimit(PAGE_SIZE);
-                  }}
-                  placeholder="Filter by title, camera, lens, location..."
-                  aria-label="Filter photographs"
-                  className="w-full min-h-[36px] bg-surface/75 border border-line-control pl-8 pr-9 py-1.5 font-mono text-xs text-ink placeholder:text-ink-muted focus:border-ink focus-visible:outline-2 focus-visible:outline-ink focus-visible:outline-offset-2 transition-colors rounded-[2px]"
-                />
-                {searchQuery && (
-                  <button
-                    type="button"
-                    onClick={() => setSearchQuery('')}
-                    aria-label="Clear filter"
-                    className="absolute right-0.5 top-1/2 -translate-y-1/2 min-w-[32px] min-h-[32px] inline-flex items-center justify-center text-ink-muted hover:text-ink cursor-pointer"
-                  >
-                    <X size={13} aria-hidden="true" />
-                  </button>
+                {(canScrollLeft || canScrollRight) && (
+                  <div className="flex items-center gap-1.5 font-mono text-xs shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => scrollCollectionsBy(-1)}
+                      disabled={!canScrollLeft}
+                      aria-label="Scroll collections left"
+                      className="min-w-[34px] min-h-[34px] border border-line-control bg-surface/85 rounded-[2px] inline-flex items-center justify-center text-ink-muted hover:text-ink hover:border-ink disabled:opacity-30 cursor-pointer disabled:cursor-default transition-colors"
+                    >
+                      <ChevronLeft size={14} aria-hidden="true" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => scrollCollectionsBy(1)}
+                      disabled={!canScrollRight}
+                      aria-label="Scroll collections right"
+                      className="min-w-[34px] min-h-[34px] border border-line-control bg-surface/85 rounded-[2px] inline-flex items-center justify-center text-ink-muted hover:text-ink hover:border-ink disabled:opacity-30 cursor-pointer disabled:cursor-default transition-colors"
+                    >
+                      <ChevronRight size={14} aria-hidden="true" />
+                    </button>
+                  </div>
                 )}
               </div>
 
-              <div className="flex items-center justify-between sm:justify-end gap-4 font-mono text-xs">
-                <span
-                  aria-live="polite"
-                  aria-atomic="true"
-                  className="text-[11px] text-ink-muted tabular-nums"
+              <div
+                ref={scrollerRef}
+                role="tablist"
+                aria-label="Photo collections"
+                onScroll={updateScrollerState}
+                onKeyDown={(e) => handleTabKeyDown(e, activeTabIndex)}
+                className="flex items-stretch gap-5 sm:gap-6 overflow-x-auto py-2 px-1 -mx-1 snap-x snap-mandatory [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+              >
+                {collections.map((col, idx) => {
+                  const isActive = resolvedCollection === col.id;
+                  const showMosaic =
+                    col.isArchiveAll && col.previewCovers.length >= 4;
+                  const cardSubline =
+                    col.description ||
+                    [col.yearSpan, col.locations[0]].filter(Boolean).join(' · ') ||
+                    (col.isArchiveAll ? 'Complete contact archive' : undefined);
+
+                  return (
+                    <button
+                      key={col.id}
+                      id={`gallery-tab-${idx}`}
+                      data-ascii-panel="true"
+                      type="button"
+                      role="tab"
+                      tabIndex={isActive ? 0 : -1}
+                      aria-selected={isActive}
+                      aria-controls="photography-gallery-panel"
+                      onClick={() => handleSelectCollection(col.id)}
+                      className={`group relative w-[228px] sm:w-[268px] shrink-0 snap-start flex flex-col border rounded-[2px] overflow-hidden text-left transition-colors duration-200 cursor-pointer bg-surface/88 ${
+                        isActive
+                          ? 'border-ink text-ink'
+                          : 'border-line text-ink-muted hover:border-ink/60 hover:text-ink'
+                      }`}
+                    >
+                      {/* Substantial 4:3 Editorial Cover Frame */}
+                      <div className="relative w-full aspect-[4/3] overflow-hidden bg-bg/70">
+                        {showMosaic ? (
+                          <div className="grid grid-cols-2 grid-rows-2 w-full h-full gap-px bg-line">
+                            {col.previewCovers.slice(0, 4).map((frame) => (
+                              <div
+                                key={frame.id}
+                                className="relative w-full h-full overflow-hidden bg-surface"
+                              >
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img
+                                  src={frame.url}
+                                  alt=""
+                                  width={140}
+                                  height={105}
+                                  loading="lazy"
+                                  decoding="async"
+                                  className={`w-full h-full object-cover motion-safe:transition-all motion-safe:duration-500 motion-safe:ease-[cubic-bezier(0.16,1,0.3,1)] motion-safe:group-hover:scale-[1.04] ${
+                                    isActive
+                                      ? 'opacity-100'
+                                      : 'opacity-85 group-hover:opacity-100'
+                                  }`}
+                                />
+                              </div>
+                            ))}
+                          </div>
+                        ) : col.cover?.url ? (
+                          /* eslint-disable-next-line @next/next/no-img-element */
+                          <img
+                            src={col.cover.url}
+                            alt=""
+                            width={268}
+                            height={201}
+                            loading={idx < 4 ? undefined : 'lazy'}
+                            decoding="async"
+                            className={`w-full h-full object-cover motion-safe:transition-all motion-safe:duration-500 motion-safe:ease-[cubic-bezier(0.16,1,0.3,1)] motion-safe:group-hover:scale-[1.03] ${
+                              isActive
+                                ? 'opacity-100'
+                                : 'opacity-85 group-hover:opacity-100'
+                            }`}
+                          />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center font-mono text-xs text-ink-muted">
+                            —
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Folio Caption Band */}
+                      <div className="flex-1 flex flex-col justify-between gap-1.5 border-t border-line px-3.5 py-3">
+                        <div className="flex items-baseline justify-between gap-2 font-mono text-[10px] tracking-wider text-ink-muted tabular-nums">
+                          <span>{col.indexLabel}</span>
+                          <span>
+                            {String(col.count).padStart(2, '0')}{' '}
+                            {col.count === 1 ? 'frame' : 'frames'}
+                          </span>
+                        </div>
+                        <div className="space-y-1">
+                          <div className="font-mono text-sm font-medium text-ink truncate group-hover:underline underline-offset-4">
+                            {col.label}
+                          </div>
+                          {cardSubline && (
+                            <p className="font-sans text-xs text-ink-muted truncate">
+                              {cardSubline}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+
+                      {isActive && (
+                        <motion.span
+                          layoutId="collection-active-bar"
+                          transition={TAB_SPRING}
+                          aria-hidden="true"
+                          className="absolute left-0 right-0 bottom-0 h-[2px] bg-ink"
+                        />
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
+          )}
+
+          {/* Active Series Editorial Dossier Header + Subordinate Filter Controls */}
+          <div
+            data-ascii-panel="true"
+            className="border-t border-b border-line py-5 sm:py-6 space-y-5"
+          >
+            <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-5">
+              {/* Editorial Series Identity */}
+              <AnimatePresence mode="wait" initial={false}>
+                <motion.div
+                  key={resolvedCollection}
+                  initial={{ opacity: 0, y: 4 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -4 }}
+                  transition={{ duration: 0.2, ease: CALM_EASE }}
+                  className="space-y-1.5 min-w-0 flex-1"
                 >
-                  {filteredPhotos.length === publicPhotos.length
-                    ? `${filteredPhotos.length} ${filteredPhotos.length === 1 ? 'frame' : 'frames'}`
-                    : `${filteredPhotos.length} of ${publicPhotos.length}`}
-                </span>
-                <button
-                  type="button"
-                  onClick={() =>
-                    setSortOrder((prev) => (prev === 'newest' ? 'oldest' : 'newest'))
-                  }
-                  className="min-h-[36px] px-2 -mr-2 text-ink-muted hover:text-ink transition-colors cursor-pointer inline-flex items-center"
-                >
-                  {sortOrder === 'newest' ? 'newest ↓' : 'oldest ↑'}
-                </button>
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[11px] uppercase tracking-[0.14em] text-ink-muted tabular-nums">
+                    <span>
+                      {activeCollectionMeta?.isArchiveAll
+                        ? 'Complete Archive'
+                        : activeCollectionMeta?.id === UNCATEGORIZED_COLLECTION
+                        ? 'Uncategorized'
+                        : `Series ${activeCollectionMeta?.indexLabel || ''}`}
+                    </span>
+                    {resolvedCollection !== ALL_COLLECTION && (
+                      <>
+                        <span aria-hidden="true">·</span>
+                        <button
+                          type="button"
+                          onClick={() => handleSelectCollection(ALL_COLLECTION)}
+                          className="normal-case tracking-normal text-ink-nav hover:text-ink underline underline-offset-4 cursor-pointer min-h-[28px] inline-flex items-center"
+                        >
+                          all photographs
+                        </button>
+                      </>
+                    )}
+                  </div>
+
+                  <h2 className="font-mono text-lg sm:text-xl font-medium tracking-tight text-ink">
+                    {activeCollectionMeta?.label || 'All Photographs'}
+                  </h2>
+
+                  {activeCollectionMeta?.description && (
+                    <p className="font-sans text-xs sm:text-sm text-ink-nav leading-relaxed max-w-prose">
+                      {activeCollectionMeta.description}
+                    </p>
+                  )}
+
+                  {activeSeriesMetaLine && (
+                    <p className="font-mono text-[11px] text-ink-muted tabular-nums pt-0.5">
+                      {activeSeriesMetaLine}
+                    </p>
+                  )}
+                </motion.div>
+              </AnimatePresence>
+
+              {/* Subordinate Filter & Sort Controls */}
+              <div className="flex flex-col sm:flex-row sm:items-center gap-3 lg:w-auto shrink-0">
+                <div className="relative flex-1 sm:w-64 lg:w-72">
+                  <Search
+                    size={13}
+                    aria-hidden="true"
+                    className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-muted"
+                  />
+                  <input
+                    type="search"
+                    value={searchQuery}
+                    onChange={(e) => {
+                      setSearchQuery(e.target.value);
+                      setVisibleLimit(PAGE_SIZE);
+                    }}
+                    placeholder="Filter title, camera, lens..."
+                    aria-label="Filter photographs"
+                    className="w-full min-h-[36px] bg-surface/75 border border-line-control pl-8 pr-9 py-1.5 font-mono text-xs text-ink placeholder:text-ink-muted focus:border-ink focus-visible:outline-2 focus-visible:outline-ink focus-visible:outline-offset-2 transition-colors rounded-[2px]"
+                  />
+                  {searchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setSearchQuery('')}
+                      aria-label="Clear filter"
+                      className="absolute right-0.5 top-1/2 -translate-y-1/2 min-w-[32px] min-h-[32px] inline-flex items-center justify-center text-ink-muted hover:text-ink cursor-pointer"
+                    >
+                      <X size={13} aria-hidden="true" />
+                    </button>
+                  )}
+                </div>
+
+                <div className="flex items-center justify-between sm:justify-end gap-4 font-mono text-xs shrink-0">
+                  <span
+                    aria-live="polite"
+                    aria-atomic="true"
+                    className="text-[11px] text-ink-muted tabular-nums"
+                  >
+                    {searchQuery
+                      ? `${filteredPhotos.length} match${filteredPhotos.length === 1 ? '' : 'es'}`
+                      : `${filteredPhotos.length} ${filteredPhotos.length === 1 ? 'frame' : 'frames'}`}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setSortOrder((prev) => (prev === 'newest' ? 'oldest' : 'newest'))
+                    }
+                    className="min-h-[36px] px-2 -mr-2 text-ink-muted hover:text-ink transition-colors cursor-pointer inline-flex items-center whitespace-nowrap"
+                  >
+                    {sortOrder === 'newest' ? 'newest ↓' : 'oldest ↑'}
+                  </button>
+                </div>
               </div>
             </div>
-
-            {activeCollectionMeta?.description && (
-              <p className="font-sans text-xs text-ink-muted leading-relaxed pt-2.5 mt-2.5 border-t border-line/40">
-                {activeCollectionMeta.description}
-              </p>
-            )}
           </div>
 
           {/* Balanced Masonry Grid */}
           <div
             id="photography-gallery-panel"
-            role="tabpanel"
-            aria-labelledby={activeTabDomId}
+            role={hasNamedCollections ? 'tabpanel' : undefined}
+            aria-labelledby={hasNamedCollections ? activeTabDomId : undefined}
           >
             {filteredPhotos.length === 0 ? (
               <div
