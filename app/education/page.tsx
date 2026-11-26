@@ -1,10 +1,17 @@
 import type { Metadata } from 'next';
-import { PortfolioSectionView } from '@/components/PortfolioSectionView';
+import { ResumeSection } from '@/components/sections/ResumeSection';
 
 export const metadata: Metadata = {
   title: 'Education',
+  alternates: {
+    canonical: '/resume/',
+  },
+  robots: {
+    index: false,
+    follow: true,
+  },
 };
 
 export default function EducationPage() {
-  return <PortfolioSectionView section="academics" />;
+  return <ResumeSection />;
 }

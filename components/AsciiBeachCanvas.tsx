@@ -14,6 +14,7 @@ import {
 import {
   ASCII_SCENE_CHANGE_EVENT,
   ASCII_SCENE_STORAGE_KEY,
+  AnimatedAsciiSceneId,
   AsciiSceneId,
   DEFAULT_ASCII_SCENE,
   normalizeAsciiSceneId,
@@ -36,14 +37,14 @@ export const FADE_DURATION_MS = FADE_IN_MS;
 
 const CALM_EASE: [number, number, number, number] = [0.16, 1, 0.3, 1];
 
-const PRESET_MAP: Record<AsciiSceneId, BackgroundPreset> = {
+const PRESET_MAP: Record<AnimatedAsciiSceneId, BackgroundPreset> = {
   swell,
   contour,
   caustics,
 };
 
 const PRESET_TUNING: Record<
-  AsciiSceneId,
+  AnimatedAsciiSceneId,
   { cellSize: number; speed: number; opacity: number }
 > = {
   swell: { cellSize: 10, speed: 0.72, opacity: 0.74 },
@@ -106,26 +107,38 @@ export function AsciiBeachCanvas() {
   const handleRef = useRef<BackgroundHandle | null>(null);
   const clearRectsRef = useRef<ClearRect[]>([]);
   const activeSceneRef = useRef<AsciiSceneId>(DEFAULT_ASCII_SCENE);
+  const lastAnimatedRef = useRef<AnimatedAsciiSceneId>('swell');
   const { resolvedTheme } = useTheme();
 
   useEffect(() => {
     const host = hostRef.current;
     if (!host) return;
 
+    const motionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
     const initialScene = readPersistedScene();
     activeSceneRef.current = initialScene;
+    if (initialScene !== 'still') {
+      lastAnimatedRef.current = initialScene;
+    }
     clearRectsRef.current = measureClearRects();
 
-    const tuning = PRESET_TUNING[initialScene];
+    const resolveEffectivePreset = (scene: AsciiSceneId): AnimatedAsciiSceneId =>
+      scene === 'still' ? lastAnimatedRef.current : scene;
+
+    const isPaused = (scene: AsciiSceneId) =>
+      scene === 'still' || motionQuery.matches;
+
+    const initialPresetId = resolveEffectivePreset(initialScene);
+    const initialTuning = PRESET_TUNING[initialPresetId];
     const handle = background(host, {
-      preset: PRESET_MAP[initialScene],
+      preset: PRESET_MAP[initialPresetId],
       palette: ASCII_PALETTE,
       mark: 'glyph',
       charset: ' .,:;-=+*#%@',
       cursor: false,
-      cellSize: tuning.cellSize,
-      speed: tuning.speed,
-      opacity: tuning.opacity,
+      cellSize: initialTuning.cellSize,
+      speed: isPaused(initialScene) ? 0 : initialTuning.speed,
+      opacity: initialTuning.opacity,
       clear: () => clearRectsRef.current,
       clearPadding: 28,
       clearSoftness: 34,
@@ -158,24 +171,40 @@ export function AsciiBeachCanvas() {
     const mutationObserver = new MutationObserver(observeClearTargets);
     mutationObserver.observe(document.body, { childList: true, subtree: true });
 
-    const applyScene = (nextId: AsciiSceneId) => {
-      if (nextId === activeSceneRef.current) return;
-      activeSceneRef.current = nextId;
-      try {
-        window.localStorage.setItem(ASCII_SCENE_STORAGE_KEY, nextId);
-      } catch {
-        // Ignore storage errors
+    const syncEngineState = (scene: AsciiSceneId, switchPreset: boolean) => {
+      const presetId = resolveEffectivePreset(scene);
+      const nextTuning = PRESET_TUNING[presetId];
+      if (switchPreset) {
+        handle.setPreset(PRESET_MAP[presetId]);
       }
-      const nextTuning = PRESET_TUNING[nextId];
-      handle.setPreset(PRESET_MAP[nextId]);
       handle.update({
         cursor: false,
         mark: 'glyph',
         charset: ' .,:;-=+*#%@',
         cellSize: nextTuning.cellSize,
-        speed: nextTuning.speed,
+        speed: isPaused(scene) ? 0 : nextTuning.speed,
         opacity: nextTuning.opacity,
       });
+    };
+
+    const applyScene = (nextId: AsciiSceneId) => {
+      if (nextId === activeSceneRef.current) return;
+      const prevPreset = resolveEffectivePreset(activeSceneRef.current);
+      activeSceneRef.current = nextId;
+      if (nextId !== 'still') {
+        lastAnimatedRef.current = nextId;
+      }
+      try {
+        window.localStorage.setItem(ASCII_SCENE_STORAGE_KEY, nextId);
+      } catch {
+        // Ignore storage errors
+      }
+      const nextPreset = resolveEffectivePreset(nextId);
+      syncEngineState(nextId, nextPreset !== prevPreset);
+    };
+
+    const onReducedMotionChange = () => {
+      syncEngineState(activeSceneRef.current, false);
     };
 
     const onSceneChange = (e: Event) => {
@@ -193,6 +222,7 @@ export function AsciiBeachCanvas() {
       }
     };
 
+    motionQuery.addEventListener('change', onReducedMotionChange);
     window.addEventListener('resize', scheduleMeasure, { passive: true });
     window.addEventListener('scroll', scheduleMeasure, { passive: true });
     window.addEventListener(ASCII_SCENE_CHANGE_EVENT, onSceneChange);
@@ -206,6 +236,7 @@ export function AsciiBeachCanvas() {
       if (rafMeasure !== null) cancelAnimationFrame(rafMeasure);
       resizeObserver.disconnect();
       mutationObserver.disconnect();
+      motionQuery.removeEventListener('change', onReducedMotionChange);
       window.removeEventListener('resize', scheduleMeasure);
       window.removeEventListener('scroll', scheduleMeasure);
       window.removeEventListener(ASCII_SCENE_CHANGE_EVENT, onSceneChange);

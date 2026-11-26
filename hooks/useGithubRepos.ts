@@ -6,24 +6,28 @@ export function useGithubRepos() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let active = true;
     const fetchLiveGithubRepos = async () => {
       try {
         const res = await fetch('/api/github-repos');
         if (res.ok) {
           const data = await res.json();
           const liveRepos = Array.isArray(data?.repos) ? data.repos : [];
-          if (liveRepos.length > 0) {
+          if (active && liveRepos.length > 0) {
             setRepos(liveRepos);
           }
         }
-      } catch (error) {
+      } catch {
         console.warn('Live repos fetch failed, using local mockRepos');
       } finally {
-        setLoading(false);
+        if (active) setLoading(false);
       }
     };
 
     fetchLiveGithubRepos();
+    return () => {
+      active = false;
+    };
   }, []);
 
   return { repos, loading };

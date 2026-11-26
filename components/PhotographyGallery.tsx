@@ -79,17 +79,19 @@ function formatFrameNumber(index: number, total: number): string {
   return String(index + 1).padStart(digits, '0');
 }
 
+function readColumnCount(): number {
+  if (typeof window === 'undefined') return 3;
+  const w = window.innerWidth;
+  if (w < 640) return 1;
+  if (w < 1024) return 2;
+  return 3;
+}
+
 function useMasonryColumnCount(): number {
-  const [cols, setCols] = useState(3);
+  const [cols, setCols] = useState<number>(readColumnCount);
 
   useEffect(() => {
-    const compute = () => {
-      const w = window.innerWidth;
-      if (w < 640) return 1;
-      if (w < 1024) return 2;
-      return 3;
-    };
-    const update = () => setCols(compute());
+    const update = () => setCols(readColumnCount());
     update();
     window.addEventListener('resize', update, { passive: true });
     return () => window.removeEventListener('resize', update);
@@ -207,15 +209,15 @@ function MasonryCard({
             <h2 className="font-mono text-xs sm:text-[13px] font-normal text-ink truncate group-hover:underline underline-offset-4">
               {title}
             </h2>
-            <span className="font-mono text-[11px] text-ink-muted shrink-0 flex items-baseline gap-2">
+            <span className="font-mono text-[11px] text-ink-muted shrink-0 flex items-baseline gap-2 tabular-nums">
               <span>{frameNo}</span>
-              <span aria-hidden="true" className="text-ink/75">
+              <span aria-hidden="true" className="text-ink">
                 {isExpanded ? '−' : '+'}
               </span>
             </span>
           </div>
           {subline && (
-            <p className="font-mono text-[11px] text-ink-muted/85 truncate">
+            <p className="font-mono text-[11px] text-ink-muted truncate">
               {subline}
             </p>
           )}
@@ -233,14 +235,14 @@ function MasonryCard({
             transition={{ duration: 0.28, ease: CALM_EASE }}
             className="overflow-hidden"
           >
-            <div className="border-t border-line/80 px-3.5 py-3 space-y-3 bg-bg/40">
+            <div className="border-t border-line px-3.5 py-3 space-y-3 bg-bg/40">
               {photo.description && (
                 <p className="font-sans text-xs text-ink/90 leading-relaxed">
                   {photo.description}
                 </p>
               )}
 
-              <dl className="divide-y divide-line/60 border-t border-line/60 font-mono text-[11px]">
+              <dl className="divide-y divide-line/60 border-t border-line/60 font-mono text-[11px] tabular-nums">
                 {photo.camera && (
                   <div className="py-1.5 flex items-baseline justify-between gap-3">
                     <dt className="text-ink-muted shrink-0">camera</dt>
@@ -262,7 +264,9 @@ function MasonryCard({
                 {fullDate && (
                   <div className="py-1.5 flex items-baseline justify-between gap-3">
                     <dt className="text-ink-muted shrink-0">captured</dt>
-                    <dd className="text-ink text-right">{fullDate}</dd>
+                    <dd className="text-ink text-right">
+                      <time dateTime={dateSource}>{fullDate}</time>
+                    </dd>
                   </div>
                 )}
                 {photo.location && (
@@ -272,13 +276,13 @@ function MasonryCard({
                   </div>
                 )}
                 {photo.collection && (
-                  <div className="py-1.5 flex items-baseline justify-between gap-3">
+                  <div className="py-1 flex items-center justify-between gap-3">
                     <dt className="text-ink-muted shrink-0">collection</dt>
                     <dd className="text-right">
                       <button
                         type="button"
                         onClick={() => onSelectCollection(photo.collection!)}
-                        className="text-ink hover:underline underline-offset-4 cursor-pointer"
+                        className="text-ink hover:underline underline-offset-4 cursor-pointer min-h-[28px] px-1 inline-flex items-center"
                       >
                         {photo.collection}
                       </button>
@@ -561,6 +565,36 @@ export function PhotographyGallery({
 
   const remainingCount = Math.max(0, filteredPhotos.length - visiblePhotos.length);
 
+  const handleTabKeyDown = (
+    e: React.KeyboardEvent<HTMLDivElement>,
+    currentIndex: number
+  ) => {
+    const totalTabs = collections.length;
+    if (totalTabs === 0) return;
+    let nextIndex: number | null = null;
+    if (e.key === 'ArrowRight') nextIndex = (currentIndex + 1) % totalTabs;
+    else if (e.key === 'ArrowLeft')
+      nextIndex = (currentIndex - 1 + totalTabs) % totalTabs;
+    else if (e.key === 'Home') nextIndex = 0;
+    else if (e.key === 'End') nextIndex = totalTabs - 1;
+
+    if (nextIndex !== null) {
+      e.preventDefault();
+      const target = collections[nextIndex];
+      handleSelectCollection(target.id);
+      const tabEl = scrollerRef.current?.querySelectorAll<HTMLButtonElement>(
+        '[role="tab"]'
+      )[nextIndex];
+      tabEl?.focus();
+    }
+  };
+
+  const activeTabIndex = Math.max(
+    0,
+    collections.findIndex((c) => c.id === resolvedCollection)
+  );
+  const activeTabDomId = `gallery-tab-${activeTabIndex}`;
+
   if (isLoading) {
     const skeletonRatios = ['aspect-[4/3]', 'aspect-[3/4]', 'aspect-[4/3]'];
     return (
@@ -577,7 +611,7 @@ export function PhotographyGallery({
             <span className="font-mono text-xs text-ink-muted inline-flex items-center gap-2.5">
               <span
                 aria-hidden="true"
-                className="inline-block w-1.5 h-1.5 rounded-full bg-ink-muted animate-pulse"
+                className="inline-block w-1.5 h-1.5 rounded-full bg-ink-muted motion-safe:animate-pulse"
               />
               loading photographs...
             </span>
@@ -585,7 +619,7 @@ export function PhotographyGallery({
               {[0, 1, 2].map((i) => (
                 <div
                   key={i}
-                  className="h-7 w-24 border border-line/70 bg-surface/50 rounded-[2px] animate-pulse"
+                  className="h-7 w-24 border border-line/70 bg-surface/50 rounded-[2px] motion-safe:animate-pulse"
                 />
               ))}
             </div>
@@ -593,20 +627,26 @@ export function PhotographyGallery({
 
           <div
             aria-hidden="true"
-            className="grid gap-8 sm:gap-10 lg:gap-12 items-start"
-            style={{
-              gridTemplateColumns: `repeat(${columnCount}, minmax(0, 1fr))`,
-            }}
+            className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8 sm:gap-10 lg:gap-12 items-start"
           >
-            {Array.from({ length: columnCount }).map((_, colIdx) => (
-              <div key={colIdx} className="flex flex-col gap-8 sm:gap-10 lg:gap-12">
+            {[0, 1, 2].map((colIdx) => (
+              <div
+                key={colIdx}
+                className={`flex-col gap-8 sm:gap-10 lg:gap-12 ${
+                  colIdx === 0
+                    ? 'flex'
+                    : colIdx === 1
+                    ? 'hidden sm:flex'
+                    : 'hidden lg:flex'
+                }`}
+              >
                 {[0, 1].map((rowIdx) => {
                   const ratio = skeletonRatios[(colIdx + rowIdx) % skeletonRatios.length];
                   return (
                     <div
                       key={rowIdx}
                       data-ascii-panel="true"
-                      className="border border-line/70 bg-surface/50 rounded-[2px] overflow-hidden animate-pulse"
+                      className="border border-line/70 bg-surface/50 rounded-[2px] overflow-hidden motion-safe:animate-pulse"
                     >
                       <div className={`${ratio} w-full bg-ink/5`} />
                       <div className="border-t border-line/60 px-3.5 py-3 space-y-2">
@@ -654,28 +694,28 @@ export function PhotographyGallery({
           {/* Horizontal Collections Scroller */}
           <div data-ascii-panel="true" className="relative border-t border-b border-line py-4">
             <div className="flex items-center justify-between gap-4 pb-3">
-              <span className="font-mono text-[11px] text-ink-muted">
+              <span className="font-mono text-[11px] text-ink-muted tabular-nums">
                 collections ({collections.length})
               </span>
               {(canScrollLeft || canScrollRight) && (
-                <div className="flex items-center gap-1.5 font-mono text-xs">
+                <div className="flex items-center gap-1 font-mono text-xs">
                   <button
                     type="button"
                     onClick={() => scrollCollectionsBy(-1)}
                     disabled={!canScrollLeft}
                     aria-label="Scroll collections left"
-                    className="p-1 text-ink-muted hover:text-ink disabled:opacity-25 cursor-pointer disabled:cursor-default transition-opacity"
+                    className="min-w-[32px] min-h-[32px] inline-flex items-center justify-center text-ink-muted hover:text-ink disabled:opacity-30 cursor-pointer disabled:cursor-default transition-opacity"
                   >
-                    <ChevronLeft size={14} />
+                    <ChevronLeft size={14} aria-hidden="true" />
                   </button>
                   <button
                     type="button"
                     onClick={() => scrollCollectionsBy(1)}
                     disabled={!canScrollRight}
                     aria-label="Scroll collections right"
-                    className="p-1 text-ink-muted hover:text-ink disabled:opacity-25 cursor-pointer disabled:cursor-default transition-opacity"
+                    className="min-w-[32px] min-h-[32px] inline-flex items-center justify-center text-ink-muted hover:text-ink disabled:opacity-30 cursor-pointer disabled:cursor-default transition-opacity"
                   >
-                    <ChevronRight size={14} />
+                    <ChevronRight size={14} aria-hidden="true" />
                   </button>
                 </div>
               )}
@@ -686,20 +726,24 @@ export function PhotographyGallery({
               role="tablist"
               aria-label="Photo collections"
               onScroll={updateScrollerState}
+              onKeyDown={(e) => handleTabKeyDown(e, activeTabIndex)}
               className="flex items-stretch gap-3.5 overflow-x-auto pb-1.5 snap-x snap-mandatory [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
             >
-              {collections.map((col) => {
+              {collections.map((col, idx) => {
                 const isActive = resolvedCollection === col.id;
                 return (
                   <button
                     key={col.id}
+                    id={`gallery-tab-${idx}`}
                     type="button"
                     role="tab"
+                    tabIndex={isActive ? 0 : -1}
                     aria-selected={isActive}
+                    aria-controls="photography-gallery-panel"
                     onClick={() => handleSelectCollection(col.id)}
-                    className={`relative shrink-0 snap-start flex items-center gap-3 pr-4 pl-2 py-2 border rounded-[2px] text-left transition-colors duration-150 cursor-pointer bg-surface/75 ${
+                    className={`relative shrink-0 snap-start flex items-center gap-3 pr-4 pl-2 py-2 min-h-[56px] border rounded-[2px] text-left transition-colors duration-150 cursor-pointer bg-surface/75 ${
                       isActive
-                        ? 'border-ink/45 text-ink'
+                        ? 'border-ink/55 text-ink'
                         : 'border-line text-ink-muted hover:border-ink/40 hover:text-ink'
                     }`}
                   >
@@ -709,6 +753,10 @@ export function PhotographyGallery({
                         <img
                           src={col.cover.url}
                           alt=""
+                          width={40}
+                          height={40}
+                          loading="lazy"
+                          decoding="async"
                           className="w-full h-full object-cover"
                         />
                       ) : (
@@ -721,7 +769,7 @@ export function PhotographyGallery({
                       <div className="font-mono text-xs text-ink whitespace-nowrap">
                         {col.label}
                       </div>
-                      <div className="font-mono text-[10px] text-ink-muted whitespace-nowrap">
+                      <div className="font-mono text-[10px] text-ink-muted whitespace-nowrap tabular-nums">
                         {String(col.count).padStart(2, '0')}{' '}
                         {col.count === 1 ? 'frame' : 'frames'}
                       </div>
@@ -744,7 +792,7 @@ export function PhotographyGallery({
                 <Search
                   size={13}
                   aria-hidden="true"
-                  className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-muted/80"
+                  className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-muted"
                 />
                 <input
                   type="search"
@@ -755,22 +803,26 @@ export function PhotographyGallery({
                   }}
                   placeholder="Filter by title, camera, lens, location..."
                   aria-label="Filter photographs"
-                  className="w-full bg-surface/75 border border-line pl-8 pr-7 py-1.5 font-mono text-xs text-ink placeholder:text-ink-muted/70 focus:border-ink focus:outline-none transition-colors rounded-[2px]"
+                  className="w-full min-h-[36px] bg-surface/75 border border-line-control pl-8 pr-9 py-1.5 font-mono text-xs text-ink placeholder:text-ink-muted focus:border-ink focus-visible:outline-2 focus-visible:outline-ink focus-visible:outline-offset-2 transition-colors rounded-[2px]"
                 />
                 {searchQuery && (
                   <button
                     type="button"
                     onClick={() => setSearchQuery('')}
                     aria-label="Clear filter"
-                    className="absolute right-2 top-1/2 -translate-y-1/2 text-ink-muted hover:text-ink cursor-pointer"
+                    className="absolute right-0.5 top-1/2 -translate-y-1/2 min-w-[32px] min-h-[32px] inline-flex items-center justify-center text-ink-muted hover:text-ink cursor-pointer"
                   >
-                    <X size={12} />
+                    <X size={13} aria-hidden="true" />
                   </button>
                 )}
               </div>
 
-              <div className="flex items-center justify-between sm:justify-end gap-5 font-mono text-xs">
-                <span className="text-[11px] text-ink-muted">
+              <div className="flex items-center justify-between sm:justify-end gap-4 font-mono text-xs">
+                <span
+                  aria-live="polite"
+                  aria-atomic="true"
+                  className="text-[11px] text-ink-muted tabular-nums"
+                >
                   {filteredPhotos.length === publicPhotos.length
                     ? `${filteredPhotos.length} ${filteredPhotos.length === 1 ? 'frame' : 'frames'}`
                     : `${filteredPhotos.length} of ${publicPhotos.length}`}
@@ -780,7 +832,7 @@ export function PhotographyGallery({
                   onClick={() =>
                     setSortOrder((prev) => (prev === 'newest' ? 'oldest' : 'newest'))
                   }
-                  className="text-ink-muted hover:text-ink transition-colors cursor-pointer"
+                  className="min-h-[36px] px-2 -mr-2 text-ink-muted hover:text-ink transition-colors cursor-pointer inline-flex items-center"
                 >
                   {sortOrder === 'newest' ? 'newest ↓' : 'oldest ↑'}
                 </button>
@@ -795,44 +847,51 @@ export function PhotographyGallery({
           </div>
 
           {/* Balanced Masonry Grid */}
-          {filteredPhotos.length === 0 ? (
-            <div
-              data-ascii-panel="true"
-              className="border-t border-b border-line py-10 px-4 text-center space-y-2"
-            >
-              <p className="font-mono text-xs text-ink">
-                {photos.length === 0
-                  ? 'No photographs archived yet.'
-                  : 'No frames match this filter.'}
-              </p>
-              {(searchQuery || resolvedCollection !== ALL_COLLECTION) && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSearchQuery('');
-                    setActiveCollection(ALL_COLLECTION);
-                  }}
-                  className="font-mono text-xs text-ink-muted hover:text-ink underline underline-offset-4 cursor-pointer"
-                >
-                  reset filters
-                </button>
-              )}
-            </div>
-          ) : (
-            <>
+          <div
+            id="photography-gallery-panel"
+            role="tabpanel"
+            aria-labelledby={activeTabDomId}
+          >
+            {filteredPhotos.length === 0 ? (
               <div
-                role="list"
-                aria-label="Photography masonry gallery"
-                className="grid gap-8 sm:gap-10 lg:gap-12 items-start"
-                style={{
-                  gridTemplateColumns: `repeat(${effectiveColumnCount}, minmax(0, 1fr))`,
-                }}
+                data-ascii-panel="true"
+                className="border-t border-b border-line py-10 px-4 text-center space-y-2"
               >
-                {masonryColumns.map((columnItems, colIdx) => (
-                  <div key={colIdx} className="flex flex-col gap-8 sm:gap-10 lg:gap-12 min-w-0">
-                    {columnItems.map(({ photo, index }) => (
-                      <div key={photo.id} role="listitem">
+                <p className="font-mono text-xs text-ink">
+                  {photos.length === 0
+                    ? 'No photographs archived yet.'
+                    : 'No frames match this filter.'}
+                </p>
+                {(searchQuery || resolvedCollection !== ALL_COLLECTION) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSearchQuery('');
+                      setActiveCollection(ALL_COLLECTION);
+                    }}
+                    className="min-h-[36px] px-2 font-mono text-xs text-ink-muted hover:text-ink underline underline-offset-4 cursor-pointer"
+                  >
+                    reset filters
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="space-y-10 sm:space-y-12">
+                <section
+                  aria-label="Photography masonry gallery"
+                  className="grid gap-8 sm:gap-10 lg:gap-12 items-start"
+                  style={{
+                    gridTemplateColumns: `repeat(${effectiveColumnCount}, minmax(0, 1fr))`,
+                  }}
+                >
+                  {masonryColumns.map((columnItems, colIdx) => (
+                    <div
+                      key={colIdx}
+                      className="flex flex-col gap-8 sm:gap-10 lg:gap-12 min-w-0"
+                    >
+                      {columnItems.map(({ photo, index }) => (
                         <MasonryCard
+                          key={photo.id}
                           photo={photo}
                           index={index}
                           total={filteredPhotos.length}
@@ -840,43 +899,43 @@ export function PhotographyGallery({
                           onToggleExpand={handleToggleExpand}
                           onSelectCollection={handleSelectCollection}
                         />
-                      </div>
-                    ))}
-                  </div>
-                ))}
-              </div>
+                      ))}
+                    </div>
+                  ))}
+                </section>
 
-              {/* Progressive Pagination for 300+ Photos */}
-              {remainingCount > 0 && (
-                <div
-                  data-ascii-panel="true"
-                  className="flex flex-wrap items-center justify-between gap-4 border-t border-line pt-4 font-mono text-xs"
-                >
-                  <span className="text-ink-muted">
-                    Showing {visiblePhotos.length} of {filteredPhotos.length} frames
-                  </span>
-                  <div className="flex items-center gap-4">
-                    <button
-                      type="button"
-                      onClick={() => setVisibleLimit((prev) => prev + PAGE_SIZE)}
-                      className="border border-line bg-surface/85 px-3.5 py-1.5 rounded-[2px] text-ink hover:border-ink/60 transition-colors cursor-pointer"
-                    >
-                      Load {Math.min(PAGE_SIZE, remainingCount)} more ↓
-                    </button>
-                    {remainingCount > PAGE_SIZE && (
+                {/* Progressive Pagination for 300+ Photos */}
+                {remainingCount > 0 && (
+                  <div
+                    data-ascii-panel="true"
+                    className="flex flex-wrap items-center justify-between gap-4 border-t border-line pt-4 font-mono text-xs"
+                  >
+                    <span className="text-ink-muted tabular-nums">
+                      Showing {visiblePhotos.length} of {filteredPhotos.length} frames
+                    </span>
+                    <div className="flex items-center gap-4">
                       <button
                         type="button"
-                        onClick={() => setVisibleLimit(filteredPhotos.length)}
-                        className="text-ink-muted hover:text-ink underline underline-offset-4 cursor-pointer"
+                        onClick={() => setVisibleLimit((prev) => prev + PAGE_SIZE)}
+                        className="border border-line-control bg-surface/85 px-3.5 min-h-[36px] rounded-[2px] text-ink hover:border-ink transition-colors cursor-pointer"
                       >
-                        show all
+                        Load {Math.min(PAGE_SIZE, remainingCount)} more ↓
                       </button>
-                    )}
+                      {remainingCount > PAGE_SIZE && (
+                        <button
+                          type="button"
+                          onClick={() => setVisibleLimit(filteredPhotos.length)}
+                          className="min-h-[36px] px-2 text-ink-muted hover:text-ink underline underline-offset-4 cursor-pointer"
+                        >
+                          show all
+                        </button>
+                      )}
+                    </div>
                   </div>
-                </div>
-              )}
-            </>
-          )}
+                )}
+              </div>
+            )}
+          </div>
         </div>
       </LayoutGroup>
     </MotionConfig>

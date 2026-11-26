@@ -1,10 +1,17 @@
 import type { Metadata } from 'next';
-import { PortfolioSectionView } from '@/components/PortfolioSectionView';
+import { ResumeSection } from '@/components/sections/ResumeSection';
 
 export const metadata: Metadata = {
   title: 'Work',
+  alternates: {
+    canonical: '/resume/',
+  },
+  robots: {
+    index: false,
+    follow: true,
+  },
 };
 
 export default function WorkPage() {
-  return <PortfolioSectionView section="experience" />;
+  return <ResumeSection />;
 }

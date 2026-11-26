@@ -1,5 +1,4 @@
 @import "tailwindcss";
-@import "tw-animate-css";
 @plugin "@tailwindcss/typography";
 
 @theme {
@@ -9,14 +8,9 @@
   --color-ink-nav: var(--ink-nav);
   --color-ink-muted: var(--ink-muted);
   --color-line: var(--line);
+  --color-line-control: var(--line-control);
+  --color-danger: var(--danger);
   --color-glass: var(--surface);
-
-  --color-neo-yellow: var(--surface);
-  --color-neo-orange: var(--ink);
-  --color-neo-green: var(--ink);
-  --color-neo-cyan: var(--ink);
-  --color-neo-pink: var(--ink-muted);
-  --color-neo-purple: var(--ink-muted);
 
   --font-sans: var(--font-sans, Inter), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --font-mono: var(--font-mono, "JetBrains Mono"), "SFMono-Regular", Menlo, Monaco, Consolas, "Courier New", monospace;
@@ -32,6 +26,8 @@
     --ink-nav: #c4ceda;
     --ink-muted: #a5b0be;
     --line: rgba(180, 192, 208, 0.18);
+    --line-control: rgba(180, 192, 208, 0.46);
+    --danger: #f87171;
   }
 
   .light {
@@ -42,6 +38,8 @@
     --ink-nav: #242c35;
     --ink-muted: #353f4b;
     --line: rgba(16, 20, 25, 0.18);
+    --line-control: rgba(16, 20, 25, 0.48);
+    --danger: #b91c1c;
   }
 
   body {
@@ -84,7 +82,7 @@
   }
 
   ::-webkit-scrollbar-thumb {
-    background: var(--line);
+    background: var(--line-control);
     border-radius: 3px;
   }
 
@@ -120,31 +118,6 @@
   outline-offset: 2px;
 }
 
-/* Direct over-scene typography helpers (no card borders or rounded boxes) */
-.quiet-panel {
-  background: transparent;
-  border: 0;
-  border-radius: 0;
-}
-
-.scene-text-veil {
-  background: linear-gradient(
-    90deg,
-    rgba(11, 14, 18, 0.74) 0%,
-    rgba(11, 14, 18, 0.58) 72%,
-    rgba(11, 14, 18, 0) 100%
-  );
-}
-
-.light .scene-text-veil {
-  background: linear-gradient(
-    90deg,
-    rgba(236, 240, 237, 0.78) 0%,
-    rgba(236, 240, 237, 0.62) 72%,
-    rgba(236, 240, 237, 0) 100%
-  );
-}
-
 .quiet-link {
   color: var(--ink-nav);
   font-weight: 400;
@@ -172,82 +145,7 @@
   transition: transform 220ms cubic-bezier(0.16, 1, 0.3, 1), width 220ms cubic-bezier(0.16, 1, 0.3, 1), opacity 150ms ease-out;
 }
 
-/* Wave wash away & calm fade in page transitions (desktop + mobile) */
-main[data-transition-dir='forward'] {
-  --exit-x: 0px;
-  --enter-x: 0px;
-}
-
-main[data-transition-dir='backward'] {
-  --exit-x: 0px;
-  --enter-x: 0px;
-}
-
-@media (max-width: 759px) {
-  main[data-transition-dir='forward'] {
-    --exit-x: -14px;
-    --enter-x: 14px;
-  }
-
-  main[data-transition-dir='backward'] {
-    --exit-x: 14px;
-    --enter-x: -14px;
-  }
-}
-
-@keyframes wave-wash-away {
-  0% {
-    opacity: 1;
-    transform: translate3d(0, 0, 0) scale(1);
-    filter: blur(0px);
-  }
-  22% {
-    opacity: 0.94;
-    transform: translate3d(calc(var(--exit-x, 0px) * 0.2), 2px, 0) scale(0.998);
-    filter: blur(0px);
-  }
-  68% {
-    opacity: 0.24;
-    transform: translate3d(calc(var(--exit-x, 0px) * 0.72), 6px, 0) scale(0.992);
-    filter: blur(1.5px);
-  }
-  100% {
-    opacity: 0;
-    transform: translate3d(var(--exit-x, 0px), 10px, 0) scale(0.988);
-    filter: blur(2.5px);
-  }
-}
-
-@keyframes wave-wash-away-mobile {
-  0% {
-    opacity: 1;
-    transform: translate3d(0, 0, 0) scale(1);
-  }
-  20% {
-    opacity: 0.9;
-    transform: translate3d(calc(var(--exit-x, 0px) * 0.25), 2px, 0) scale(0.996);
-  }
-  65% {
-    opacity: 0.24;
-    transform: translate3d(calc(var(--exit-x, 0px) * 0.75), 6px, 0) scale(0.988);
-  }
-  100% {
-    opacity: 0;
-    transform: translate3d(var(--exit-x, 0px), 10px, 0) scale(0.984);
-  }
-}
-
-@keyframes calm-fade-in {
-  0% {
-    opacity: 0;
-    transform: translate3d(var(--enter-x, 0px), 10px, 0);
-  }
-  100% {
-    opacity: 1;
-    transform: translate3d(0, 0, 0);
-  }
-}
-
+/* Unified calm fade page transitions (GPU-composited opacity & transform only) */
 @keyframes calm-fade-out {
   0% {
     opacity: 1;
@@ -257,12 +155,14 @@ main[data-transition-dir='backward'] {
   }
 }
 
-@keyframes calm-fade-in-pure {
+@keyframes calm-fade-in {
   0% {
     opacity: 0;
+    transform: translate3d(0, 8px, 0);
   }
   100% {
     opacity: 1;
+    transform: translate3d(0, 0, 0);
   }
 }
 
@@ -277,21 +177,8 @@ main[data-transition-dir='backward'] {
   }
 }
 
-.wave-wash-away {
-  animation: wave-wash-away 560ms cubic-bezier(0.25, 0.1, 0.25, 1) forwards;
-  pointer-events: none;
-  will-change: opacity, transform, filter;
-}
-
-@media (max-width: 759px) {
-  .wave-wash-away {
-    animation-name: wave-wash-away-mobile;
-    will-change: opacity, transform;
-  }
-}
-
 .calm-fade-out {
-  animation: calm-fade-out 260ms cubic-bezier(0.4, 0, 1, 1) forwards;
+  animation: calm-fade-out 220ms cubic-bezier(0.4, 0, 1, 1) forwards;
   pointer-events: none;
   will-change: opacity;
 }
@@ -302,22 +189,12 @@ main[data-transition-dir='backward'] {
 }
 
 .calm-fade-in {
-  animation: calm-fade-in 460ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: calm-fade-in 320ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
   will-change: opacity, transform;
 }
 
 .calm-fade-in .section-content-reveal {
-  animation: section-content-reveal 380ms cubic-bezier(0.16, 1, 0.3, 1) 50ms both;
-}
-
-/* Non-beach scenes ('city', 'room'): pure opacity fade-in without wave drift/blur */
-main[data-scene]:not([data-scene='beach']).calm-fade-in {
-  animation: calm-fade-in-pure 360ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
-  will-change: opacity;
-}
-
-main[data-scene]:not([data-scene='beach']).calm-fade-in .section-content-reveal {
-  animation: none;
+  animation: section-content-reveal 300ms cubic-bezier(0.16, 1, 0.3, 1) 40ms both;
 }
 
 /* Mobile menu overlay & staggered drawer item transitions */
@@ -405,16 +282,13 @@ main[data-scene]:not([data-scene='beach']).calm-fade-in .section-content-reveal 
 
 @media (prefers-reduced-motion: reduce) {
   .nav-underline-indicator,
-  .wave-wash-away,
   .calm-fade-out,
   .page-swapping,
   .calm-fade-in,
   .calm-fade-in .section-content-reveal {
     transition: none !important;
     animation: none !important;
-    clip-path: none !important;
     transform: none !important;
-    filter: none !important;
     opacity: 1 !important;
   }
 
@@ -443,72 +317,7 @@ dialog::backdrop {
   backdrop-filter: blur(2px);
 }
 
-/* Scoped top-layer entry/exit transitions for PhotoLightbox */
-.photo-lightbox-dialog {
-  opacity: 0;
-  transition-property: opacity, transform, display, overlay;
-  transition-duration: 0.22s;
-  transition-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
-  transition-behavior: allow-discrete;
-}
-
-.photo-lightbox-dialog[open]:where(:not([data-closing])) {
-  opacity: 1;
-}
-
-@starting-style {
-  .photo-lightbox-dialog[open]:where(:not([data-closing])) {
-    opacity: 0;
-  }
-}
-
-.photo-lightbox-dialog::backdrop {
-  overflow: hidden;
-  overscroll-behavior: contain;
-  background-color: transparent;
-  backdrop-filter: blur(0px);
-  transition-property: background-color, backdrop-filter, display, overlay;
-  transition-duration: 0.22s;
-  transition-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
-  transition-behavior: allow-discrete;
-}
-
-.photo-lightbox-dialog[open]:where(:not([data-closing]))::backdrop {
-  background-color: rgba(6, 9, 13, 0.80);
-  backdrop-filter: blur(4px);
-}
-
-@starting-style {
-  .photo-lightbox-dialog[open]:where(:not([data-closing]))::backdrop {
-    background-color: transparent;
-    backdrop-filter: blur(0px);
-  }
-}
-
-@media (prefers-reduced-motion: no-preference) {
-  .photo-lightbox-dialog {
-    transform: scale(0.96);
-  }
-
-  .photo-lightbox-dialog[open]:where(:not([data-closing])) {
-    transform: scale(1);
-  }
-
-  @starting-style {
-    .photo-lightbox-dialog[open]:where(:not([data-closing])) {
-      transform: scale(0.96);
-    }
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .photo-lightbox-dialog,
-  .photo-lightbox-dialog::backdrop {
-    transition-duration: 0.1s;
-  }
-}
-
-/* Scoped entry/exit transitions for Modal (PostDetailsModal, RepoDetailsModal) */
+/* Scoped entry/exit transitions for Modal (PostDetailsModal) */
 .quiet-modal-overlay[data-state='closing'] {
   pointer-events: none;
 }
@@ -556,40 +365,4 @@ dialog::backdrop {
     transform: none !important;
     transition: opacity 90ms ease-out !important;
   }
-}
-
-/* Compatibility classes for legacy widgets */
-.te-card {
-  background-color: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: 4px;
-}
-
-.te-button {
-  font-family: var(--font-mono), monospace;
-  font-size: 12px;
-  padding: 6px 12px;
-  border: 1px solid var(--line);
-  background-color: var(--surface);
-  color: var(--ink);
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  transition: border-color 0.2s ease;
-}
-
-.te-button:hover {
-  border-color: var(--ink);
-}
-
-.te-pill {
-  font-family: var(--font-mono), monospace;
-  font-size: 11px;
-  color: var(--ink-muted);
-}
-
-.te-border-t {
-  border-top: 1px solid var(--line);
 }

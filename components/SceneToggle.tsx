@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { Layers, Sparkles, Waves } from 'lucide-react';
+import { Layers, Pause, Sparkles, Waves } from 'lucide-react';
 import {
   AnimatePresence,
   LayoutGroup,
@@ -52,6 +52,9 @@ function subscribeEmpty(): () => void {
 }
 
 function SceneIcon({ scene }: { scene: AsciiSceneId }) {
+  if (scene === 'still') {
+    return <Pause size={13} strokeWidth={1.75} aria-hidden="true" />;
+  }
   if (scene === 'contour') {
     return <Layers size={13} strokeWidth={1.75} aria-hidden="true" />;
   }

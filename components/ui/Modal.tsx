@@ -222,12 +222,12 @@ export function Modal({ isOpen, onClose, title, children }: ModalProps) {
         className="quiet-modal-panel relative z-10 w-full max-w-2xl max-h-[85vh] flex flex-col bg-bg/95 border border-line rounded-[2px] shadow-2xl overflow-hidden"
       >
         <div className="flex items-center justify-between px-6 py-3.5 border-b border-line shrink-0">
-          <h3
+          <h2
             id={titleId}
             className="font-mono text-xs uppercase tracking-wider text-ink-muted truncate pr-4"
           >
             {displayTitle}
-          </h3>
+          </h2>
           <button
             ref={closeButtonRef}
             type="button"

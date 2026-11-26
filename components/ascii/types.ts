@@ -1,9 +1,11 @@
-export type AsciiSceneId = 'swell' | 'contour' | 'caustics';
+export type AnimatedAsciiSceneId = 'swell' | 'contour' | 'caustics';
+export type AsciiSceneId = AnimatedAsciiSceneId | 'still';
 
 export const ASCII_SCENE_IDS: readonly AsciiSceneId[] = [
   'swell',
   'contour',
   'caustics',
+  'still',
 ] as const;
 
 export const DEFAULT_ASCII_SCENE: AsciiSceneId = 'swell';
@@ -20,7 +22,12 @@ export function normalizeAsciiSceneId(
   value: string | null | undefined
 ): AsciiSceneId {
   if (!value) return DEFAULT_ASCII_SCENE;
-  if (value === 'swell' || value === 'contour' || value === 'caustics') {
+  if (
+    value === 'swell' ||
+    value === 'contour' ||
+    value === 'caustics' ||
+    value === 'still'
+  ) {
     return value;
   }
   return LEGACY_SCENE_MAP[value] ?? DEFAULT_ASCII_SCENE;

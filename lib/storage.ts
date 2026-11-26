@@ -1,17 +1,5 @@
-import {
-  collection,
-  addDoc,
-  deleteDoc,
-  doc,
-  getDoc,
-  getDocs,
-  query,
-  orderBy,
-  setDoc,
-  Timestamp,
-  updateDoc,
-} from 'firebase/firestore';
-import { getDb, isFirebaseConfigured } from './firebase';
+import type { Firestore } from 'firebase/firestore';
+import { getApp, isFirebaseConfigured } from './firebase';
 import {
   Post,
   Photo,
@@ -28,6 +16,28 @@ const PHOTOS_KEY = 'portfolio_photos_v2';
 const COLLECTIONS_KEY = 'portfolio_collections_v1';
 const HIDDEN_REPOS_KEY = 'portfolio_hidden_repos_v1';
 const SKILLS_KEY = 'portfolio_skills_v2';
+
+type FirestoreModule = typeof import('firebase/firestore');
+
+let cachedFirestoreMod: FirestoreModule | null = null;
+let cachedDb: Firestore | null = null;
+
+async function getFirestoreClient(): Promise<{
+  fs: FirestoreModule;
+  db: Firestore;
+}> {
+  const appInstance = getApp();
+  if (!appInstance) {
+    throw new Error('Database not initialized');
+  }
+  if (!cachedFirestoreMod) {
+    cachedFirestoreMod = await import('firebase/firestore');
+  }
+  if (!cachedDb) {
+    cachedDb = cachedFirestoreMod.getFirestore(appInstance);
+  }
+  return { fs: cachedFirestoreMod, db: cachedDb };
+}
 
 // --- Local Storage fallback helpers for Posts and Photos ---
 const getLocalStorageItems = <T>(key: string, fallback: T[]): T[] => {
@@ -63,13 +73,12 @@ export const updatePost = async (id: string, post: Partial<Post>): Promise<void>
     localStorage.setItem(POSTS_KEY, JSON.stringify(updated));
     return;
   }
-  const db = getDb();
-  if (!db) throw new Error('Database not initialized');
+  const { fs, db } = await getFirestoreClient();
   const cleanPost = Object.fromEntries(
     Object.entries(post).filter(([, v]) => v !== undefined && v !== null)
   );
-  const docRef = doc(db, 'posts', id);
-  await updateDoc(docRef, cleanPost);
+  const docRef = fs.doc(db, 'posts', id);
+  await fs.updateDoc(docRef, cleanPost);
 };
 
 export const updatePhoto = async (id: string, photo: Partial<Photo>): Promise<void> => {
@@ -80,13 +89,12 @@ export const updatePhoto = async (id: string, photo: Partial<Photo>): Promise<vo
     localStorage.setItem(PHOTOS_KEY, JSON.stringify(updated));
     return;
   }
-  const db = getDb();
-  if (!db) throw new Error('Database not initialized');
+  const { fs, db } = await getFirestoreClient();
   const cleanPhoto = Object.fromEntries(
     Object.entries(photo).filter(([, v]) => v !== undefined && v !== null)
   );
-  const docRef = doc(db, 'photos', id);
-  await updateDoc(docRef, cleanPhoto);
+  const docRef = fs.doc(db, 'photos', id);
+  await fs.updateDoc(docRef, cleanPhoto);
 };
 
 // --- Firebase Firestore / LocalStorage CRUD for Posts ---
@@ -96,10 +104,9 @@ export const fetchAllPosts = async (): Promise<Post[]> => {
     return getLocalStorageItems<Post>(POSTS_KEY, mockPosts);
   }
   try {
-    const db = getDb();
-    if (!db) throw new Error('Database not initialized');
-    const q = query(collection(db, 'posts'), orderBy('createdAt', 'desc'));
-    const snapshot = await getDocs(q);
+    const { fs, db } = await getFirestoreClient();
+    const q = fs.query(fs.collection(db, 'posts'), fs.orderBy('createdAt', 'desc'));
+    const snapshot = await fs.getDocs(q);
     return snapshot.docs.map((d) => {
       const data = d.data();
       return {
@@ -108,7 +115,7 @@ export const fetchAllPosts = async (): Promise<Post[]> => {
         content: data.content,
         imageUrl: data.imageUrl || undefined,
         createdAt:
-          data.createdAt instanceof Timestamp
+          data.createdAt instanceof fs.Timestamp
             ? data.createdAt.toDate().toISOString()
             : data.createdAt,
       };
@@ -129,14 +136,13 @@ export const savePost = async (post: Omit<Post, 'id' | 'createdAt'>): Promise<Po
     saveLocalStorageItem(POSTS_KEY, newPost);
     return newPost;
   }
-  const db = getDb();
-  if (!db) throw new Error('Database not initialized');
+  const { fs, db } = await getFirestoreClient();
   const cleanPost = Object.fromEntries(
     Object.entries(post).filter(([, v]) => v !== undefined)
   );
-  const docRef = await addDoc(collection(db, 'posts'), {
+  const docRef = await fs.addDoc(fs.collection(db, 'posts'), {
     ...cleanPost,
-    createdAt: Timestamp.now(),
+    createdAt: fs.Timestamp.now(),
   });
   return {
     ...post,
@@ -153,9 +159,8 @@ export const deletePost = async (id: string): Promise<void> => {
     localStorage.setItem(POSTS_KEY, JSON.stringify(updated));
     return;
   }
-  const db = getDb();
-  if (!db) return;
-  await deleteDoc(doc(db, 'posts', id));
+  const { fs, db } = await getFirestoreClient();
+  await fs.deleteDoc(fs.doc(db, 'posts', id));
 };
 
 // --- Firebase Firestore / LocalStorage CRUD for Photos ---
@@ -165,10 +170,9 @@ export const fetchAllPhotos = async (): Promise<Photo[]> => {
     return getLocalStorageItems<Photo>(PHOTOS_KEY, []);
   }
   try {
-    const db = getDb();
-    if (!db) throw new Error('Database not initialized');
-    const q = query(collection(db, 'photos'), orderBy('createdAt', 'desc'));
-    const snapshot = await getDocs(q);
+    const { fs, db } = await getFirestoreClient();
+    const q = fs.query(fs.collection(db, 'photos'), fs.orderBy('createdAt', 'desc'));
+    const snapshot = await fs.getDocs(q);
     return snapshot.docs.map((d) => {
       const data = d.data();
       const optStr = (v: unknown): string | undefined =>
@@ -179,7 +183,7 @@ export const fetchAllPhotos = async (): Promise<Photo[]> => {
         title: data.title,
         description: data.description || '',
         createdAt:
-          data.createdAt instanceof Timestamp
+          data.createdAt instanceof fs.Timestamp
             ? data.createdAt.toDate().toISOString()
             : data.createdAt,
         width: typeof data.width === 'number' && data.width > 0 ? data.width : undefined,
@@ -211,14 +215,13 @@ export const savePhoto = async (photo: Omit<Photo, 'id' | 'createdAt'>): Promise
     saveLocalStorageItem(PHOTOS_KEY, newPhoto);
     return newPhoto;
   }
-  const db = getDb();
-  if (!db) throw new Error('Database not initialized');
+  const { fs, db } = await getFirestoreClient();
   const cleanPhoto = Object.fromEntries(
     Object.entries(photo).filter(([, v]) => v !== undefined)
   );
-  const docRef = await addDoc(collection(db, 'photos'), {
+  const docRef = await fs.addDoc(fs.collection(db, 'photos'), {
     ...cleanPhoto,
-    createdAt: Timestamp.now(),
+    createdAt: fs.Timestamp.now(),
   });
   return {
     ...photo,
@@ -246,9 +249,8 @@ export const deletePhoto = async (id: string): Promise<void> => {
     localStorage.setItem(PHOTOS_KEY, JSON.stringify(updated));
     return;
   }
-  const db = getDb();
-  if (!db) return;
-  await deleteDoc(doc(db, 'photos', id));
+  const { fs, db } = await getFirestoreClient();
+  await fs.deleteDoc(fs.doc(db, 'photos', id));
 };
 
 // --- Firebase Firestore / LocalStorage CRUD for Photo Collections ---
@@ -268,9 +270,8 @@ export const fetchAllCollections = async (): Promise<PhotoCollection[]> => {
     );
   }
   try {
-    const db = getDb();
-    if (!db) throw new Error('Database not initialized');
-    const snapshot = await getDocs(collection(db, 'photoCollections'));
+    const { fs, db } = await getFirestoreClient();
+    const snapshot = await fs.getDocs(fs.collection(db, 'photoCollections'));
     const list: PhotoCollection[] = snapshot.docs.map((d) => {
       const data = d.data();
       const optStr = (v: unknown): string | undefined =>
@@ -283,7 +284,7 @@ export const fetchAllCollections = async (): Promise<PhotoCollection[]> => {
         order: typeof data.order === 'number' && Number.isFinite(data.order) ? data.order : 0,
         hidden: Boolean(data.hidden),
         createdAt:
-          data.createdAt instanceof Timestamp
+          data.createdAt instanceof fs.Timestamp
             ? data.createdAt.toDate().toISOString()
             : typeof data.createdAt === 'string'
             ? data.createdAt
@@ -325,8 +326,7 @@ export const saveCollection = async (
     return newCol;
   }
 
-  const db = getDb();
-  if (!db) throw new Error('Database not initialized');
+  const { fs, db } = await getFirestoreClient();
   const payload = Object.fromEntries(
     Object.entries({
       name: cleanName,
@@ -336,9 +336,9 @@ export const saveCollection = async (
       hidden: Boolean(col.hidden),
     }).filter(([, v]) => v !== undefined)
   );
-  const docRef = await addDoc(collection(db, 'photoCollections'), {
+  const docRef = await fs.addDoc(fs.collection(db, 'photoCollections'), {
     ...payload,
-    createdAt: Timestamp.now(),
+    createdAt: fs.Timestamp.now(),
   });
   return {
     ...col,
@@ -359,12 +359,11 @@ export const updateCollection = async (
     localStorage.setItem(COLLECTIONS_KEY, JSON.stringify(updated));
     return;
   }
-  const db = getDb();
-  if (!db) throw new Error('Database not initialized');
+  const { fs, db } = await getFirestoreClient();
   const clean = Object.fromEntries(
     Object.entries(updates).filter(([, v]) => v !== undefined && v !== null)
   );
-  await updateDoc(doc(db, 'photoCollections', id), clean);
+  await fs.updateDoc(fs.doc(db, 'photoCollections', id), clean);
 };
 
 export const deleteCollection = async (id: string): Promise<void> => {
@@ -375,9 +374,8 @@ export const deleteCollection = async (id: string): Promise<void> => {
     localStorage.setItem(COLLECTIONS_KEY, JSON.stringify(updated));
     return;
   }
-  const db = getDb();
-  if (!db) return;
-  await deleteDoc(doc(db, 'photoCollections', id));
+  const { fs, db } = await getFirestoreClient();
+  await fs.deleteDoc(fs.doc(db, 'photoCollections', id));
 };
 
 export const renameCollectionAcrossPhotos = async (
@@ -437,9 +435,8 @@ export const fetchHiddenRepos = async (): Promise<string[]> => {
     return normalizeHiddenRepoNames(getLocalStorageItems<string>(HIDDEN_REPOS_KEY, []));
   }
   try {
-    const db = getDb();
-    if (!db) throw new Error('Database not initialized');
-    const snap = await getDoc(doc(db, 'siteSettings', 'projects'));
+    const { fs, db } = await getFirestoreClient();
+    const snap = await fs.getDoc(fs.doc(db, 'siteSettings', 'projects'));
     if (!snap.exists()) return [];
     return normalizeHiddenRepoNames(snap.data()?.hiddenRepos);
   } catch (error) {
@@ -456,13 +453,12 @@ export const saveHiddenRepos = async (hiddenRepos: string[]): Promise<string[]> 
     }
     return clean;
   }
-  const db = getDb();
-  if (!db) throw new Error('Database not initialized');
-  await setDoc(
-    doc(db, 'siteSettings', 'projects'),
+  const { fs, db } = await getFirestoreClient();
+  await fs.setDoc(
+    fs.doc(db, 'siteSettings', 'projects'),
     {
       hiddenRepos: clean,
-      updatedAt: Timestamp.now(),
+      updatedAt: fs.Timestamp.now(),
     },
     { merge: true }
   );

@@ -1,5 +1,3 @@
-import exifr from 'exifr';
-
 export interface PhotoExifMetadata {
   camera?: string;
   lens?: string;
@@ -89,6 +87,7 @@ function formatTakenAt(dateRaw: unknown): string | undefined {
  */
 export async function extractPhotoExif(file: File): Promise<PhotoExifMetadata> {
   try {
+    const exifr = (await import('exifr')).default;
     const data = await exifr.parse(file, {
       pick: [
         'Make',

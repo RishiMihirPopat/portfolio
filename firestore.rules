@@ -8,24 +8,94 @@ service cloud.firestore {
         && request.auth.token.email_verified == true;
     }
 
+    function isOptString(data, field, maxLen) {
+      return !(field in data)
+        || (data[field] is string && data[field].size() <= maxLen);
+    }
+
+    function isOptPositiveNumber(data, field) {
+      return !(field in data)
+        || (data[field] is number && data[field] > 0 && data[field] <= 20000);
+    }
+
+    function isOptTimestampOrString(data, field) {
+      return !(field in data)
+        || data[field] is timestamp
+        || (data[field] is string && data[field].size() <= 64);
+    }
+
+    function isValidPost(data) {
+      return data.keys().hasOnly(['title', 'content', 'imageUrl', 'createdAt'])
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 200
+        && data.content is string && data.content.size() >= 1 && data.content.size() <= 250000
+        && isOptString(data, 'imageUrl', 950000)
+        && isOptTimestampOrString(data, 'createdAt');
+    }
+
+    function isValidPhoto(data) {
+      return data.keys().hasOnly([
+          'url', 'title', 'description', 'camera', 'lens',
+          'focalLength', 'aperture', 'shutterSpeed', 'iso',
+          'location', 'collection', 'takenAt', 'width', 'height', 'createdAt'
+        ])
+        && data.url is string && data.url.size() >= 1 && data.url.size() <= 980000
+        && data.title is string && data.title.size() <= 200
+        && isOptString(data, 'description', 1000)
+        && isOptString(data, 'camera', 120)
+        && isOptString(data, 'lens', 160)
+        && isOptString(data, 'focalLength', 40)
+        && isOptString(data, 'aperture', 40)
+        && isOptString(data, 'shutterSpeed', 40)
+        && isOptString(data, 'iso', 40)
+        && isOptString(data, 'location', 160)
+        && isOptString(data, 'collection', 120)
+        && isOptString(data, 'takenAt', 64)
+        && isOptPositiveNumber(data, 'width')
+        && isOptPositiveNumber(data, 'height')
+        && isOptTimestampOrString(data, 'createdAt');
+    }
+
+    function isValidCollection(data) {
+      return data.keys().hasOnly([
+          'name', 'description', 'coverPhotoId', 'order', 'hidden', 'createdAt'
+        ])
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 100
+        && isOptString(data, 'description', 500)
+        && isOptString(data, 'coverPhotoId', 128)
+        && data.order is number && data.order >= 0 && data.order <= 10000
+        && data.hidden is bool
+        && isOptTimestampOrString(data, 'createdAt');
+    }
+
+    function isValidProjectsSettings(data) {
+      return data.keys().hasOnly(['hiddenRepos', 'updatedAt'])
+        && data.hiddenRepos is list
+        && data.hiddenRepos.size() <= 200
+        && isOptTimestampOrString(data, 'updatedAt');
+    }
+
     match /posts/{postId} {
       allow read: if true;
-      allow write: if isAdmin();
+      allow create, update: if isAdmin() && isValidPost(request.resource.data);
+      allow delete: if isAdmin();
     }
 
     match /photos/{photoId} {
       allow read: if true;
-      allow write: if isAdmin();
+      allow create, update: if isAdmin() && isValidPhoto(request.resource.data);
+      allow delete: if isAdmin();
     }
 
     match /photoCollections/{collectionId} {
       allow read: if true;
-      allow write: if isAdmin();
+      allow create, update: if isAdmin() && isValidCollection(request.resource.data);
+      allow delete: if isAdmin();
     }
 
-    match /siteSettings/{settingId} {
+    match /siteSettings/projects {
       allow read: if true;
-      allow write: if isAdmin();
+      allow create, update: if isAdmin() && isValidProjectsSettings(request.resource.data);
+      allow delete: if isAdmin();
     }
 
     match /{document=**} {

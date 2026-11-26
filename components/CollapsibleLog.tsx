@@ -30,14 +30,12 @@ export const PANEL_VIEW_VARIANTS: Variants = {
   initial: {
     opacity: 0,
     y: 6,
-    filter: 'blur(0px)',
   },
   animate: {
     opacity: 1,
     y: 0,
-    filter: 'blur(0px)',
     transition: {
-      duration: 0.38,
+      duration: 0.34,
       ease: CALM_EASE,
       when: 'beforeChildren',
       staggerChildren: 0.04,
@@ -45,10 +43,9 @@ export const PANEL_VIEW_VARIANTS: Variants = {
   },
   exit: {
     opacity: 0,
-    y: 10,
-    filter: 'blur(3px)',
+    y: 8,
     transition: {
-      duration: 0.5,
+      duration: 0.24,
       ease: WAVE_EXIT_EASE,
     },
   },
@@ -63,7 +60,7 @@ export const SECTION_ITEM_VARIANTS: Variants = {
     opacity: 1,
     y: 0,
     transition: {
-      duration: 0.34,
+      duration: 0.32,
       ease: CALM_EASE,
     },
   },
@@ -98,7 +95,7 @@ export function CollapsibleLog({
         onClick={() => setIsOpen((prev) => !prev)}
         whileTap={{ scale: 0.99 }}
         transition={TACTILE_SPRING}
-        className="group font-mono text-xs text-ink-muted hover:text-ink transition-colors cursor-pointer select-none inline-flex items-center gap-1.5 py-1 min-h-[32px]"
+        className="group font-mono text-xs text-ink-muted hover:text-ink transition-colors cursor-pointer select-none inline-flex items-center gap-1.5 py-1 min-h-[36px]"
       >
         <motion.span
           aria-hidden="true"
@@ -109,7 +106,7 @@ export function CollapsibleLog({
           <ChevronRight size={13} />
         </motion.span>
         <span>{label}</span>
-        <span className="inline-flex items-center text-ink-muted/85">
+        <span className="inline-flex items-center text-ink-muted">
           (
           <AnimatePresence mode="popLayout" initial={false}>
             <motion.span

@@ -446,11 +446,11 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
     }
   }, [normalizedPath, closeMenu]);
 
-  // Keyboard shortcuts 1–4 to navigate to the header pages with wave wash
+  // Keyboard shortcuts Alt+1–Alt+4 to navigate to the header pages (WCAG 2.1.4 compliant)
   useEffect(() => {
     if (isAdminRoute) return;
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey) return;
+      if (e.defaultPrevented || !e.altKey || e.ctrlKey || e.metaKey) return;
       const target = e.target as HTMLElement | null;
       if (
         target &&
@@ -462,7 +462,7 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      if (e.key >= '1' && e.key <= '6') {
+      if (e.key >= '1' && e.key <= '4') {
         const match = HEADER_NAV_ITEMS.find((item) => item.shortcut === e.key);
         if (match && match.href !== normalizedPath) {
           e.preventDefault();
@@ -720,7 +720,6 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
         id="main-content"
         tabIndex={-1}
         data-scene={activeScene}
-        data-transition-dir="none"
         className={`flex-1 flex flex-col justify-start pt-4 sm:pt-12 pb-10 w-full min-h-[calc(100lvh-140px)] focus:outline-none ${
           transitionPhase === 'washing-away'
             ? 'calm-fade-out'
@@ -742,7 +741,7 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
         >
           <a
             href={`mailto:${profileData.email}`}
-            className="quiet-link max-[759px]:min-h-[44px] inline-flex items-center"
+            className="quiet-link min-h-[28px] max-[759px]:min-h-[44px] inline-flex items-center"
           >
             email
           </a>
@@ -750,7 +749,7 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
             href={profileData.github}
             target="_blank"
             rel="noopener noreferrer"
-            className="quiet-link max-[759px]:min-h-[44px] inline-flex items-center"
+            className="quiet-link min-h-[28px] max-[759px]:min-h-[44px] inline-flex items-center"
           >
             github
           </a>

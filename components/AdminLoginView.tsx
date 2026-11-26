@@ -198,8 +198,8 @@ export function AdminLoginView({
                 transition={ACCORDION_TRANSITION}
                 className="overflow-hidden"
               >
-                <div className="border border-red-700/45 dark:border-red-400/45 bg-surface/90 px-3.5 py-2.5 rounded-[2px] flex items-start justify-between gap-3">
-                  <p className="font-mono text-xs text-red-700 dark:text-red-400 leading-relaxed">
+                <div className="border border-danger/50 bg-surface/90 px-3.5 py-2 rounded-[2px] flex items-center justify-between gap-3">
+                  <p className="font-mono text-xs text-danger leading-relaxed">
                     {error}
                   </p>
                   <motion.button
@@ -209,7 +209,7 @@ export function AdminLoginView({
                     whileTap={{ scale: 0.9 }}
                     transition={TACTILE_SPRING}
                     aria-label="Dismiss sign-in error"
-                    className="text-ink-muted hover:text-ink transition-colors p-0.5 cursor-pointer shrink-0"
+                    className="text-ink-muted hover:text-ink transition-colors min-w-[32px] min-h-[32px] -mr-1 inline-flex items-center justify-center cursor-pointer shrink-0"
                   >
                     <X size={14} />
                   </motion.button>
@@ -259,9 +259,9 @@ export function AdminLoginView({
                 {buttonPhase === 'checking' ? (
                   <motion.span
                     key="checking"
-                    initial={{ opacity: 0, y: 5, filter: 'blur(1.5px)' }}
-                    animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
-                    exit={{ opacity: 0, y: -5, filter: 'blur(1.5px)' }}
+                    initial={{ opacity: 0, y: 5 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -5 }}
                     transition={{ duration: 0.18, ease: CALM_EASE }}
                     className="inline-flex items-center gap-2.5 w-full"
                   >
@@ -271,9 +271,9 @@ export function AdminLoginView({
                 ) : buttonPhase === 'signing-in' ? (
                   <motion.span
                     key="signing-in"
-                    initial={{ opacity: 0, y: 5, filter: 'blur(1.5px)' }}
-                    animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
-                    exit={{ opacity: 0, y: -5, filter: 'blur(1.5px)' }}
+                    initial={{ opacity: 0, y: 5 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -5 }}
                     transition={{ duration: 0.18, ease: CALM_EASE }}
                     className="inline-flex items-center gap-2.5 w-full"
                   >
@@ -283,9 +283,9 @@ export function AdminLoginView({
                 ) : (
                   <motion.span
                     key="ready"
-                    initial={{ opacity: 0, y: 5, filter: 'blur(1.5px)' }}
-                    animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
-                    exit={{ opacity: 0, y: -5, filter: 'blur(1.5px)' }}
+                    initial={{ opacity: 0, y: 5 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -5 }}
                     transition={{ duration: 0.18, ease: CALM_EASE }}
                     className="inline-flex items-center justify-between gap-4 w-full"
                   >

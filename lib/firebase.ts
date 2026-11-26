@@ -1,6 +1,4 @@
-import { initializeApp, getApps, FirebaseApp } from 'firebase/app';
-import { getFirestore, Firestore } from 'firebase/firestore';
-import { getAuth, Auth } from 'firebase/auth';
+import { initializeApp, getApps, type FirebaseApp } from 'firebase/app';
 
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
@@ -12,44 +10,18 @@ const firebaseConfig = {
 };
 
 let app: FirebaseApp | null = null;
-let _db: Firestore | null = null;
-let _auth: Auth | null = null;
 
 export function isFirebaseConfigured(): boolean {
-  return !!(
+  return Boolean(
     process.env.NEXT_PUBLIC_FIREBASE_API_KEY &&
-    process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID
+      process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID
   );
 }
 
-export function isFirebaseAuthConfigured(): boolean {
-  return !!(
-    isFirebaseConfigured() && process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN
-  );
-}
-
-function getApp(): FirebaseApp | null {
+export function getApp(): FirebaseApp | null {
   if (!isFirebaseConfigured()) return null;
   if (!app) {
     app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
   }
   return app;
-}
-
-export function getDb(): Firestore | null {
-  const appInstance = getApp();
-  if (!appInstance) return null;
-  if (!_db) {
-    _db = getFirestore(appInstance);
-  }
-  return _db;
-}
-
-export function getFirebaseAuth(): Auth | null {
-  const appInstance = getApp();
-  if (!appInstance) return null;
-  if (!_auth) {
-    _auth = getAuth(appInstance);
-  }
-  return _auth;
 }

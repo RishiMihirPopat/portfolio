@@ -1,10 +1,15 @@
 import type { Metadata } from 'next';
-import { PortfolioSectionView } from '@/components/PortfolioSectionView';
+import { BlogSection } from '@/components/sections/BlogSection';
 
 export const metadata: Metadata = {
   title: 'Blog',
+  description:
+    'Research notes and technical writing on statistical modeling, Bayesian computation, and machine learning by Rishi Mihir Popat.',
+  alternates: {
+    canonical: '/blog/',
+  },
 };
 
 export default function BlogPage() {
-  return <PortfolioSectionView section="blog" />;
+  return <BlogSection />;
 }

@@ -3,10 +3,15 @@ import { Inter, JetBrains_Mono } from 'next/font/google';
 import { ThemeProvider } from '@/components/ThemeProvider';
 import { AsciiBeachCanvas } from '@/components/AsciiBeachCanvas';
 import { SiteShell } from '@/components/SiteShell';
+import { JsonLd } from '@/components/JsonLd';
 import './globals.css';
 
 export const viewport: Viewport = {
   colorScheme: 'dark light',
+  themeColor: [
+    { media: '(prefers-color-scheme: dark)', color: '#0b0e12' },
+    { media: '(prefers-color-scheme: light)', color: '#e6ebe8' },
+  ],
 };
 
 const inter = Inter({
@@ -21,7 +26,8 @@ const jetbrainsMono = JetBrains_Mono({
   display: 'swap',
 });
 
-const metadataBase = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
+const basePath = process.env.NEXT_PUBLIC_BASE_PATH || '';
+const metadataBase = process.env.NEXT_PUBLIC_SITE_URL || 'https://rishipopat.site';
 
 export const metadata: Metadata = {
   title: {
@@ -29,7 +35,7 @@ export const metadata: Metadata = {
     template: '%s · Rishi Popat',
   },
   description:
-    'Rishi Mihir Popat — MSc Data Science student at Manipal Academy of Higher Education.',
+    'Rishi Mihir Popat — MSc Data Science student at Manipal Academy of Higher Education. Statistical modeling, Bayesian computation, deep learning, and field photography.',
   keywords: [
     'Rishi Popat',
     'Rishi Mihir Popat',
@@ -41,19 +47,40 @@ export const metadata: Metadata = {
     'R',
     'Python',
   ],
-  authors: [{ name: 'Rishi Mihir Popat' }],
+  authors: [{ name: 'Rishi Mihir Popat', url: metadataBase }],
+  creator: 'Rishi Mihir Popat',
+  metadataBase: new URL(metadataBase),
+  alternates: {
+    canonical: '/',
+  },
   openGraph: {
     title: 'Rishi Popat',
     description:
       'Rishi Mihir Popat — MSc Data Science student at Manipal Academy of Higher Education.',
+    url: '/',
+    siteName: 'Rishi Popat',
     type: 'website',
     locale: 'en_US',
+    images: [
+      {
+        url: `${basePath}/og.png`,
+        width: 1200,
+        height: 630,
+        alt: 'Rishi Mihir Popat — MSc Data Science & Field Photography',
+      },
+    ],
   },
-  metadataBase: new URL(metadataBase),
+  twitter: {
+    card: 'summary_large_image',
+    title: 'Rishi Popat',
+    description:
+      'Rishi Mihir Popat — MSc Data Science student at Manipal Academy of Higher Education.',
+    images: [`${basePath}/og.png`],
+  },
   icons: {
-    icon: `${process.env.NEXT_PUBLIC_BASE_PATH || ''}/profile.png`,
-    shortcut: `${process.env.NEXT_PUBLIC_BASE_PATH || ''}/profile.png`,
-    apple: `${process.env.NEXT_PUBLIC_BASE_PATH || ''}/profile.png`,
+    icon: [{ url: `${basePath}/icon-32.png`, sizes: '32x32', type: 'image/png' }],
+    shortcut: `${basePath}/icon-32.png`,
+    apple: [{ url: `${basePath}/apple-icon.png`, sizes: '180x180', type: 'image/png' }],
   },
 };
 
@@ -65,13 +92,14 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       suppressHydrationWarning
     >
       <body className="min-h-[100lvh] flex flex-col relative overflow-x-hidden antialiased">
+        <JsonLd />
         <ThemeProvider
           attribute="class"
           defaultTheme="dark"
           enableSystem={false}
           themes={['dark', 'light']}
         >
-          {/* Full-viewport procedural ASCII scene background (beach / city / room) persisted across routes */}
+          {/* Full-viewport procedural ASCII scene background persisted across routes */}
           <AsciiBeachCanvas />
 
           {/* Foreground persistent navigation shell & content */}
