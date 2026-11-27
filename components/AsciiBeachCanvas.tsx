@@ -76,37 +76,39 @@ function readPersistedScene(): AsciiSceneId {
   }
 }
 
-function measureClearRects(): ClearRect[] {
+const CLEAR_TARGET_SELECTOR =
+  '[data-ascii-panel="true"], [data-ascii-header="true"], [data-ascii-footer="true"]';
+
+function collectClearTargets(): Element[] {
+  return Array.from(document.querySelectorAll(CLEAR_TARGET_SELECTOR));
+}
+
+function measureClearRects(targets: Element[]): ClearRect[] {
   const rects: ClearRect[] = [];
   const vw = window.innerWidth || document.documentElement.clientWidth || 1200;
   const vh = window.innerHeight || document.documentElement.clientHeight || 800;
-  const selectors = [
-    '[data-ascii-panel="true"]',
-    '[data-ascii-header="true"]',
-    '[data-ascii-footer="true"]',
-  ];
 
-  for (const selector of selectors) {
-    document.querySelectorAll(selector).forEach((el) => {
-      const r = el.getBoundingClientRect();
-      // Clamp to the visible viewport before inverting Y so tall panels
-      // (such as full-length blog articles) never produce negative top offsets
-      const left = Math.max(0, r.left);
-      const right = Math.min(vw, r.right);
-      const top = Math.max(0, r.top);
-      const bottom = Math.min(vh, r.bottom);
-      const width = right - left;
-      const height = bottom - top;
-      if (width > 8 && height > 6) {
-        rects.push({
-          left,
-          // asciify-engine@4.33.0 uploads clearMap with inverted Y relative to screen coordinates
-          top: vh - bottom,
-          width,
-          height,
-        });
-      }
-    });
+  for (let i = 0; i < targets.length; i++) {
+    const el = targets[i];
+    if (!el.isConnected) continue;
+    const r = el.getBoundingClientRect();
+    // Clamp to the visible viewport before inverting Y so tall panels
+    // (such as full-length blog articles) never produce negative top offsets
+    const left = Math.max(0, r.left);
+    const right = Math.min(vw, r.right);
+    const top = Math.max(0, r.top);
+    const bottom = Math.min(vh, r.bottom);
+    const width = right - left;
+    const height = bottom - top;
+    if (width > 8 && height > 6) {
+      rects.push({
+        left,
+        // asciify-engine@4.33.0 uploads clearMap with inverted Y relative to screen coordinates
+        top: vh - bottom,
+        width,
+        height,
+      });
+    }
   }
 
   return rects;
@@ -115,7 +117,7 @@ function measureClearRects(): ClearRect[] {
 export function AsciiBeachCanvas() {
   const hostRef = useRef<HTMLDivElement>(null);
   const handleRef = useRef<BackgroundHandle | null>(null);
-  const clearRectsRef = useRef<ClearRect[]>([]);
+  const targetsRef = useRef<Element[]>([]);
   const activeSceneRef = useRef<AsciiSceneId>(DEFAULT_ASCII_SCENE);
   const lastAnimatedRef = useRef<AnimatedAsciiSceneId>('swell');
   const resolvedThemeRef = useRef<string | undefined>('dark');
@@ -135,7 +137,13 @@ export function AsciiBeachCanvas() {
     if (initialScene !== 'still') {
       lastAnimatedRef.current = initialScene;
     }
-    clearRectsRef.current = measureClearRects();
+    targetsRef.current = collectClearTargets();
+
+    // Called synchronously inside asciify-engine's own render tick right before WebGL draw,
+    // avoiding extra RAF hops and scroll-time lag. asciify-engine skips texture upload whenever
+    // the returned coordinates are unchanged.
+    const readLiveClearRects = (): ClearRect[] =>
+      measureClearRects(targetsRef.current);
 
     const resolveEffectivePreset = (scene: AsciiSceneId): AnimatedAsciiSceneId =>
       scene === 'still' ? lastAnimatedRef.current : scene;
@@ -166,7 +174,7 @@ export function AsciiBeachCanvas() {
       cellSize: initialTuning.cellSize,
       speed: isPaused(initialScene) ? 0 : initialTuning.speed,
       opacity: getOpacityForPreset(initialPresetId),
-      clear: () => clearRectsRef.current,
+      clear: readLiveClearRects,
       // Tighter halo around page content so ASCII glyphs sit closely without overlapping text
       clearPadding: 6,
       clearSoftness: 12,
@@ -175,46 +183,35 @@ export function AsciiBeachCanvas() {
     });
     handleRef.current = handle;
 
-    let rafMeasure: number | null = null;
+    let rafNudge: number | null = null;
     let settleTimer: number | null = null;
-    let lastRectsSignature = '';
-    const scheduleMeasure = () => {
-      if (rafMeasure !== null) return;
-      rafMeasure = requestAnimationFrame(() => {
-        rafMeasure = null;
-        const nextRects = measureClearRects();
-        const sig = nextRects
-          .map(
-            (r) =>
-              `${Math.round(r.left)},${Math.round(r.top)},${Math.round(r.width)},${Math.round(r.height)}`
-          )
-          .join('|');
-        clearRectsRef.current = nextRects;
-        if (sig !== lastRectsSignature) {
-          lastRectsSignature = sig;
-          handle.update({});
-        }
+    const nudgeEngineRedraw = () => {
+      if (rafNudge !== null) return;
+      rafNudge = requestAnimationFrame(() => {
+        rafNudge = null;
+        // Ensures paused/still mode and freshly mounted panels refresh their clearMap
+        handle.update({});
       });
     };
 
-    const scheduleSettledMeasure = () => {
-      scheduleMeasure();
+    const scheduleSettledNudge = () => {
+      nudgeEngineRedraw();
       if (settleTimer !== null) window.clearTimeout(settleTimer);
       settleTimer = window.setTimeout(() => {
         settleTimer = null;
-        scheduleMeasure();
+        nudgeEngineRedraw();
       }, 380);
     };
 
-    const resizeObserver = new ResizeObserver(scheduleMeasure);
+    const resizeObserver = new ResizeObserver(nudgeEngineRedraw);
     const observeClearTargets = () => {
       resizeObserver.disconnect();
-      document
-        .querySelectorAll(
-          '[data-ascii-panel="true"], [data-ascii-header="true"], [data-ascii-footer="true"]'
-        )
-        .forEach((el) => resizeObserver.observe(el));
-      scheduleSettledMeasure();
+      const nextTargets = collectClearTargets();
+      targetsRef.current = nextTargets;
+      for (let i = 0; i < nextTargets.length; i++) {
+        resizeObserver.observe(nextTargets[i]);
+      }
+      scheduleSettledNudge();
     };
 
     observeClearTargets();
@@ -277,23 +274,21 @@ export function AsciiBeachCanvas() {
     };
 
     motionQuery.addEventListener('change', onReducedMotionChange);
-    window.addEventListener('resize', scheduleMeasure, { passive: true });
-    window.addEventListener('scroll', scheduleMeasure, { passive: true });
+    window.addEventListener('resize', nudgeEngineRedraw, { passive: true });
     window.addEventListener(ASCII_SCENE_CHANGE_EVENT, onSceneChange);
     window.addEventListener('storage', onStorage);
 
     if (document.fonts && document.fonts.ready) {
-      document.fonts.ready.then(scheduleMeasure);
+      document.fonts.ready.then(nudgeEngineRedraw);
     }
 
     return () => {
-      if (rafMeasure !== null) cancelAnimationFrame(rafMeasure);
+      if (rafNudge !== null) cancelAnimationFrame(rafNudge);
       if (settleTimer !== null) window.clearTimeout(settleTimer);
       resizeObserver.disconnect();
       mutationObserver.disconnect();
       motionQuery.removeEventListener('change', onReducedMotionChange);
-      window.removeEventListener('resize', scheduleMeasure);
-      window.removeEventListener('scroll', scheduleMeasure);
+      window.removeEventListener('resize', nudgeEngineRedraw);
       window.removeEventListener(ASCII_SCENE_CHANGE_EVENT, onSceneChange);
       window.removeEventListener('storage', onStorage);
       handle.destroy();
