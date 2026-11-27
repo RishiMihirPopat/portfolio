@@ -6,7 +6,7 @@ import { MotionConfig, motion } from 'motion/react';
 import {
   background,
   caustics,
-  contour,
+  drift,
   swell,
   type BackgroundHandle,
   type BackgroundPreset,
@@ -39,22 +39,23 @@ const CALM_EASE: [number, number, number, number] = [0.16, 1, 0.3, 1];
 
 const PRESET_MAP: Record<AnimatedAsciiSceneId, BackgroundPreset> = {
   swell,
-  contour,
+  drift,
   caustics,
 };
 
 const PRESET_TUNING: Record<
   AnimatedAsciiSceneId,
-  { cellSize: number; speed: number; opacity: number }
+  { cellSize: number; speed: number; darkOpacity: number; lightOpacity: number }
 > = {
-  swell: { cellSize: 10, speed: 0.72, opacity: 0.74 },
-  contour: { cellSize: 10, speed: 0.65, opacity: 0.68 },
-  caustics: { cellSize: 10, speed: 0.7, opacity: 0.66 },
+  swell: { cellSize: 10, speed: 0.72, darkOpacity: 0.76, lightOpacity: 0.94 },
+  drift: { cellSize: 10, speed: 0.68, darkOpacity: 0.74, lightOpacity: 0.94 },
+  caustics: { cellSize: 10, speed: 0.7, darkOpacity: 0.7, lightOpacity: 0.92 },
 };
 
+// Deepened coastal slate-teal in light mode (#153c4c) for crisp visibility over #e6ebe8
 const ASCII_PALETTE = {
   dark: '#7cb1c6',
-  light: '#295b6c',
+  light: '#153c4c',
 };
 
 interface ClearRect {
@@ -77,6 +78,7 @@ function readPersistedScene(): AsciiSceneId {
 
 function measureClearRects(): ClearRect[] {
   const rects: ClearRect[] = [];
+  const vw = window.innerWidth || document.documentElement.clientWidth || 1200;
   const vh = window.innerHeight || document.documentElement.clientHeight || 800;
   const selectors = [
     '[data-ascii-panel="true"]',
@@ -87,13 +89,21 @@ function measureClearRects(): ClearRect[] {
   for (const selector of selectors) {
     document.querySelectorAll(selector).forEach((el) => {
       const r = el.getBoundingClientRect();
-      if (r.width > 8 && r.height > 6) {
+      // Clamp to the visible viewport before inverting Y so tall panels
+      // (such as full-length blog articles) never produce negative top offsets
+      const left = Math.max(0, r.left);
+      const right = Math.min(vw, r.right);
+      const top = Math.max(0, r.top);
+      const bottom = Math.min(vh, r.bottom);
+      const width = right - left;
+      const height = bottom - top;
+      if (width > 8 && height > 6) {
         rects.push({
-          left: r.left,
+          left,
           // asciify-engine@4.33.0 uploads clearMap with inverted Y relative to screen coordinates
-          top: vh - r.bottom,
-          width: r.width,
-          height: r.height,
+          top: vh - bottom,
+          width,
+          height,
         });
       }
     });
@@ -108,7 +118,12 @@ export function AsciiBeachCanvas() {
   const clearRectsRef = useRef<ClearRect[]>([]);
   const activeSceneRef = useRef<AsciiSceneId>(DEFAULT_ASCII_SCENE);
   const lastAnimatedRef = useRef<AnimatedAsciiSceneId>('swell');
+  const resolvedThemeRef = useRef<string | undefined>('dark');
   const { resolvedTheme } = useTheme();
+
+  useEffect(() => {
+    resolvedThemeRef.current = resolvedTheme;
+  }, [resolvedTheme]);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -128,32 +143,67 @@ export function AsciiBeachCanvas() {
     const isPaused = (scene: AsciiSceneId) =>
       scene === 'still' || motionQuery.matches;
 
+    const getThemeIsLight = () =>
+      resolvedThemeRef.current === 'light' ||
+      document.documentElement.classList.contains('light');
+
+    const getThemePalette = () =>
+      getThemeIsLight() ? ASCII_PALETTE.light : ASCII_PALETTE.dark;
+
+    const getOpacityForPreset = (presetId: AnimatedAsciiSceneId) => {
+      const tuning = PRESET_TUNING[presetId];
+      return getThemeIsLight() ? tuning.lightOpacity : tuning.darkOpacity;
+    };
+
     const initialPresetId = resolveEffectivePreset(initialScene);
     const initialTuning = PRESET_TUNING[initialPresetId];
     const handle = background(host, {
       preset: PRESET_MAP[initialPresetId],
-      palette: ASCII_PALETTE,
+      palette: getThemePalette(),
       mark: 'glyph',
       charset: ' .,:;-=+*#%@',
       cursor: false,
       cellSize: initialTuning.cellSize,
       speed: isPaused(initialScene) ? 0 : initialTuning.speed,
-      opacity: initialTuning.opacity,
+      opacity: getOpacityForPreset(initialPresetId),
       clear: () => clearRectsRef.current,
-      clearPadding: 28,
-      clearSoftness: 34,
-      clearStrength: 1,
+      // Tighter halo around page content so ASCII glyphs sit closely without overlapping text
+      clearPadding: 6,
+      clearSoftness: 12,
+      clearStrength: 0.96,
       lazy: false,
     });
     handleRef.current = handle;
 
     let rafMeasure: number | null = null;
+    let settleTimer: number | null = null;
+    let lastRectsSignature = '';
     const scheduleMeasure = () => {
       if (rafMeasure !== null) return;
       rafMeasure = requestAnimationFrame(() => {
         rafMeasure = null;
-        clearRectsRef.current = measureClearRects();
+        const nextRects = measureClearRects();
+        const sig = nextRects
+          .map(
+            (r) =>
+              `${Math.round(r.left)},${Math.round(r.top)},${Math.round(r.width)},${Math.round(r.height)}`
+          )
+          .join('|');
+        clearRectsRef.current = nextRects;
+        if (sig !== lastRectsSignature) {
+          lastRectsSignature = sig;
+          handle.update({});
+        }
       });
+    };
+
+    const scheduleSettledMeasure = () => {
+      scheduleMeasure();
+      if (settleTimer !== null) window.clearTimeout(settleTimer);
+      settleTimer = window.setTimeout(() => {
+        settleTimer = null;
+        scheduleMeasure();
+      }, 380);
     };
 
     const resizeObserver = new ResizeObserver(scheduleMeasure);
@@ -164,7 +214,7 @@ export function AsciiBeachCanvas() {
           '[data-ascii-panel="true"], [data-ascii-header="true"], [data-ascii-footer="true"]'
         )
         .forEach((el) => resizeObserver.observe(el));
-      scheduleMeasure();
+      scheduleSettledMeasure();
     };
 
     observeClearTargets();
@@ -178,12 +228,16 @@ export function AsciiBeachCanvas() {
         handle.setPreset(PRESET_MAP[presetId]);
       }
       handle.update({
+        palette: getThemePalette(),
         cursor: false,
         mark: 'glyph',
         charset: ' .,:;-=+*#%@',
         cellSize: nextTuning.cellSize,
         speed: isPaused(scene) ? 0 : nextTuning.speed,
-        opacity: nextTuning.opacity,
+        opacity: getOpacityForPreset(presetId),
+        clearPadding: 6,
+        clearSoftness: 12,
+        clearStrength: 0.96,
       });
     };
 
@@ -234,6 +288,7 @@ export function AsciiBeachCanvas() {
 
     return () => {
       if (rafMeasure !== null) cancelAnimationFrame(rafMeasure);
+      if (settleTimer !== null) window.clearTimeout(settleTimer);
       resizeObserver.disconnect();
       mutationObserver.disconnect();
       motionQuery.removeEventListener('change', onReducedMotionChange);
@@ -246,11 +301,25 @@ export function AsciiBeachCanvas() {
     };
   }, []);
 
-  // Re-sync Asciify ink palette whenever light/dark theme toggles
+  // Re-sync Asciify ink palette and opacity whenever light/dark theme toggles
   useEffect(() => {
     const handle = handleRef.current;
     if (!handle) return;
-    handle.update({ palette: ASCII_PALETTE, cursor: false });
+    const presetId =
+      activeSceneRef.current === 'still'
+        ? lastAnimatedRef.current
+        : activeSceneRef.current;
+    const tuning = PRESET_TUNING[presetId];
+    const isLight =
+      resolvedTheme === 'light' ||
+      (resolvedTheme === undefined &&
+        typeof document !== 'undefined' &&
+        document.documentElement.classList.contains('light'));
+    handle.update({
+      palette: isLight ? ASCII_PALETTE.light : ASCII_PALETTE.dark,
+      opacity: isLight ? tuning.lightOpacity : tuning.darkOpacity,
+      cursor: false,
+    });
   }, [resolvedTheme]);
 
   return (
@@ -261,7 +330,7 @@ export function AsciiBeachCanvas() {
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ duration: 0.48, ease: CALM_EASE }}
-        className="fixed inset-0 w-screen h-[100lvh] pointer-events-none z-0 overflow-hidden"
+        className="fixed inset-0 w-screen h-[100lvh] pointer-events-none z-0 overflow-hidden transition-opacity duration-300"
       />
     </MotionConfig>
   );

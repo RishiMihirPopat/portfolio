@@ -47,7 +47,7 @@ import {
   formatExposureSummary,
   type PhotoExifMetadata,
 } from '@/lib/exif';
-import { compressImage, compressImageWithDimensions } from '@/lib/image-processing';
+import { compressImageWithDimensions } from '@/lib/image-processing';
 import { AdminLoginView, type AdminAuthStatus } from '@/components/AdminLoginView';
 import {
   ACCORDION_TRANSITION,
@@ -64,7 +64,6 @@ import {
   TAB_PANEL_VARIANTS,
   type AdminTab,
   type AuthUserSummary,
-  type InlineImageItem,
   type PendingDeleteTarget,
   type PendingPhoto,
   type StatusFeedback,
@@ -132,24 +131,22 @@ export default function Admin() {
 
   // Blog & photo upload states
   const [title, setTitle] = useState('');
+  const [subtitle, setSubtitle] = useState('');
+  const [postTags, setPostTags] = useState<string[]>([]);
   const [content, setContent] = useState('');
   const [imageUrl, setImageUrl] = useState('');
+  const [editorSessionKey, setEditorSessionKey] = useState('new-0');
   const [isPublishing, setIsPublishing] = useState(false);
   const [feedback, setFeedback] = useState<StatusFeedback | null>(null);
   const [isPreview, setIsPreview] = useState(false);
   const [isDraggingPhotos, setIsDraggingPhotos] = useState(false);
-  const [inlineImages, setInlineImages] = useState<InlineImageItem[]>([]);
   const [pendingPhotos, setPendingPhotos] = useState<PendingPhoto[]>([]);
   const [batchCollection, setBatchCollection] = useState('');
 
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const inlineImageRef = useRef<HTMLInputElement>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const photoInputRef = useRef<HTMLInputElement>(null);
   const selectPhotosButtonRef = useRef<HTMLButtonElement>(null);
   const tabButtonRefs = useRef<Partial<Record<AdminTab, HTMLButtonElement | null>>>({});
   const redirectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const inlineImageCounter = useRef(0);
   const lastAuthEventRef = useRef<string | null>(null);
 
   // Diagnostic action log
@@ -478,13 +475,26 @@ export default function Admin() {
     }
   };
 
+  const resetBlogComposer = useCallback(() => {
+    setEditingPostId(null);
+    setTitle('');
+    setSubtitle('');
+    setPostTags([]);
+    setContent('');
+    setImageUrl('');
+    setIsPreview(false);
+    setEditorSessionKey(`new-${Date.now()}`);
+  }, []);
+
   const handleEditPost = (post: Post) => {
     setEditingPostId(post.id);
     setTitle(post.title);
+    setSubtitle(post.subtitle || '');
+    setPostTags(post.tags || []);
     setContent(post.content);
     setImageUrl(post.imageUrl || '');
-    setInlineImages([]);
     setIsPreview(false);
+    setEditorSessionKey(`edit-${post.id}-${Date.now()}`);
     switchTab('blog');
     addLog(`Loaded post "${post.title}" for editing.`);
   };
@@ -827,61 +837,14 @@ export default function Admin() {
     }
   };
 
-  const handleImageUpload = async (
-    e: React.ChangeEvent<HTMLInputElement>,
-    isPhotoTab = false
+  const handlePhotoFilesSelected = async (
+    e: React.ChangeEvent<HTMLInputElement>
   ) => {
     const files = Array.from(e.target.files || []);
     if (!files.length) return;
-
-    if (isPhotoTab) {
-      await stagePhotoFiles(files);
-    } else {
-      const file = files[0];
-      try {
-        addLog(`Compressing cover image: ${file.name}`);
-        const dataUrl = await compressImage(file, 800, 0.8);
-        setImageUrl(dataUrl);
-        addLog('Cover image ready.');
-      } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : 'Could not process cover image.';
-        setFeedback({ kind: 'error', text: message });
-      }
-    }
-
+    await stagePhotoFiles(files);
     if (e.target) e.target.value = '';
   };
-
-  const handleInlineImage = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const name = file.name.replace(/\.[^/.]+$/, '');
-    try {
-      addLog(`Processing inline image: ${file.name}`);
-      const dataUrl = await compressImage(file, 1200, 0.8);
-      const id = ++inlineImageCounter.current;
-      setInlineImages((prev) => [...prev, { id, name, url: dataUrl }]);
-      const tag = `\n![${name}](inline:${id})\n`;
-      const ta = textareaRef.current;
-      if (ta) {
-        const start = ta.selectionStart;
-        setContent(content.slice(0, start) + tag + content.slice(ta.selectionEnd));
-      } else {
-        setContent((prev) => prev + tag);
-      }
-      addLog(`Inserted inline image (${name}).`);
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Could not process inline image.';
-      setFeedback({ kind: 'error', text: message });
-    }
-    if (e.target) e.target.value = '';
-  };
-
-  const resolveInlineImages = (text: string) =>
-    text.replace(/\(inline:(\d+)\)/g, (match, idStr) => {
-      const img = inlineImages.find((i) => i.id === parseInt(idStr, 10));
-      return img ? `(${img.url})` : match;
-    });
 
   const handlePublishPost = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -895,32 +858,26 @@ export default function Admin() {
       if (!title.trim() || !content.trim()) {
         throw new Error('Title and body content are required.');
       }
-      const finalContent = resolveInlineImages(content);
+
+      const payload = {
+        title: title.trim(),
+        subtitle: subtitle.trim() || undefined,
+        tags: postTags.length > 0 ? postTags : undefined,
+        content,
+        imageUrl: imageUrl.trim() || undefined,
+      };
 
       if (editingPostId) {
-        await updatePost(editingPostId, {
-          title: title.trim(),
-          content: finalContent,
-          imageUrl: imageUrl.trim() || undefined,
-        });
+        await updatePost(editingPostId, payload);
         setFeedback({ kind: 'success', text: `Updated "${title.trim()}".` });
         addLog(`Updated post "${title.trim()}".`);
-        setEditingPostId(null);
       } else {
-        await savePost({
-          title: title.trim(),
-          content: finalContent,
-          imageUrl: imageUrl.trim() || undefined,
-        });
+        await savePost(payload);
         setFeedback({ kind: 'success', text: `Published "${title.trim()}".` });
         addLog(`Published post "${title.trim()}".`);
       }
 
-      setTitle('');
-      setContent('');
-      setImageUrl('');
-      setInlineImages([]);
-      setIsPreview(false);
+      resetBlogComposer();
       await loadPostsAndPhotos();
       redirectTimerRef.current = setTimeout(() => {
         switchTab('manage-blog', false);
@@ -1140,7 +1097,11 @@ export default function Admin() {
             initial="initial"
             animate="animate"
             exit="exit"
-            className="w-full min-[760px]:w-1/2 min-[760px]:max-w-[640px]"
+            className={`w-full transition-[max-width] duration-300 ${
+              activeTab === 'blog'
+                ? 'min-[760px]:max-w-[820px]'
+                : 'min-[760px]:w-1/2 min-[760px]:max-w-[640px]'
+            }`}
           >
             <datalist id="photo-collections-list">
               {existingCollections.map((col) => (
@@ -1288,36 +1249,27 @@ export default function Admin() {
                     {activeTab === 'blog' && (
                       <BlogComposerTab
                         editingPostId={editingPostId}
+                        editorSessionKey={editorSessionKey}
                         title={title}
+                        subtitle={subtitle}
+                        tags={postTags}
                         content={content}
                         imageUrl={imageUrl}
                         isPreview={isPreview}
                         isPublishing={isPublishing}
-                        inlineImages={inlineImages}
-                        fileInputRef={fileInputRef}
-                        inlineImageRef={inlineImageRef}
-                        textareaRef={textareaRef}
                         onTitleChange={setTitle}
+                        onSubtitleChange={setSubtitle}
+                        onTagsChange={setPostTags}
                         onContentChange={setContent}
                         onImageUrlChange={setImageUrl}
                         onPreviewChange={setIsPreview}
                         onCancelEdit={() => {
-                          setEditingPostId(null);
-                          setTitle('');
-                          setContent('');
-                          setImageUrl('');
-                          setInlineImages([]);
-                          setIsPreview(false);
+                          resetBlogComposer();
                           addLog('Cancelled post edit.');
                           switchTab('manage-blog');
                         }}
-                        onCoverUpload={(e) => handleImageUpload(e, false)}
-                        onInlineImageUpload={handleInlineImage}
-                        onRemoveInlineImage={(img) => {
-                          setInlineImages((prev) => prev.filter((i) => i.id !== img.id));
-                          addLog(`Removed inline image "${img.name}".`);
-                        }}
-                        resolveInlineImages={resolveInlineImages}
+                        onLog={addLog}
+                        onError={(msg) => setFeedback({ kind: 'error', text: msg })}
                         onSubmit={handlePublishPost}
                       />
                     )}
@@ -1326,12 +1278,7 @@ export default function Admin() {
                       <BlogManageTab
                         posts={allPosts}
                         onNewPost={() => {
-                          setEditingPostId(null);
-                          setTitle('');
-                          setContent('');
-                          setImageUrl('');
-                          setInlineImages([]);
-                          setIsPreview(false);
+                          resetBlogComposer();
                           switchTab('blog');
                         }}
                         onEditPost={handleEditPost}
@@ -1362,7 +1309,7 @@ export default function Admin() {
                           );
                         }}
                         onDraggingChange={setIsDraggingPhotos}
-                        onFilesSelected={(e) => handleImageUpload(e, true)}
+                        onFilesSelected={handlePhotoFilesSelected}
                         onDropFiles={(files) => {
                           void stagePhotoFiles(files);
                         }}

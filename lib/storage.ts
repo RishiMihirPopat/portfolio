@@ -5,13 +5,12 @@ import {
   Photo,
   PhotoCollection,
   Skill,
-  mockPosts,
   cvSkills,
 } from './data';
 
 const isClient = typeof window !== 'undefined';
 
-const POSTS_KEY = 'portfolio_posts_v2';
+const POSTS_KEY = 'portfolio_posts_v3';
 const PHOTOS_KEY = 'portfolio_photos_v2';
 const COLLECTIONS_KEY = 'portfolio_collections_v1';
 const HIDDEN_REPOS_KEY = 'portfolio_hidden_repos_v1';
@@ -68,7 +67,7 @@ const saveLocalStorageItem = <T>(key: string, item: T): void => {
 export const updatePost = async (id: string, post: Partial<Post>): Promise<void> => {
   if (!isFirebaseConfigured()) {
     if (!isClient) return;
-    const all = getLocalStorageItems<Post>(POSTS_KEY, mockPosts);
+    const all = getLocalStorageItems<Post>(POSTS_KEY, []);
     const updated = all.map((p) => (p.id === id ? { ...p, ...post } : p));
     localStorage.setItem(POSTS_KEY, JSON.stringify(updated));
     return;
@@ -101,7 +100,7 @@ export const updatePhoto = async (id: string, photo: Partial<Photo>): Promise<vo
 
 export const fetchAllPosts = async (): Promise<Post[]> => {
   if (!isFirebaseConfigured()) {
-    return getLocalStorageItems<Post>(POSTS_KEY, mockPosts);
+    return getLocalStorageItems<Post>(POSTS_KEY, []);
   }
   try {
     const { fs, db } = await getFirestoreClient();
@@ -109,9 +108,20 @@ export const fetchAllPosts = async (): Promise<Post[]> => {
     const snapshot = await fs.getDocs(q);
     return snapshot.docs.map((d) => {
       const data = d.data();
+      const subtitle =
+        typeof data.subtitle === 'string' && data.subtitle.trim().length > 0
+          ? data.subtitle.trim()
+          : undefined;
+      const tags = Array.isArray(data.tags)
+        ? data.tags
+            .filter((t): t is string => typeof t === 'string' && t.trim().length > 0)
+            .map((t) => t.trim())
+        : undefined;
       return {
         id: d.id,
         title: data.title,
+        subtitle,
+        tags: tags && tags.length > 0 ? tags : undefined,
         content: data.content,
         imageUrl: data.imageUrl || undefined,
         createdAt:
@@ -122,7 +132,7 @@ export const fetchAllPosts = async (): Promise<Post[]> => {
     });
   } catch (error) {
     console.error('Failed to fetch posts from Firebase, falling back to local storage:', error);
-    return getLocalStorageItems<Post>(POSTS_KEY, mockPosts);
+    return getLocalStorageItems<Post>(POSTS_KEY, []);
   }
 };
 
@@ -154,7 +164,7 @@ export const savePost = async (post: Omit<Post, 'id' | 'createdAt'>): Promise<Po
 export const deletePost = async (id: string): Promise<void> => {
   if (!isFirebaseConfigured()) {
     if (!isClient) return;
-    const all = getLocalStorageItems<Post>(POSTS_KEY, mockPosts);
+    const all = getLocalStorageItems<Post>(POSTS_KEY, []);
     const updated = all.filter((p) => p.id !== id);
     localStorage.setItem(POSTS_KEY, JSON.stringify(updated));
     return;

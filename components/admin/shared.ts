@@ -76,12 +76,6 @@ export interface PendingPhoto extends PhotoExifMetadata {
   height: number;
 }
 
-export interface InlineImageItem {
-  id: number;
-  name: string;
-  url: string;
-}
-
 export const PHOTO_EXIF_FIELDS = [
   ['collection', 'Collection', 'Coast'],
   ['camera', 'Camera', 'Fujifilm X100V'],
@@ -104,11 +98,3 @@ export const INLINE_ACTION_CLASS =
   'font-mono text-xs text-ink-nav hover:text-ink underline underline-offset-4 cursor-pointer min-h-[36px] inline-flex items-center';
 export const DANGER_INLINE_CLASS =
   'font-mono text-xs text-danger hover:underline underline-offset-4 cursor-pointer min-h-[36px] inline-flex items-center';
-
-export function summarizePostContent(raw: string): string {
-  const firstParagraph = raw
-    .replace(/[#*`]/g, '')
-    .split(/\n\s*\n/)[0]
-    ?.trim();
-  return firstParagraph || raw.replace(/[#*`]/g, '').slice(0, 140);
-}

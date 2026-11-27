@@ -3,11 +3,14 @@
 import { Plus } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import type { Post } from '@/lib/data';
+import {
+  estimateReadingMinutes,
+  summarizeMarkdownExcerpt,
+} from '@/lib/markdown';
 import { CALM_EASE, TACTILE_SPRING } from '@/components/CollapsibleLog';
 import {
   DANGER_INLINE_CLASS,
   INLINE_ACTION_CLASS,
-  summarizePostContent,
 } from '@/components/admin/shared';
 
 interface BlogManageTabProps {
@@ -27,7 +30,7 @@ export function BlogManageTab({
     <div className="space-y-3">
       <div className="flex flex-wrap items-baseline justify-between gap-3">
         <p className="font-sans text-xs sm:text-sm text-ink-muted">
-          Published notes on the blog feed.
+          Published essays and notes on <span className="font-mono text-ink">/blog</span>.
         </p>
         <motion.button
           type="button"
@@ -64,24 +67,36 @@ export function BlogManageTab({
                 className="py-3.5 space-y-1.5"
               >
                 <div className="flex items-baseline justify-between gap-4">
-                  <h2 className="font-mono text-sm font-normal text-ink">
-                    {post.title}
-                  </h2>
-                  {post.createdAt && (
-                    <time
-                      dateTime={post.createdAt}
-                      className="font-mono text-xs text-ink-muted shrink-0 tabular-nums"
-                    >
-                      {new Date(post.createdAt).toLocaleDateString('en-US', {
-                        year: 'numeric',
-                        month: 'short',
-                        day: '2-digit',
-                      })}
-                    </time>
-                  )}
+                  <div className="flex items-center gap-2 flex-wrap min-w-0">
+                    <h2 className="font-mono text-sm font-normal text-ink truncate">
+                      {post.title}
+                    </h2>
+                    {post.tags &&
+                      post.tags.slice(0, 2).map((tag) => (
+                        <span
+                          key={tag}
+                          className="font-mono text-[10px] text-ink-muted border border-line px-1.5 py-0.5 rounded-[2px]"
+                        >
+                          {tag}
+                        </span>
+                      ))}
+                  </div>
+                  <span className="font-mono text-xs text-ink-muted shrink-0 tabular-nums">
+                    {post.createdAt && (
+                      <time dateTime={post.createdAt}>
+                        {new Date(post.createdAt).toLocaleDateString('en-US', {
+                          year: 'numeric',
+                          month: 'short',
+                          day: '2-digit',
+                        })}
+                      </time>
+                    )}
+                    {' · '}
+                    {estimateReadingMinutes(post.content)} min
+                  </span>
                 </div>
                 <p className="font-sans text-xs sm:text-sm text-ink-muted leading-relaxed line-clamp-2">
-                  {summarizePostContent(post.content)}
+                  {post.subtitle || summarizeMarkdownExcerpt(post.content, 160)}
                 </p>
                 <div className="flex items-center gap-4 pt-0.5">
                   <motion.button

@@ -2,7 +2,9 @@
 
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { MotionConfig, motion } from 'motion/react';
 import { ScrambleHeading } from '@/components/ScrambleHeading';
+import { CALM_EASE } from '@/components/CollapsibleLog';
 
 const LEGACY_HASH_MAP: Record<string, string> = {
   projects: '/projects',
@@ -31,17 +33,27 @@ export function HomeSection() {
   }, [router]);
 
   return (
-    <div
-      data-ascii-panel="true"
-      className="w-fit max-w-[540px] space-y-2 pt-2 sm:pt-4"
-    >
-      <ScrambleHeading
-        text="Rishi Mihir Popat"
-        className="font-mono text-2xl sm:text-3xl font-medium tracking-tight text-ink"
-      />
-      <p className="section-content-reveal font-sans text-sm sm:text-base text-ink-nav leading-relaxed">
-        MSc Data Science at Manipal Academy of Higher Education — statistical modeling, Bayesian computation, and deep learning.
-      </p>
-    </div>
+    <MotionConfig reducedMotion="user">
+      <motion.div
+        data-ascii-panel="true"
+        initial={{ opacity: 0, y: 6 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.32, ease: CALM_EASE }}
+        className="w-fit max-w-[500px] space-y-2 mt-2 sm:mt-4"
+      >
+        <ScrambleHeading
+          text="Rishi Mihir Popat"
+          className="font-mono text-2xl sm:text-3xl font-medium tracking-tight text-ink"
+        />
+        <motion.p
+          initial={{ opacity: 0, y: 4 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.34, delay: 0.06, ease: CALM_EASE }}
+          className="section-content-reveal font-sans text-sm sm:text-base text-ink-nav leading-relaxed"
+        >
+          MSc Data Science at Manipal Academy of Higher Education — statistical modeling, Bayesian computation, and deep learning.
+        </motion.p>
+      </motion.div>
+    </MotionConfig>
   );
 }

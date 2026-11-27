@@ -701,9 +701,9 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
           </nav>
 
           {/* Quiet scene selector inside the mobile drawer */}
-          <div className="mobile-menu-scene-row mt-4 flex items-center justify-between gap-4 border-b border-line pb-3">
+          <div className="mobile-menu-scene-row mt-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1.5 sm:gap-4 border-b border-line pb-3">
             <span className="font-mono text-xs text-ink-muted">scene</span>
-            <SceneToggle variant="segmented" />
+            <SceneToggle variant="segmented" className="-mx-2 sm:mx-0" />
           </div>
 
           {/* Tapping the remaining dimmed area below the menu list closes the menu */}

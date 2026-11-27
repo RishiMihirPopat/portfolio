@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { Layers, Pause, Sparkles, Waves } from 'lucide-react';
+import { Pause, Sparkles, Waves, Wind } from 'lucide-react';
 import {
   AnimatePresence,
   LayoutGroup,
@@ -55,8 +55,8 @@ function SceneIcon({ scene }: { scene: AsciiSceneId }) {
   if (scene === 'still') {
     return <Pause size={13} strokeWidth={1.75} aria-hidden="true" />;
   }
-  if (scene === 'contour') {
-    return <Layers size={13} strokeWidth={1.75} aria-hidden="true" />;
+  if (scene === 'drift') {
+    return <Wind size={13} strokeWidth={1.75} aria-hidden="true" />;
   }
   if (scene === 'caustics') {
     return <Sparkles size={13} strokeWidth={1.75} aria-hidden="true" />;
@@ -118,7 +118,7 @@ export function SceneToggle({ variant = 'cycle', className = '' }: SceneTogglePr
           <div
             role="group"
             aria-label="Background preset"
-            className={`inline-flex items-center gap-1 font-mono text-xs ${className}`}
+            className={`inline-flex flex-wrap items-center gap-x-1 gap-y-0.5 font-mono text-xs ${className}`}
           >
             {ASCII_SCENE_IDS.map((id) => {
               const active = scene === id;

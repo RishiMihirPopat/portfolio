@@ -25,9 +25,11 @@ service cloud.firestore {
     }
 
     function isValidPost(data) {
-      return data.keys().hasOnly(['title', 'content', 'imageUrl', 'createdAt'])
+      return data.keys().hasOnly(['title', 'subtitle', 'tags', 'content', 'imageUrl', 'createdAt'])
         && data.title is string && data.title.size() >= 1 && data.title.size() <= 200
-        && data.content is string && data.content.size() >= 1 && data.content.size() <= 250000
+        && isOptString(data, 'subtitle', 320)
+        && (!('tags' in data) || (data.tags is list && data.tags.size() <= 12))
+        && data.content is string && data.content.size() >= 1 && data.content.size() <= 950000
         && isOptString(data, 'imageUrl', 950000)
         && isOptTimestampOrString(data, 'createdAt');
     }

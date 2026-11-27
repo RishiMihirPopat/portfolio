@@ -49,6 +49,8 @@ export interface PhotoCollection {
 export interface Post {
   id: string;
   title: string;
+  subtitle?: string;
+  tags?: string[];
   content: string;
   createdAt?: string;
   imageUrl?: string;
