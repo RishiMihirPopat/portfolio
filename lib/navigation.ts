@@ -52,8 +52,8 @@ export const ALL_PAGES: NavPageItem[] = [
   },
   {
     id: 'resume',
-    label: 'Resume',
-    heading: 'Resume',
+    label: 'Résumé',
+    heading: 'Résumé',
     href: '/resume',
     group: 3,
     shortcut: '4',

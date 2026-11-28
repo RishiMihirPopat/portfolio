@@ -41,7 +41,7 @@ export function ResumeSection() {
         <div className="max-[759px]:min-h-[17vh] max-[759px]:flex max-[759px]:flex-col max-[759px]:justify-end pb-3 sm:pb-4">
           <div className="w-fit">
             <ScrambleHeading
-              text="Resume"
+              text="Résumé"
               className="font-mono text-xl sm:text-2xl font-medium tracking-tight text-ink"
             />
           </div>
